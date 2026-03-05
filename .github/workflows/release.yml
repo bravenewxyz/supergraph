@@ -153,6 +153,25 @@ jobs:
               bin.install "supergraph"
             end
 
+            def post_install
+              claude_cmd_dir = Pathname.new(Dir.home)/".claude"/"commands"
+              claude_cmd_dir.mkpath
+              dest = claude_cmd_dir/"deep-audit.md"
+              url = "https://raw.githubusercontent.com/bravenewxyz/supergraph/master/commands/deep-audit.md"
+              system "curl", "-fsSL", url, "-o", dest.to_s
+
+              supergraph_dir = Pathname.new(Dir.home)/".supergraph"
+              supergraph_dir.mkpath
+              (supergraph_dir/".setup-done").write(Time.now.utc.iso8601)
+            end
+
+            def caveats
+              <<~EOS
+                The /deep-audit command for Claude Code has been installed to:
+                  ~/.claude/commands/deep-audit.md
+              EOS
+            end
+
             test do
               assert_match "supergraph", shell_output("#{bin}/supergraph --help")
             end

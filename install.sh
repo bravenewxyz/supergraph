@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO="bravenewxyz/supergraph"
-BRANCH="main"
+BRANCH="master"
 BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 BIN_DIR="/usr/local/bin"
 CLAUDE_CMD_DIR="$HOME/.claude/commands"
@@ -43,6 +43,10 @@ echo "  [2/2] Installing /deep-audit command for Claude Code..."
 mkdir -p "${CLAUDE_CMD_DIR}"
 curl -fsSL "${BASE}/commands/deep-audit.md" -o "${CLAUDE_CMD_DIR}/deep-audit.md"
 echo "        -> ${CLAUDE_CMD_DIR}/deep-audit.md"
+
+# ─── 3. Mark setup done (skip first-run install) ────────────────
+mkdir -p "$HOME/.supergraph"
+date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.supergraph/.setup-done"
 
 echo ""
 echo "Done. You now have:"

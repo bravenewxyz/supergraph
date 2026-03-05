@@ -17,7 +17,32 @@
  *   supergraph pkg-graph [--root <path>]    Cross-package: pkg-graph.html
  */
 
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+// Auto-install /deep-audit Claude Code command on first run
+import { existsSync } from "node:fs";
+
+const supergraphDir = join(homedir(), ".supergraph");
+const setupDone = join(supergraphDir, ".setup-done");
+if (!existsSync(setupDone)) {
+  const DEEP_AUDIT_URL = "https://raw.githubusercontent.com/bravenewxyz/supergraph/master/commands/deep-audit.md";
+  const claudeCmdDir = join(homedir(), ".claude", "commands");
+  const deepAuditDest = join(claudeCmdDir, "deep-audit.md");
+  try {
+    const res = await fetch(DEEP_AUDIT_URL);
+    if (res.ok) {
+      mkdirSync(claudeCmdDir, { recursive: true });
+      writeFileSync(deepAuditDest, await res.text());
+      console.log(`Installed /deep-audit command for Claude Code`);
+    }
+    mkdirSync(supergraphDir, { recursive: true });
+    writeFileSync(setupDone, new Date().toISOString());
+  } catch {
+    // offline — skip silently
+  }
+}
 
 const args = process.argv.slice(2);
 const subcommand = args[0] && !args[0].startsWith("--") ? args[0] : null;
