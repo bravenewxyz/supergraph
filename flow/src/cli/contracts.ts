@@ -335,7 +335,11 @@ export async function runContracts(opts: ContractsOptions): Promise<string> {
   const beSrcDir = opts.srcDir;
 
   if (!feSrcDir) {
-    throw new Error("Frontend src dir is required: pass feSrcDir option or set frontend.src in audit/config.json");
+    const skipMsg = format === "json"
+      ? JSON.stringify({ skipped: true, reason: "No frontend src dir configured" })
+      : "Skipped: no frontend src dir (pass feSrcDir or set frontend.src in audit/config.json)";
+    await writeOutput(skipMsg, opts.outFile);
+    return skipMsg;
   }
 
   const resolvedFe = resolve(feSrcDir);
