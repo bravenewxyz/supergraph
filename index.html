@@ -95,26 +95,44 @@
       flex-direction: column;
       justify-content: flex-end;
       padding: 0 48px 80px;
-      overflow: hidden;
       max-width: none;
     }
 
     #hero-iframe {
-      position: absolute;
-      inset: 0;
+      position: fixed;
+      top: 0;
+      left: 0;
       width: 100%;
-      height: 100%;
+      height: 100vh;
       border: none;
       opacity: 0.5;
       pointer-events: none;
+      z-index: -2;
     }
 
     #hero-gradient {
-      position: absolute;
-      inset: 0;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100vh;
       background: linear-gradient(to top, var(--bg) 0%, var(--bg) 25%, transparent 70%);
       pointer-events: none;
+      z-index: -1;
+    }
+
+    .below-hero {
+      position: relative;
       z-index: 1;
+      background: linear-gradient(to bottom, transparent 0%, var(--bg) 10%);
+    }
+
+    .below-hero > * {
+      background: var(--bg);
+    }
+
+    .below-hero > .full-bleed {
+      background: transparent;
     }
 
     .hero-content {
@@ -581,6 +599,8 @@
   </div>
 </section>
 
+<div class="below-hero">
+
 <div class="full-bleed">
   <div class="full-bleed-text"><span class="hl">The map</span> your agent needs</div>
 </div>
@@ -744,6 +764,8 @@
 </section>
 
 <hr class="section-divider" />
+
+</div><!-- /.below-hero -->
 
 <footer>
   <span class="footer-logo">supergraph</span>

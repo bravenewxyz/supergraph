@@ -49,8 +49,9 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
-          - os: macos-13
+          - os: macos-latest
             target: darwin-x64
+            cross: true
           - os: ubuntu-latest
             target: linux-x64
 
@@ -65,10 +66,23 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      - name: Install cross-platform native deps
+        if: matrix.cross
+        run: |
+          # Install the target platform's ast-grep napi binary (not present when cross-compiling)
+          if [ "${{ matrix.target }}" = "darwin-x64" ]; then
+            bunx --bun npm pack @ast-grep/napi-darwin-x64@0.40.5 2>/dev/null
+            mkdir -p node_modules/.bun/@ast-grep+napi-darwin-x64@0.40.5/node_modules/@ast-grep/napi-darwin-x64
+            tar xzf ast-grep-napi-darwin-x64-*.tgz
+            mv package/* node_modules/.bun/@ast-grep+napi-darwin-x64@0.40.5/node_modules/@ast-grep/napi-darwin-x64/
+            rm -rf package ast-grep-napi-darwin-x64-*.tgz
+          fi
+
       - name: Build binary
         run: bun run scripts/build.ts --target ${{ matrix.target }}
 
       - name: Verify binary runs standalone
+        if: "!matrix.cross"
         run: ./supergraph --help
 
       - name: Package
@@ -112,6 +126,7 @@ jobs:
             artifacts/supergraph-*.sha256
 
       - name: Update Homebrew tap
+        continue-on-error: true
         run: |
           VERSION="${{ needs.check-version.outputs.version }}"
           SHA_DARWIN_ARM64=$(awk '{print $1}' artifacts/supergraph-darwin-arm64.tar.gz.sha256)
