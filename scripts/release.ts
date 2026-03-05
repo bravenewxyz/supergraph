@@ -99,9 +99,9 @@ async function main() {
     .join(" ");
 
   // Delete existing release/tag if present (re-release)
-  try { run(`gh release delete v${version} -y 2>/dev/null`); } catch {}
-  try { run(`git tag -d v${version} 2>/dev/null`); } catch {}
-  try { run(`git push origin :refs/tags/v${version} 2>/dev/null`); } catch {}
+  try { run(`gh release delete v${version} -y`); } catch {}
+  try { run(`git push origin :refs/tags/v${version}`); } catch {}
+  try { run(`git tag -d v${version}`); } catch {}
 
   run(
     `gh release create v${version} ${assets} --title "v${version}" --notes "Release v${version}"`,
