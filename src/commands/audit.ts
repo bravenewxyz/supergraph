@@ -315,7 +315,8 @@ async function runTools(tools: ToolRun[], muted: boolean): Promise<RunResult[]> 
           return { tool, ok: true, elapsed, size };
         } catch (err) {
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
-          return { tool, ok: false, elapsed, error: String(err) };
+          const msg = err instanceof Error ? err.message : String(err);
+          return { tool, ok: false, elapsed, error: msg };
         }
       }),
     );
@@ -323,6 +324,9 @@ async function runTools(tools: ToolRun[], muted: boolean): Promise<RunResult[]> 
     unmute?.();
   }
 }
+
+/** Collect all results across packages for the final summary */
+const allResults: { pkgName: string; results: RunResult[] }[] = [];
 
 function reportResults(results: RunResult[], anim?: AnimationHandle): number {
   let failures = 0;
@@ -464,6 +468,7 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
     console.log(`  Running ${tools.length} tools in parallel...\n`);
   }
   const results = await runTools(tools, !!anim);
+  allResults.push({ pkgName: t.pkgName, results });
   const failures = reportResults(results, anim);
 
   // Dashboards only for TS packages (they use flow-tool JSON)
@@ -690,17 +695,23 @@ Usage:
   const superhighResults = await Promise.allSettled([
     (async () => {
       const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
-        cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
+        cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
       const code = await proc.exited;
-      if (code !== 0) throw new Error(`superhigh --full exited with ${code}`);
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(`superhigh --full exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
+      }
     })(),
     (async () => {
       const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
-        cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
+        cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
       const code = await proc.exited;
-      if (code !== 0) throw new Error(`superhigh shortcut exited with ${code}`);
+      if (code !== 0) {
+        const stderr = await new Response(proc.stderr).text();
+        throw new Error(`superhigh shortcut exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
+      }
     })(),
   ]);
 
@@ -715,25 +726,68 @@ Usage:
   // -----------------------------------------------------------------------
   // Summary
   // -----------------------------------------------------------------------
+  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge"];
+  const crossFailures: string[] = [];
+  for (let i = 0; i < crossResults.length; i++) {
+    const r = crossResults[i]!;
+    if (r.status === "rejected") {
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      crossFailures.push(`  ✗  ${crossToolNames[i]}: ${msg}`);
+    }
+  }
+
+  const superhighFailures: string[] = [];
+  const superhighNames = ["superhigh --full", "superhigh shortcut"];
+  for (let i = 0; i < superhighResults.length; i++) {
+    const r = superhighResults[i]!;
+    if (r.status === "rejected") {
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      superhighFailures.push(`  ✗  ${superhighNames[i]}: ${msg}`);
+    }
+  }
+
   console.log(`\n${"═".repeat(60)}`);
-  if (totalFailures === 0) {
+
+  // Per-package failure details
+  const pkgsWithFailures = allResults.filter((p) => p.results.some((r) => !r.ok));
+  if (pkgsWithFailures.length > 0) {
+    console.log(`\nTool failures by package:\n`);
+    for (const pkg of pkgsWithFailures) {
+      const failed = pkg.results.filter((r) => !r.ok);
+      console.log(`  ${pkg.pkgName} (${failed.length} failed):`);
+      for (const r of failed) {
+        const kind = r.tool.json ? " (json)" : "";
+        console.log(`    ✗  Phase ${r.tool.phase}  ${r.tool.label}${kind}`);
+        if (r.error) {
+          const lines = r.error.split("\n").slice(0, 3);
+          for (const line of lines) {
+            console.log(`       ${line}`);
+          }
+        }
+      }
+    }
+  }
+
+  // Cross-package failures
+  if (crossFailures.length > 0) {
+    console.log(`\nCross-package failures:\n`);
+    for (const f of crossFailures) console.error(f);
+  }
+
+  // Superhigh failures
+  if (superhighFailures.length > 0) {
+    console.log(`\nSuperhigh failures:\n`);
+    for (const f of superhighFailures) console.error(f);
+  }
+
+  const totalProblems = totalFailures + crossFailures.length + superhighFailures.length;
+  console.log(`\n${"═".repeat(60)}`);
+  if (totalProblems === 0) {
     console.log("All package(s) audited successfully.");
   } else {
-    console.log(`${totalFailures} tool failure(s) across package(s).`);
+    console.log(`${totalFailures} tool failure(s) across ${pkgsWithFailures.length} package(s), ${crossFailures.length} cross-package failure(s), ${superhighFailures.length} superhigh failure(s).`);
   }
   console.log(`${"═".repeat(60)}`);
 
-  for (const r of crossResults) {
-    if (r.status === "rejected") {
-      console.error(`  ✗  Cross-package tool failed: ${r.reason}`);
-    }
-  }
-
-  for (const r of superhighResults) {
-    if (r.status === "rejected") {
-      console.error(`  ✗  superhigh failed: ${r.reason}`);
-    }
-  }
-
-  if (totalFailures > 0) process.exit(1);
+  if (totalProblems > 0) process.exit(1);
 }
