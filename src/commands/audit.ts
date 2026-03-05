@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 
 // Language driver abstraction
@@ -383,6 +384,10 @@ async function buildDashboards(
   devtoolsRoot: string,
   t: PkgTarget,
 ): Promise<{ dash: boolean; graph: boolean }> {
+  // Dashboard templates aren't available in compiled binaries (not embedded by bundler)
+  const templateDir = resolve(devtoolsRoot, "dashboard");
+  if (!existsSync(templateDir)) return { dash: false, graph: false };
+
   const payload = await loadPayload(t.jsonDir);
   const [dash, graph] = await Promise.all([
     injectTemplate(devtoolsRoot, "index.html", payload, `${t.outDir}/dashboard.html`),
