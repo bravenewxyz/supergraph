@@ -544,8 +544,8 @@ export function drawLabel(
   offsetX = 2,
 ) {
   const p = proj.project(worldPos);
-  if (!p.visible || p.scale < 0.15) return;
-  const maxLen = Math.min(text.length, Math.floor(12 * p.scale));
+  if (!p.visible || p.scale < 0.08) return;
+  const maxLen = Math.min(text.length, Math.max(16, Math.floor(40 * p.scale)));
   const label = text.slice(0, maxLen);
   for (let i = 0; i < label.length; i++) {
     fb.set(p.sx + offsetX + i, p.sy, label[i]!, DIM + fg, p.depth);

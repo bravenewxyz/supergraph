@@ -6,6 +6,8 @@
  * Run standalone:  bun src/ui/graph-animation.ts
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import { join, basename } from "node:path";
 import {
   type Vec3, type Camera, type Projected,
   v3, rgb, DIM, RESET, BOLD,
@@ -52,7 +54,7 @@ type GraphEdge = {
   cross: boolean;    // cross-package edge
 };
 
-const PKG_NAMES = [
+const DEFAULT_PKG_NAMES = [
   "core", "graph", "flow", "fortress", "agent",
   "cli", "events", "schema", "utils", "bridge",
 ];
@@ -65,7 +67,34 @@ const MODULE_NAMES = [
   "parser", "render", "state", "effect", "query",
 ];
 
-function createGraph(nodeCount: number) {
+/** Try to read real module names from audit/packages/<pkg>/json/map.json */
+function loadRealModules(pkgName: string): string[] {
+  const mapPath = join("audit", "packages", pkgName, "json", "map.json");
+  try {
+    if (!existsSync(mapPath)) return [];
+    const raw = JSON.parse(readFileSync(mapPath, "utf-8"));
+    if (!raw?.modules) return [];
+    return (raw.modules as { path: string }[])
+      .map(m => {
+        // path like "src/actors/index.ts" → "actors/index"
+        const p = m.path.replace(/^src\//, "").replace(/\.(ts|tsx|js|jsx)$/, "");
+        return p;
+      })
+      .filter(p => p.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function createGraph(nodeCount: number, packageNames?: string[]) {
+  const PKG_NAMES = packageNames && packageNames.length > 0 ? packageNames : DEFAULT_PKG_NAMES;
+
+  // Try to load real module names per package
+  const pkgModules: Map<number, string[]> = new Map();
+  for (let i = 0; i < PKG_NAMES.length; i++) {
+    const mods = loadRealModules(PKG_NAMES[i]!);
+    if (mods.length > 0) pkgModules.set(i, mods);
+  }
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
@@ -73,7 +102,17 @@ function createGraph(nodeCount: number) {
     const pkg = Math.floor(Math.random() * PKG_NAMES.length);
     const clusterAngle = (pkg / PKG_NAMES.length) * Math.PI * 2;
     const clusterR = 1.8 + Math.random() * 0.6;
-    const mod = MODULE_NAMES[Math.floor(Math.random() * MODULE_NAMES.length)]!;
+
+    // Use real module name if available, otherwise pick from defaults
+    const realMods = pkgModules.get(pkg);
+    const mod = realMods && realMods.length > 0
+      ? realMods[Math.floor(Math.random() * realMods.length)]!
+      : MODULE_NAMES[Math.floor(Math.random() * MODULE_NAMES.length)]!;
+
+    // Label: "pkgname/module" — truncate module to keep it readable
+    const pkgLabel = PKG_NAMES[pkg]!;
+    const modLabel = mod.length > 18 ? mod.slice(mod.lastIndexOf("/") + 1) : mod;
+    const label = `${pkgLabel}/${modLabel}`;
 
     // Nodes start at origin and spring toward their target
     const targetPos = v3.create(
@@ -90,7 +129,7 @@ function createGraph(nodeCount: number) {
       ),
       targetPos,
       vel: v3.create(0, 0, 0),
-      label: `${PKG_NAMES[pkg]}/${mod}`,
+      label,
       pkg,
       spawnT: i * 0.15 + Math.random() * 0.1,
       glowT: -10,
@@ -257,7 +296,7 @@ function renderGraph(
     fb.set(p.sx, p.sy, ch, color, p.depth, age < 0.5 ? 1 : 0.3);
 
     // Labels for nodes that are close enough
-    if (p.scale > 0.15 && age > 0.6) {
+    if (p.scale > 0.1 && age > 0.6) {
       drawLabel(fb, proj, p.node.pos, p.node.label, color);
     }
   }
@@ -273,8 +312,10 @@ export type AnimationHandle = {
   stop: () => void;
 };
 
-export function startAnimation(): AnimationHandle {
-  const { nodes, edges } = createGraph(40);
+export function startAnimation(opts?: { packages?: string[] }): AnimationHandle {
+  const pkgNames = opts?.packages;
+  const nodeCount = pkgNames ? Math.min(60, Math.max(30, pkgNames.length * 4)) : 40;
+  const { nodes, edges } = createGraph(nodeCount, pkgNames);
   const particles = new ParticleSystem();
 
   const camera = createCamera({

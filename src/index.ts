@@ -92,6 +92,7 @@ Commands:
   invariant <subcmd>      Invariant verification system
   aggregate               Build cross-package supergraph visualization
   pkg-graph               Build package dependency visualization
+  superhigh               Generate unified superhigh.txt / superhigh-shortcut.txt
 
 The full pipeline also generates:
   audit/superhigh.txt             Unified map: domains + schemas + modules + types
@@ -153,6 +154,11 @@ Global options:
     case "pkg-graph": {
       const { runPkgGraph } = await import("../scripts/pkg-graph.js");
       await runPkgGraph({ root: parseRoot() });
+      break;
+    }
+    case "superhigh": {
+      // Re-export superhigh as a subcommand so compiled binary can call itself
+      await import("../scripts/superhigh.js");
       break;
     }
     default: {

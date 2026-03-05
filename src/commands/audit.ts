@@ -514,15 +514,12 @@ Usage:
   const { goDriver } = await import("../../graph/src/cli/lang/go-driver.js");
   const { tsDriver } = await import("../../graph/src/cli/lang/ts-driver.js");
 
-  // Start animation if interactive terminal
-  const isTTY = process.stdout.isTTY && !args.includes("--no-anim");
-  const anim = isTTY ? startAnimation() : undefined;
-
-  let totalFailures = 0;
-
   // -----------------------------------------------------------------------
-  // TypeScript packages
+  // Discover all packages BEFORE starting animation (so we have real names)
   // -----------------------------------------------------------------------
+  let tsTargets: PkgTarget[] = [];
+  let goTargets: PkgTarget[] = [];
+
   if (!goOnly && !(explicitDirs.length > 0 && explicitTsDirs.length === 0)) {
     let srcDirs: string[];
     if (explicitTsDirs.length > 0) {
@@ -547,7 +544,7 @@ Usage:
     }
 
     if (srcDirs.length > 0) {
-      const targets: PkgTarget[] = srcDirs.map((srcDir) => {
+      tsTargets = srcDirs.map((srcDir) => {
         const pkgName = derivePkgName(srcDir, tsDriver);
         const outDir = `audit/packages/${pkgName}`;
         return {
@@ -559,25 +556,10 @@ Usage:
           driver: tsDriver,
         };
       });
-
-      checkCollisions(targets);
-      anim?.update(`scanning ${targets.length} TS packages...`);
-      if (!anim) {
-        console.log(`TS audit targets (${targets.length}):`);
-        for (const t of targets) {
-          console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
-        }
-      }
-
-      for (const t of targets) {
-        totalFailures += await auditPackage(devtoolsRoot, t, anim);
-      }
+      checkCollisions(tsTargets);
     }
   }
 
-  // -----------------------------------------------------------------------
-  // Go packages
-  // -----------------------------------------------------------------------
   if (!skipGo) {
     let goDirs: string[] = [];
     if (explicitGoDirs.length > 0) {
@@ -592,7 +574,7 @@ Usage:
       }
     }
     if (goDirs.length > 0) {
-      const goTargets: PkgTarget[] = goDirs.map((goDir) => {
+      goTargets = goDirs.map((goDir) => {
         const pkgName = derivePkgName(goDir, goDriver);
         const outDir = `audit/packages/${pkgName}`;
         return {
@@ -604,17 +586,49 @@ Usage:
           driver: goDriver,
         };
       });
-      anim?.update(`scanning ${goTargets.length} Go packages...`);
-      if (!anim) {
-        console.log(`\nGo audit targets (${goTargets.length}):`);
-        for (const t of goTargets) {
-          console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
-        }
-      }
+    }
+  }
 
-      for (const t of goTargets) {
-        totalFailures += await auditPackage(devtoolsRoot, t, anim);
+  // -----------------------------------------------------------------------
+  // Start animation with real package names
+  // -----------------------------------------------------------------------
+  const allPkgNames = [...tsTargets, ...goTargets].map((t) => t.pkgName);
+  const isTTY = process.stdout.isTTY && !args.includes("--no-anim");
+  const anim = isTTY ? startAnimation({ packages: allPkgNames }) : undefined;
+
+  let totalFailures = 0;
+
+  // -----------------------------------------------------------------------
+  // TypeScript packages
+  // -----------------------------------------------------------------------
+  if (tsTargets.length > 0) {
+    anim?.update(`scanning ${tsTargets.length} TS packages...`);
+    if (!anim) {
+      console.log(`TS audit targets (${tsTargets.length}):`);
+      for (const t of tsTargets) {
+        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
       }
+    }
+
+    for (const t of tsTargets) {
+      totalFailures += await auditPackage(devtoolsRoot, t, anim);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Go packages
+  // -----------------------------------------------------------------------
+  if (goTargets.length > 0) {
+    anim?.update(`scanning ${goTargets.length} Go packages...`);
+    if (!anim) {
+      console.log(`\nGo audit targets (${goTargets.length}):`);
+      for (const t of goTargets) {
+        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+      }
+    }
+
+    for (const t of goTargets) {
+      totalFailures += await auditPackage(devtoolsRoot, t, anim);
     }
   }
 
@@ -632,18 +646,25 @@ Usage:
   // Generate superhigh outputs (full + shortcut)
   anim?.update("generating superhigh...");
   if (!anim) console.log("\nGenerating superhigh...");
-  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
   const spawnIO = anim ? "pipe" as const : "inherit" as const;
+
+  // Use process.execPath for compiled binary support, fall back to bun for dev
+  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
+  const isCompiledBinary = !process.execPath.includes("bun");
+  const spawnCmd = isCompiledBinary
+    ? [process.execPath, "superhigh"]  // compiled: call self with subcommand
+    : ["bun", superhighScript];         // dev: run script directly
+
   const superhighResults = await Promise.allSettled([
     (async () => {
-      const proc = Bun.spawn(["bun", superhighScript, "--full", "--root", ROOT], {
+      const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
       });
       const code = await proc.exited;
       if (code !== 0) throw new Error(`superhigh --full exited with ${code}`);
     })(),
     (async () => {
-      const proc = Bun.spawn(["bun", superhighScript, "--root", ROOT], {
+      const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
       });
       const code = await proc.exited;

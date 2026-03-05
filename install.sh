@@ -30,7 +30,7 @@ TARGET="${PLATFORM}-${ARCH_SUFFIX}"
 RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TARGET}.tar.gz"
 
 # ─── 1. Install binary + native libraries ──────────────────────
-echo "  [1/3] Downloading supergraph binary (${TARGET})..."
+echo "  [1/4] Downloading supergraph binary (${TARGET})..."
 mkdir -p "${BIN_DIR}"
 TMP="$(mktemp -d)"
 curl -fsSL "${RELEASE_URL}" | tar xz -C "${TMP}"
@@ -48,25 +48,31 @@ fi
 rm -rf "${TMP}"
 
 # ─── 2. Install deep-audit command for Claude Code ──────────────
-echo "  [2/3] Installing /deep-audit command for Claude Code..."
+echo "  [2/4] Installing /deep-audit command for Claude Code..."
 mkdir -p "${CLAUDE_CMD_DIR}"
 curl -fsSL "${BASE}/commands/deep-audit.md" -o "${CLAUDE_CMD_DIR}/deep-audit.md"
 echo "        -> ${CLAUDE_CMD_DIR}/deep-audit.md"
 
 # ─── 3. Install /high-level command for Claude Code ──────────────
-echo "  [3/3] Installing /high-level command for Claude Code..."
+echo "  [3/4] Installing /high-level command for Claude Code..."
 curl -fsSL "${BASE}/commands/high-level.md" -o "${CLAUDE_CMD_DIR}/high-level.md"
 echo "        -> ${CLAUDE_CMD_DIR}/high-level.md"
 
-# ─── 4. Mark setup done (skip first-run install) ────────────────
+# ─── 4. Install /init-supergraph command for Claude Code ─────────
+echo "  [4/4] Installing /init-supergraph command for Claude Code..."
+curl -fsSL "${BASE}/commands/init-supergraph.md" -o "${CLAUDE_CMD_DIR}/init-supergraph.md"
+echo "        -> ${CLAUDE_CMD_DIR}/init-supergraph.md"
+
+# ─── 5. Mark setup done (skip first-run install) ────────────────
 mkdir -p "$HOME/.supergraph"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.supergraph/.setup-done"
 
 echo ""
 echo "Done. You now have:"
-echo "  supergraph    — run in any monorepo to generate audit/supergraph.txt"
-echo "  /high-level   — Claude Code slash command to read the full supergraph"
-echo "  /deep-audit   — Claude Code slash command for 10-phase package audits"
+echo "  supergraph         — run in any monorepo to generate audit/supergraph.txt"
+echo "  /init-supergraph   — Claude Code slash command to bootstrap supergraph on any repo"
+echo "  /high-level        — Claude Code slash command to read the full supergraph"
+echo "  /deep-audit        — Claude Code slash command for 10-phase package audits"
 echo ""
 
 # ─── Ensure PATH includes BIN_DIR ────────────────────────────────
