@@ -65,12 +65,19 @@ async function main() {
 
   const tarballs: { target: string; path: string; sha256: string }[] = [];
 
+  // Detect current platform to know which targets can build natively
+  const currentTarget = `${process.platform === "darwin" ? "darwin" : "linux"}-${process.arch === "arm64" ? "arm64" : "x64"}`;
+
   for (const target of TARGETS) {
+    if (target !== currentTarget) {
+      console.log(`\n   Skipping ${target} (cross-compilation not supported, need CI)`);
+      continue;
+    }
     console.log(`\n   Building ${target}...`);
     try {
       run(`bun run scripts/build.ts --target ${target}`, { stdio: "inherit" });
     } catch (err) {
-      console.log(`   Skipping ${target} (native deps not available locally)`);
+      console.log(`   Build failed for ${target}`);
       continue;
     }
 
