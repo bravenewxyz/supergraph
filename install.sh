@@ -10,10 +10,32 @@ CLAUDE_CMD_DIR="$HOME/.claude/commands"
 echo "supergraph — installing..."
 echo ""
 
+# ─── Detect platform ────────────────────────────────────────────
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+case "${OS}" in
+  Darwin) PLATFORM="darwin" ;;
+  Linux)  PLATFORM="linux" ;;
+  *)      echo "Unsupported OS: ${OS}"; exit 1 ;;
+esac
+
+case "${ARCH}" in
+  arm64|aarch64) ARCH_SUFFIX="arm64" ;;
+  x86_64)        ARCH_SUFFIX="x64" ;;
+  *)             echo "Unsupported architecture: ${ARCH}"; exit 1 ;;
+esac
+
+TARGET="${PLATFORM}-${ARCH_SUFFIX}"
+RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TARGET}.tar.gz"
+
 # ─── 1. Install binary ──────────────────────────────────────────
-echo "  [1/2] Downloading supergraph binary..."
-curl -fsSL "${BASE}/bin/supergraph" -o "${BIN_DIR}/supergraph"
+echo "  [1/2] Downloading supergraph binary (${TARGET})..."
+TMP="$(mktemp -d)"
+curl -fsSL "${RELEASE_URL}" | tar xz -C "${TMP}"
+mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
 chmod +x "${BIN_DIR}/supergraph"
+rm -rf "${TMP}"
 echo "        -> ${BIN_DIR}/supergraph"
 
 # ─── 2. Install deep-audit command for Claude Code ──────────────

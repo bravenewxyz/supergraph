@@ -655,6 +655,7 @@
     <li><a href="#deep-audit">deep-audit</a></li>
     <li><a href="#for-ai-agents">for AI agents</a></li>
     <li><a href="#visualization">visualization</a></li>
+    <li><a href="https://github.com/bravenewxyz/supergraph">github</a></li>
   </ul>
 </nav>
 
@@ -673,7 +674,12 @@
       <span class="install-cmd" id="hero-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/install.sh | bash</span>
       <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/install.sh | bash')">copy</button>
     </div>
-    <p class="hero-install-note">Installs the <span class="accent">supergraph</span> binary + the <span class="accent">/deep-audit</span> command for Claude Code.</p>
+    <div class="hero-install" style="margin-top: 8px;">
+      <span class="install-prefix">$</span>
+      <span class="install-cmd">brew install bravenewxyz/supergraph/supergraph</span>
+      <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
+    </div>
+    <p class="hero-install-note">Installs the <span class="accent">supergraph</span> binary. The curl script also installs the <span class="accent">/deep-audit</span> command for Claude Code.</p>
   </div>
 </section>
 
@@ -798,7 +804,7 @@
       <div class="phase-num">0</div>
       <div class="phase-body">
         <div class="phase-title">Generate artifacts</div>
-        <div class="phase-desc">Runs audit-prep to generate map.txt, deps.txt, imports.txt, complexity.txt, dead.txt, schema-match.txt, trace-boundaries.txt, logic-audit.txt.</div>
+        <div class="phase-desc">Runs supergraph to generate map.txt, deps.txt, imports.txt, complexity.txt, dead.txt, schema-match.txt, trace-boundaries.txt, logic-audit.txt.</div>
       </div>
     </div>
     <div class="phase-item">
