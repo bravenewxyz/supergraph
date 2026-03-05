@@ -556,6 +556,7 @@ export function drawLabel(
 
 export class Terminal {
   private started = false;
+  private sigintHandler: (() => void) | null = null;
 
   get cols(): number { return process.stdout.columns || 80; }
   get rows(): number { return process.stdout.rows || 24; }
@@ -565,6 +566,14 @@ export class Terminal {
     this.started = true;
     process.stdout.write("\x1b[?25l");   // hide cursor
     process.stdout.write("\x1b[2J");     // clear screen
+
+    // Ensure terminal is restored on SIGINT/exit
+    this.sigintHandler = () => {
+      this.stop();
+      process.exit(0);
+    };
+    process.on("SIGINT", this.sigintHandler);
+    process.on("SIGTERM", this.sigintHandler);
   }
 
   stop() {
@@ -572,6 +581,11 @@ export class Terminal {
     this.started = false;
     process.stdout.write("\x1b[2J\x1b[H"); // clear screen
     process.stdout.write("\x1b[?25h");   // show cursor
+    if (this.sigintHandler) {
+      process.removeListener("SIGINT", this.sigintHandler);
+      process.removeListener("SIGTERM", this.sigintHandler);
+      this.sigintHandler = null;
+    }
   }
 
   draw(content: string) {

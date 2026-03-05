@@ -315,7 +315,10 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         proc.stdin.write("__STOP__\n");
         proc.stdin.flush();
         proc.stdin.end();
-      } catch {}
+      } catch {
+        // Subprocess may already be dead — restore terminal from parent
+        process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
+      }
     },
   };
 }

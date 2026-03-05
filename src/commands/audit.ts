@@ -659,6 +659,17 @@ Usage:
   const isTTY = process.stdout.isTTY && !args.includes("--no-anim");
   const anim = isTTY ? startAnimation({ packages: allPkgNames, edges: pkgEdges }) : undefined;
 
+  // Ensure animation subprocess is cleaned up on Ctrl+C
+  if (anim) {
+    const cleanup = () => {
+      anim.stop();
+      // Give subprocess a moment to restore terminal, then exit
+      setTimeout(() => process.exit(0), 100);
+    };
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+  }
+
   let totalFailures = 0;
 
   // -----------------------------------------------------------------------
