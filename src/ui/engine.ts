@@ -589,18 +589,20 @@ export type SceneCallbacks = {
 
 export type SceneHandle = {
   update: (status: string) => void;
+  log: (line: string) => void;
   stop: () => void;
 };
 
 export function runScene(
   camera: Camera,
   callbacks: SceneCallbacks,
-  opts?: { fps?: number; maxWidth?: number; maxHeight?: number; reserveBottom?: number },
+  opts?: { fps?: number; maxWidth?: number; maxHeight?: number; reserveBottom?: number; logLines?: number },
 ): SceneHandle {
   const fps = opts?.fps ?? 24;
   const maxW = opts?.maxWidth ?? 160;
   const maxH = opts?.maxHeight ?? 50;
-  const reserveBottom = opts?.reserveBottom ?? 3;
+  const logLineCount = opts?.logLines ?? 0;
+  const reserveBottom = (opts?.reserveBottom ?? 3) + logLineCount;
 
   const term = new Terminal();
   term.start();
@@ -613,6 +615,7 @@ export function runScene(
   let t = 0;
   const dt = 1 / fps;
   let statusLine = "";
+  const logBuffer: string[] = [];
 
   const interval = setInterval(() => {
     t += dt;
@@ -622,18 +625,37 @@ export function runScene(
     fb.clear();
     callbacks.render(fb, proj, t);
 
-    const frame = fb.render(true); // always full redraw — graph changes every frame
+    const frame = fb.render(true);
     const status = callbacks.statusBar?.(t) ?? statusLine;
 
     term.draw(frame);
     // Status bar below the framebuffer
     const barY = H + 1;
     process.stdout.write(`\x1b[${barY};1H${status}\x1b[K`);
+
+    // Log lines below the status bar
+    if (logLineCount > 0) {
+      const dimCode = "\x1b[2m";
+      const reset = "\x1b[0m";
+      for (let i = 0; i < logLineCount; i++) {
+        const lineY = barY + 1 + i;
+        const idx = logBuffer.length - logLineCount + i;
+        const text = idx >= 0 ? logBuffer[idx]! : "";
+        // Truncate to terminal width
+        const truncated = text.length > W ? text.slice(0, W - 1) + "…" : text;
+        process.stdout.write(`\x1b[${lineY};1H${dimCode}${truncated}${reset}\x1b[K`);
+      }
+    }
   }, 1000 / fps);
 
   return {
     update(status: string) {
       statusLine = status;
+    },
+    log(line: string) {
+      logBuffer.push(line);
+      // Keep buffer bounded
+      if (logBuffer.length > 200) logBuffer.splice(0, logBuffer.length - 200);
     },
     stop() {
       clearInterval(interval);

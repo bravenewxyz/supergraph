@@ -328,30 +328,29 @@ async function runTools(tools: ToolRun[], muted: boolean): Promise<RunResult[]> 
 /** Collect all results across packages for the final summary */
 const allResults: { pkgName: string; results: RunResult[] }[] = [];
 
-function reportResults(results: RunResult[], anim?: AnimationHandle): number {
+function reportResults(results: RunResult[], pkgName: string, anim?: AnimationHandle): number {
   let failures = 0;
   for (const r of results) {
+    const kind = r.tool.json ? " (json)" : "";
     if (r.ok) {
-      // silent when animated — results shown after animation stops
-    } else {
-      failures++;
-    }
-  }
-  if (anim) {
-    const ok = results.filter((r) => r.ok).length;
-    anim.update(`${ok}/${results.length} tools completed${failures > 0 ? `, ${failures} failed` : ""}`);
-  } else {
-    for (const r of results) {
-      const kind = r.tool.json ? " (json)" : "       ";
-      if (r.ok) {
+      if (anim) {
+        anim.log(`  ✓  ${pkgName}  ${r.tool.label}${kind}  ${r.size ?? ""}  (${r.elapsed})`);
+      } else {
+        const kindPad = r.tool.json ? " (json)" : "       ";
         const extras = r.tool.extraFiles?.map((f) => basename(f)).join(", ");
         const note = extras ? `  → also ${extras}` : "";
         console.log(
-          `  ✓  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  ${(r.size ?? "").padStart(7)}  (${r.elapsed})${note}`,
+          `  ✓  Phase ${r.tool.phase}${kindPad}  ${r.tool.label.padEnd(30)}  ${(r.size ?? "").padStart(7)}  (${r.elapsed})${note}`,
         );
+      }
+    } else {
+      failures++;
+      if (anim) {
+        anim.log(`  ✗  ${pkgName}  ${r.tool.label}${kind}  FAILED  (${r.elapsed})`);
       } else {
+        const kindPad = r.tool.json ? " (json)" : "       ";
         console.error(
-          `  ✗  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  FAILED  (${r.elapsed})`,
+          `  ✗  Phase ${r.tool.phase}${kindPad}  ${r.tool.label.padEnd(30)}  FAILED  (${r.elapsed})`,
         );
         if (r.error) {
           const preview = r.error.split("\n").slice(0, 3).join("\n         ");
@@ -359,6 +358,10 @@ function reportResults(results: RunResult[], anim?: AnimationHandle): number {
         }
       }
     }
+  }
+  if (anim) {
+    const ok = results.filter((r) => r.ok).length;
+    anim.update(`${pkgName}: ${ok}/${results.length} tools${failures > 0 ? `, ${failures} failed` : ""}`);
   }
   return failures;
 }
@@ -469,7 +472,7 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   }
   const results = await runTools(tools, !!anim);
   allResults.push({ pkgName: t.pkgName, results });
-  const failures = reportResults(results, anim);
+  const failures = reportResults(results, t.pkgName, anim);
 
   // Dashboards only for TS packages (they use flow-tool JSON)
   if (t.driver.id === "typescript") {

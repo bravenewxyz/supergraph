@@ -269,6 +269,7 @@ function renderGraph(
 
 export type AnimationHandle = {
   update: (status: string) => void;
+  log: (line: string) => void;
   stop: () => void;
 };
 
@@ -300,6 +301,12 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
     update(status: string) {
       try {
         proc.stdin.write(status + "\n");
+        proc.stdin.flush();
+      } catch {}
+    },
+    log(line: string) {
+      try {
+        proc.stdin.write(`__LOG__:${line}\n`);
         proc.stdin.flush();
       } catch {}
     },
@@ -402,6 +409,7 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
     maxWidth: 160,
     maxHeight: 50,
     reserveBottom: 3,
+    logLines: 8,
   });
 
   return {
@@ -413,6 +421,9 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
         const idx = Math.floor(Math.random() * nodes.length);
         nodes[idx]!.glowT = sceneTime;
       }
+    },
+    log(line: string) {
+      handle.log(line);
     },
     stop() {
       handle.stop();
@@ -451,7 +462,11 @@ if (process.argv.includes("--subprocess")) {
         anim.stop();
         process.exit(0);
       }
-      anim.update(line);
+      if (line.startsWith("__LOG__:")) {
+        anim.log(line.slice(8));
+      } else {
+        anim.update(line);
+      }
     }
   });
 
