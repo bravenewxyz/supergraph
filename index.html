@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>supergraph — Your entire monorepo in one file.</title>
+  <title>SUPERGRAPH</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -15,28 +15,33 @@
     }
 
     :root {
-      --bg: #08080a;
-      --surface: #111115;
-      --surface2: #18181f;
-      --border: #2a2a33;
+      --bg: #000000;
+      --white: #ffffff;
+      --grey-400: #999999;
+      --grey-600: #666666;
+      --grey-800: #333333;
+      --grey-900: #1a1a1a;
+      --grey-950: #0d0d0d;
       --accent: #c9f06b;
-      --accent-dim: #8db049;
-      --text: #e8e6e3;
-      --muted: #9d9b97;
-      --font: 'JetBrains Mono', 'Courier New', monospace;
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'Inter', -apple-system, sans-serif;
     }
 
-    html {
-      scroll-behavior: smooth;
+    ::selection {
+      background: var(--accent);
+      color: var(--bg);
     }
+
+    html { scroll-behavior: smooth; }
 
     body {
       background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      font-size: 14px;
-      line-height: 1.7;
+      color: var(--white);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
     }
 
     /* ─── Nav ─────────────────────────────────────────────── */
@@ -47,15 +52,16 @@
       right: 0;
       z-index: 100;
       background: var(--bg);
-      border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 40px;
-      height: 52px;
+      padding: 0 48px;
+      height: 56px;
+      border-bottom: 1px solid var(--grey-900);
     }
 
     .nav-logo {
+      font-family: var(--mono);
       color: var(--accent);
       font-weight: 700;
       font-size: 15px;
@@ -65,20 +71,21 @@
 
     .nav-links {
       display: flex;
-      gap: 32px;
+      gap: 40px;
       list-style: none;
     }
 
     .nav-links a {
-      color: var(--muted);
+      color: var(--grey-600);
       text-decoration: none;
-      font-size: 13px;
-      transition: color 0.15s;
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 500;
+      transition: color 0.2s;
     }
 
-    .nav-links a:hover {
-      color: var(--text);
-    }
+    .nav-links a:hover { color: var(--white); }
 
     /* ─── Hero ────────────────────────────────────────────── */
     #hero {
@@ -86,271 +93,223 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      justify-content: center;
-      padding: 120px 40px 80px;
+      justify-content: flex-end;
+      padding: 0 48px 80px;
       overflow: hidden;
+      max-width: none;
     }
 
-    #hero-canvas {
+    #hero-iframe {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100%;
+      border: none;
+      opacity: 0.5;
       pointer-events: none;
-      opacity: 0.45;
+    }
+
+    #hero-gradient {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, var(--bg) 0%, var(--bg) 25%, transparent 70%);
+      pointer-events: none;
+      z-index: 1;
     }
 
     .hero-content {
       position: relative;
-      z-index: 1;
-      max-width: 860px;
-    }
-
-    .hero-label {
-      font-size: 11px;
-      letter-spacing: 0.12em;
-      color: var(--accent);
-      text-transform: uppercase;
-      margin-bottom: 24px;
-    }
-
-    h1 {
-      font-size: clamp(48px, 8vw, 96px);
-      font-weight: 800;
-      letter-spacing: -0.04em;
-      line-height: 1;
-      color: var(--text);
-      margin-bottom: 20px;
-    }
-
-    h1 .accent {
-      color: var(--accent);
+      z-index: 2;
+      max-width: 1200px;
+      width: 100%;
+      margin: 0 auto;
     }
 
     .hero-tagline {
-      font-size: clamp(16px, 2.5vw, 22px);
-      font-weight: 400;
-      color: var(--muted);
-      margin-bottom: 32px;
-      max-width: 600px;
+      font-size: clamp(18px, 2.5vw, 28px);
+      font-weight: 300;
+      color: var(--grey-400);
+      margin-bottom: 24px;
+      letter-spacing: -0.02em;
     }
 
     .hero-desc {
       font-size: 14px;
-      color: var(--muted);
-      max-width: 540px;
+      color: var(--grey-600);
+      max-width: 520px;
       margin-bottom: 48px;
       line-height: 1.8;
+    }
+
+    .hero-install-group {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      max-width: 780px;
     }
 
     .hero-install {
       display: flex;
       align-items: stretch;
-      gap: 0;
-      max-width: 780px;
-      border: 1px solid var(--border);
+      background: var(--grey-900);
     }
 
     .hero-install .install-prefix {
-      background: var(--surface);
       color: var(--accent);
-      padding: 14px 16px;
+      padding: 16px 20px;
+      font-family: var(--mono);
       font-size: 13px;
-      border-right: 1px solid var(--border);
+      border-right: 1px solid var(--grey-800);
       user-select: none;
       flex-shrink: 0;
     }
 
     .hero-install .install-cmd {
-      background: var(--surface);
-      color: var(--text);
-      padding: 14px 16px;
+      color: #e0e0e0;
+      padding: 16px 20px;
+      font-family: var(--mono);
       font-size: 13px;
       flex: 1;
-      letter-spacing: 0.01em;
       overflow-x: auto;
       white-space: nowrap;
     }
 
     .hero-install .copy-btn {
-      background: var(--surface);
+      background: transparent;
       border: none;
-      border-left: 1px solid var(--border);
-      color: var(--muted);
-      padding: 0 16px;
+      border-left: 1px solid var(--grey-800);
+      color: var(--grey-600);
+      padding: 0 20px;
       cursor: pointer;
-      font-family: var(--font);
-      font-size: 11px;
-      letter-spacing: 0.05em;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.15em;
       text-transform: uppercase;
-      transition: color 0.15s, background 0.15s;
+      transition: color 0.15s;
       flex-shrink: 0;
     }
 
-    .hero-install .copy-btn:hover {
-      color: var(--accent);
-      background: var(--surface2);
-    }
-
-    .hero-install .copy-btn.copied {
-      color: var(--accent);
-    }
+    .hero-install .copy-btn:hover { color: var(--accent); }
+    .hero-install .copy-btn.copied { color: var(--accent); }
 
     .hero-install-note {
-      margin-top: 12px;
-      font-size: 12px;
-      color: var(--muted);
+      margin-top: 16px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--grey-600);
     }
 
-    .hero-install-note .accent {
-      color: var(--accent);
-    }
+    .hero-install-note .hl { color: var(--accent); }
 
     /* ─── Sections ────────────────────────────────────────── */
     section {
-      padding: 100px 40px;
-      max-width: 1100px;
+      padding: 100px 48px;
+      max-width: 1200px;
       margin: 0 auto;
     }
 
     .section-divider {
       border: none;
-      border-top: 1px solid var(--border);
+      border-top: 1px solid var(--grey-900);
       margin: 0;
       max-width: none;
     }
 
-    .section-header {
-      margin-bottom: 56px;
-    }
+    .section-header { margin-bottom: 48px; }
 
     .section-num {
-      font-size: 11px;
-      letter-spacing: 0.12em;
-      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: var(--grey-600);
       text-transform: uppercase;
-      margin-bottom: 12px;
-    }
-
-    .section-num::before {
-      content: '// ';
+      margin-bottom: 16px;
     }
 
     h2 {
-      font-size: clamp(28px, 4vw, 44px);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      color: var(--text);
-      line-height: 1.1;
+      font-family: var(--sans);
+      font-size: clamp(28px, 4vw, 48px);
+      font-weight: 900;
+      letter-spacing: -0.04em;
+      color: var(--white);
+      line-height: 1;
+      text-transform: uppercase;
     }
 
-    h2 .accent {
-      color: var(--accent);
-    }
+    h2 .accent { color: var(--accent); }
 
     .section-sub {
       margin-top: 16px;
-      color: var(--muted);
-      max-width: 600px;
+      color: var(--grey-600);
+      max-width: 540px;
       font-size: 14px;
       line-height: 1.8;
     }
 
     /* ─── Code blocks ─────────────────────────────────────── */
     .code-block {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      position: relative;
-      margin-bottom: 24px;
+      background: var(--grey-950);
+      border: 1px solid var(--grey-900);
+      margin-bottom: 32px;
     }
 
     .code-block-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 20px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface2);
+      padding: 12px 24px;
+      border-bottom: 1px solid var(--grey-900);
     }
 
     .code-block-label {
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--grey-600);
+      letter-spacing: 0.15em;
       text-transform: uppercase;
     }
 
     .code-block pre {
-      padding: 24px 20px;
+      padding: 24px;
       overflow-x: auto;
       font-size: 13px;
       line-height: 1.8;
     }
 
-    .code-block code {
-      font-family: var(--font);
-    }
+    .code-block code { font-family: var(--mono); }
 
-    .tok-comment { color: #5a5a6a; font-style: italic; }
-    .tok-cmd     { color: #c9f06b; }
-    .tok-flag    { color: #7eb8f0; }
+    .tok-comment { color: #444; font-style: italic; }
+    .tok-cmd     { color: var(--accent); }
     .tok-string  { color: #f0b87e; }
-    .tok-punct   { color: var(--muted); }
+    .tok-punct   { color: var(--grey-600); }
     .tok-pkg     { color: #c47ef0; }
     .tok-sym     { color: #7ef0d0; }
     .tok-num     { color: #f0b87e; }
+    .tok-edge    { color: #7eb8f0; }
 
     .copy-btn-small {
       background: transparent;
-      border: 1px solid var(--border);
-      color: var(--muted);
-      padding: 4px 12px;
+      border: 1px solid var(--grey-800);
+      color: var(--grey-600);
+      padding: 4px 14px;
       cursor: pointer;
-      font-family: var(--font);
-      font-size: 11px;
-      letter-spacing: 0.05em;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
       transition: color 0.15s, border-color 0.15s;
     }
 
-    .copy-btn-small:hover {
-      color: var(--accent);
-      border-color: var(--accent);
-    }
-
-    .copy-btn-small.copied {
-      color: var(--accent);
-      border-color: var(--accent);
-    }
-
-    /* ─── Supergraph output preview ──────────────────────── */
-    .output-preview {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      padding: 28px 24px;
-      font-size: 12px;
-      line-height: 1.7;
-      overflow-x: auto;
-      white-space: pre;
-      max-height: 520px;
-      overflow-y: auto;
-      margin-bottom: 24px;
-    }
-
-    .output-preview .line-muted { color: var(--muted); }
-    .output-preview .line-accent { color: var(--accent); }
-    .output-preview .line-pkg { color: #c47ef0; }
-    .output-preview .line-sym { color: #7ef0d0; }
-    .output-preview .line-num { color: #f0b87e; }
-    .output-preview .line-edge { color: #7eb8f0; }
+    .copy-btn-small:hover { color: var(--accent); border-color: var(--accent); }
+    .copy-btn-small.copied { color: var(--accent); border-color: var(--accent); }
 
     /* ─── Feature grid ────────────────────────────────────── */
     .features-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 1px;
-      background: var(--border);
-      border: 1px solid var(--border);
+      background: var(--grey-900);
+      border: 1px solid var(--grey-900);
     }
 
     .feature-item {
@@ -359,792 +318,448 @@
     }
 
     .feature-icon {
-      font-size: 20px;
+      font-family: var(--mono);
+      font-size: 14px;
       margin-bottom: 16px;
       color: var(--accent);
       font-weight: 700;
     }
 
     .feature-title {
-      font-size: 14px;
+      font-family: var(--sans);
+      font-size: 13px;
       font-weight: 700;
-      color: var(--text);
-      margin-bottom: 10px;
-      letter-spacing: -0.01em;
+      color: var(--white);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
     }
 
     .feature-desc {
       font-size: 13px;
-      color: var(--muted);
+      color: var(--grey-600);
       line-height: 1.7;
-    }
-
-    /* ─── Stat row ────────────────────────────────────────── */
-    .stat-row {
-      display: flex;
-      gap: 0;
-      border: 1px solid var(--border);
-      margin-bottom: 56px;
-    }
-
-    .stat {
-      flex: 1;
-      padding: 32px;
-      border-right: 1px solid var(--border);
-    }
-
-    .stat:last-child {
-      border-right: none;
-    }
-
-    .stat-value {
-      font-size: 36px;
-      font-weight: 800;
-      color: var(--accent);
-      letter-spacing: -0.03em;
-      line-height: 1;
-      margin-bottom: 8px;
-    }
-
-    .stat-label {
-      font-size: 12px;
-      color: var(--muted);
-      letter-spacing: 0.05em;
     }
 
     /* ─── Phase list ─────────────────────────────────────── */
     .phase-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-      border: 1px solid var(--border);
+      border: 1px solid var(--grey-900);
     }
 
     .phase-item {
       display: grid;
       grid-template-columns: 56px 1fr;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--grey-900);
     }
 
-    .phase-item:last-child {
-      border-bottom: none;
-    }
+    .phase-item:last-child { border-bottom: none; }
 
     .phase-num {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: center;
-      padding: 20px 0;
-      font-size: 13px;
-      font-weight: 800;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 700;
       color: var(--accent);
-      border-right: 1px solid var(--border);
+      border-right: 1px solid var(--grey-900);
     }
 
-    .phase-body {
-      padding: 20px 24px;
-    }
+    .phase-body { padding: 16px 24px; }
 
     .phase-title {
+      font-family: var(--sans);
       font-size: 13px;
       font-weight: 700;
-      color: var(--text);
-      margin-bottom: 4px;
+      color: var(--white);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
     }
 
     .phase-desc {
       font-size: 12px;
-      color: var(--muted);
+      color: var(--grey-600);
       line-height: 1.6;
-    }
-
-    /* ─── Agent section ───────────────────────────────────── */
-    .agent-highlight {
-      border: 1px solid var(--accent);
-      background: var(--surface);
-      padding: 32px;
-      position: relative;
-      margin-top: 40px;
-    }
-
-    .agent-highlight::before {
-      content: attr(data-label);
-      position: absolute;
-      top: -10px;
-      left: 24px;
-      background: var(--bg);
-      color: var(--accent);
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      padding: 0 8px;
-    }
-
-    .agent-highlight p {
-      font-size: 14px;
-      color: var(--muted);
-      line-height: 1.8;
-    }
-
-    .agent-highlight p strong {
-      color: var(--text);
-      font-weight: 600;
-    }
-
-    .agent-highlight p .accent {
-      color: var(--accent);
+      margin-top: 4px;
     }
 
     /* ─── Inline code ─────────────────────────────────────── */
     code.inline {
-      background: var(--surface2);
-      border: 1px solid var(--border);
+      background: var(--grey-950);
+      border: 1px solid var(--grey-900);
       color: var(--accent);
-      padding: 1px 7px;
+      padding: 2px 8px;
+      font-family: var(--mono);
       font-size: 12px;
     }
 
     /* ─── Callout ─────────────────────────────────────────── */
     .callout {
-      border-left: 3px solid var(--accent);
-      background: var(--surface);
+      border-left: 2px solid var(--accent);
       padding: 20px 24px;
       margin-top: 24px;
       font-size: 13px;
-      color: var(--muted);
+      color: var(--grey-600);
       line-height: 1.8;
     }
 
-    .callout strong {
-      color: var(--text);
-    }
+    .callout strong { color: var(--white); }
 
     /* ─── Shortcuts ───────────────────────────────────────── */
     .shortcuts-table {
-      border: 1px solid var(--border);
+      border: 1px solid var(--grey-900);
       width: 100%;
       border-collapse: collapse;
     }
 
     .shortcuts-table th {
       text-align: left;
-      font-size: 11px;
-      letter-spacing: 0.1em;
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: var(--grey-600);
       padding: 14px 24px;
-      background: var(--surface2);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--grey-900);
       font-weight: 500;
     }
 
     .shortcuts-table td {
-      padding: 16px 24px;
+      padding: 14px 24px;
       font-size: 13px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: top;
+      border-bottom: 1px solid var(--grey-900);
+      color: var(--grey-400);
     }
 
-    .shortcuts-table tr:last-child td {
-      border-bottom: none;
-    }
-
-    .shortcuts-table tr:hover td {
-      background: var(--surface);
-    }
+    .shortcuts-table tr:last-child td { border-bottom: none; }
 
     .kbd {
       display: inline-block;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--accent);
-      font-family: var(--font);
+      background: var(--grey-950);
+      border: 1px solid var(--grey-800);
+      color: var(--white);
+      font-family: var(--mono);
       font-size: 12px;
-      padding: 2px 10px;
-      letter-spacing: 0.05em;
+      padding: 3px 12px;
     }
 
-    .shortcut-desc {
-      color: var(--muted);
+    /* ─── Full-bleed ──────────────────────────────────────── */
+    .full-bleed {
+      width: 100%;
+      padding: 64px 48px;
+      border-top: 1px solid var(--grey-900);
+      border-bottom: 1px solid var(--grey-900);
+      text-align: center;
     }
+
+    .full-bleed-text {
+      font-family: var(--sans);
+      font-size: clamp(24px, 4vw, 48px);
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      text-transform: uppercase;
+      color: var(--grey-800);
+    }
+
+    .full-bleed-text .hl { color: var(--accent); }
 
     /* ─── Footer ──────────────────────────────────────────── */
     footer {
-      border-top: 1px solid var(--border);
-      padding: 40px;
+      border-top: 1px solid var(--grey-900);
+      padding: 48px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      max-width: none;
     }
 
     .footer-logo {
+      font-family: var(--mono);
       color: var(--accent);
       font-weight: 700;
       font-size: 14px;
     }
 
     .footer-note {
-      font-size: 12px;
-      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--grey-800);
+    }
+
+    /* ─── Marquee ─────────────────────────────────────────── */
+    .marquee-wrap {
+      overflow: hidden;
+      border-bottom: 1px solid var(--grey-900);
+      padding: 14px 0;
+    }
+
+    .marquee {
+      display: flex;
+      gap: 80px;
+      animation: marquee 30s linear infinite;
+      white-space: nowrap;
+      width: max-content;
+    }
+
+    .marquee span {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--grey-800);
+    }
+
+    @keyframes marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
     }
 
     /* ─── Responsive ──────────────────────────────────────── */
     @media (max-width: 768px) {
-      nav {
-        padding: 0 20px;
-      }
-
-      .nav-links {
-        display: none;
-      }
-
-      section {
-        padding: 60px 20px;
-      }
-
-      #hero {
-        padding: 100px 20px 60px;
-      }
-
-      .hero-install {
-        flex-wrap: wrap;
-      }
-
+      nav { padding: 0 24px; }
+      .nav-links { display: none; }
+      section { padding: 64px 24px; }
+      #hero { padding: 0 24px 48px; }
+      .hero-install-group { max-width: 100%; }
       .hero-install .install-prefix,
-      .hero-install .install-cmd {
-        font-size: 11px;
-      }
-
-      .features-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .stat-row {
-        flex-direction: column;
-      }
-
-      .stat {
-        border-right: none;
-        border-bottom: 1px solid var(--border);
-      }
-
-      .stat:last-child {
-        border-bottom: none;
-      }
-
-      .phase-item {
-        grid-template-columns: 40px 1fr;
-      }
-
-      footer {
-        flex-direction: column;
-        gap: 12px;
-        padding: 32px 20px;
-        align-items: flex-start;
-      }
+      .hero-install .install-cmd { font-size: 11px; padding: 12px 14px; }
+      .features-grid { grid-template-columns: 1fr; }
+      .phase-item { grid-template-columns: 44px 1fr; }
+      footer { flex-direction: column; gap: 16px; padding: 32px 24px; align-items: flex-start; }
+      .full-bleed { padding: 40px 24px; }
     }
   </style>
 </head>
 <body>
 
-<!-- ─── Nav ──────────────────────────────────────────────────── -->
 <nav>
   <a href="#hero" class="nav-logo">supergraph</a>
   <ul class="nav-links">
-    <li><a href="#the-output">the output</a></li>
-    <li><a href="#deep-audit">deep-audit</a></li>
-    <li><a href="#for-ai-agents">for AI agents</a></li>
-    <li><a href="#visualization">visualization</a></li>
-    <li><a href="#demo">demo</a></li>
-    <li><a href="https://github.com/bravenewxyz/supergraph">github</a></li>
+    <li><a href="#output">Output</a></li>
+    <li><a href="#deep-audit">Deep Audit</a></li>
+    <li><a href="#visualization">Visualization</a></li>
+    <li><a href="https://github.com/bravenewxyz/supergraph">Github</a></li>
   </ul>
 </nav>
 
+<div class="marquee-wrap" style="margin-top: 56px;">
+  <div class="marquee">
+    <span>Monorepo Intelligence</span>
+    <span>One File</span>
+    <span>Zero Dependencies</span>
+    <span>AI-Native</span>
+    <span>10-Phase Audit</span>
+    <span>Monorepo Intelligence</span>
+    <span>One File</span>
+    <span>Zero Dependencies</span>
+    <span>AI-Native</span>
+    <span>10-Phase Audit</span>
+  </div>
+</div>
+
 <!-- ─── Hero ─────────────────────────────────────────────────── -->
 <section id="hero">
-  <canvas id="hero-canvas"></canvas>
+  <iframe id="hero-iframe" src="example-supergraph.html" loading="eager"></iframe>
+  <div id="hero-gradient"></div>
   <div class="hero-content">
-    <div class="hero-label">Monorepo intelligence for humans and AI agents</div>
-    <h1><span class="accent">super</span>graph</h1>
-    <p class="hero-tagline">Your entire monorepo in one file.</p>
+    <p class="hero-tagline">Your entire monorepo in <span style="color: var(--accent);">one file.</span></p>
     <p class="hero-desc">
-      supergraph analyzes your monorepo and generates a compact, structured text map of every module, every symbol, every cross-package edge, and every issue. One file an AI agent can read to understand your entire codebase. One file a human can grep to answer any structural question.
+      supergraph analyzes your monorepo and generates a compact text map of every module, symbol, dependency edge, and issue. ~500 lines that fit in any AI context window. For humans, it generates an interactive graph visualization.
     </p>
-    <div class="hero-install">
-      <span class="install-prefix">$</span>
-      <span class="install-cmd" id="hero-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash</span>
-      <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash')">copy</button>
+    <div class="hero-install-group">
+      <div class="hero-install">
+        <span class="install-prefix">$</span>
+        <span class="install-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash</span>
+        <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash')">copy</button>
+      </div>
+      <div class="hero-install">
+        <span class="install-prefix">$</span>
+        <span class="install-cmd">brew install bravenewxyz/supergraph/supergraph</span>
+        <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
+      </div>
     </div>
-    <div class="hero-install" style="margin-top: 8px;">
-      <span class="install-prefix">$</span>
-      <span class="install-cmd">brew install bravenewxyz/supergraph/supergraph</span>
-      <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
-    </div>
-    <p class="hero-install-note">Installs the <span class="accent">supergraph</span> binary. The curl script also installs the <span class="accent">/deep-audit</span> command for Claude Code.</p>
+    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span> for Claude Code.</p>
   </div>
 </section>
 
-<hr class="section-divider" />
+<div class="full-bleed">
+  <div class="full-bleed-text">Structure is <span class="hl">everything</span></div>
+</div>
 
-<!-- ─── The Output ────────────────────────────────────────────── -->
-<section id="the-output">
+<!-- ─── Output ───────────────────────────────────────────────── -->
+<section id="output">
   <div class="section-header">
-    <div class="section-num">the output</div>
-    <h2>365 modules. 852 edges.<br /><span class="accent">One text file.</span></h2>
+    <div class="section-num">01 &mdash; The Output</div>
+    <h2><span class="accent">supergraph.txt</span></h2>
     <p class="section-sub">
-      Running <code class="inline">supergraph</code> in your monorepo generates <code class="inline">audit/supergraph.txt</code> — a structured, compressed map of your entire module graph. Every package, every exported symbol, every dependency edge, every issue.
+      Run <code class="inline">supergraph</code> in any monorepo. Get <code class="inline">audit/supergraph.txt</code> &mdash; every package, module, exported symbol, and cross-package edge in a structured, compressed format.
     </p>
-  </div>
-
-  <div class="stat-row">
-    <div class="stat">
-      <div class="stat-value">1</div>
-      <div class="stat-label">text file</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">~500</div>
-      <div class="stat-label">lines for a full monorepo</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value">0</div>
-      <div class="stat-label">files the agent needs to read</div>
-    </div>
   </div>
 
   <div class="code-block">
     <div class="code-block-header">
-      <span class="code-block-label">audit/supergraph.txt — real output from a 21-package monorepo</span>
+      <span class="code-block-label">audit/supergraph.txt &mdash; real output, 21 packages</span>
       <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
     </div>
     <pre><code><span class="tok-cmd">GNOMEFORTRESS-V2 SUPERGRAPH</span> <span class="tok-punct">|</span> <span class="tok-string">2026-03-05</span>
-<span class="tok-num">365</span>m <span class="tok-punct">·</span> <span class="tok-num">852</span>ie <span class="tok-punct">·</span> <span class="tok-num">209</span>xe
+<span class="tok-num">365</span>m <span class="tok-punct">&middot;</span> <span class="tok-num">852</span>ie <span class="tok-punct">&middot;</span> <span class="tok-num">209</span>xe
 
 <span class="tok-comment"># PACKAGES  (short=npm,modules)</span>
 <span class="tok-pkg">agent</span>=@gnomefortress/agent,7m  <span class="tok-pkg">cli</span>=@gnomefortress/cli,13m
 <span class="tok-pkg">core</span>=@gnomefortress/core,14m  <span class="tok-pkg">fortress</span>=@gnomefortress/fortress,85m
 <span class="tok-pkg">graph</span>=@gnomefortress/graph,37m  <span class="tok-pkg">flow</span>=@gnomefortress/flow,35m  ...
 
-<span class="tok-comment"># MODULES</span>
-<span class="tok-comment"># path [exp(/total)]&lt;-importers symbols | ext-deps</span>
+<span class="tok-comment"># MODULES  path [exp(/total)]&lt;-importers symbols | ext-deps</span>
 
 <span class="tok-pkg">[fortress]</span>
 <span class="tok-sym">actors/orchestrator</span> [<span class="tok-num">68/93</span>]<span class="tok-punct">&lt;-</span>2 OrchestratorActorContext,OrchestratorActorInput,actor,+63
     <span class="tok-punct">|</span> @gnomefortress/constants,@gnomefortress/graph,xstate
 <span class="tok-sym">events</span> [<span class="tok-num">119/120</span>]<span class="tok-punct">&lt;-</span>16 AbortEvent,ActorErrorLog,AnomalyDetectedEvent,+111
     <span class="tok-punct">|</span> @gnomefortress/graph,xstate
-<span class="tok-sym">types</span> [<span class="tok-num">69/71</span>]<span class="tok-punct">&lt;-</span>47 AnomalyDetectorState,Checkpoint,ComposeResult,+61
-    <span class="tok-punct">|</span> @gnomefortress/core,@gnomefortress/graph
 
 <span class="tok-pkg">[graph]</span>
 <span class="tok-sym">store/graph-store</span> [<span class="tok-num">2/4</span>]<span class="tok-punct">&lt;-</span>9 SerializedGraph,GraphStore <span class="tok-punct">|</span> graphology
 <span class="tok-sym">schema/nodes</span> [4]<span class="tok-punct">&lt;-</span>11 SymbolNode,SymbolKind,createSymbolNode,KIND_PRIORITY
-<span class="tok-sym">schema/edges</span> [3]<span class="tok-punct">&lt;-</span>10 SymbolEdge,EdgeKind,createSymbolEdge
 
 <span class="tok-comment"># CROSS-PACKAGE DEPENDENCIES</span>
-<span class="tok-edge">fortress/actors/orchestrator</span> <span class="tok-punct">-></span> constants/idx graph/idx graph-bridge/idx utils/idx xstate/idx
-<span class="tok-edge">fortress/events</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx xstate/idx
-<span class="tok-edge">fortress/types</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx core/idx</code></pre>
+<span class="tok-edge">fortress/actors/orchestrator</span> <span class="tok-punct">-></span> constants/idx graph/idx utils/idx xstate/idx
+<span class="tok-edge">fortress/events</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx xstate/idx</code></pre>
   </div>
 
   <div class="features-grid">
     <div class="feature-item">
-      <div class="feature-icon">[exp/total]</div>
-      <div class="feature-title">Symbol counts</div>
-      <div class="feature-desc">Every module shows exported vs total symbols, so you instantly see API surface vs internal complexity.</div>
+      <div class="feature-icon">[68/93]</div>
+      <div class="feature-title">Symbol Counts</div>
+      <div class="feature-desc">Exported vs total per module. API surface at a glance.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">&lt;-N</div>
-      <div class="feature-title">Importer count</div>
-      <div class="feature-desc">How many modules import this one. High fan-in = critical shared infrastructure. Zero = potential dead code.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">sym,sym,+N</div>
-      <div class="feature-title">Exported symbols</div>
-      <div class="feature-desc">Functions, types, constants, classes — listed inline. Budget scales with importance: more importers = more symbols shown.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">| ext</div>
-      <div class="feature-title">External dependencies</div>
-      <div class="feature-desc">npm packages each module depends on, listed after the pipe. Configurable aliases compress long package names.</div>
+      <div class="feature-icon">&lt;-16</div>
+      <div class="feature-title">Fan-in</div>
+      <div class="feature-desc">How many modules depend on this one. High = critical. Zero = dead code.</div>
     </div>
     <div class="feature-item">
       <div class="feature-icon">-></div>
-      <div class="feature-title">Cross-package edges</div>
-      <div class="feature-desc">Every inter-package import is listed explicitly. The most important relationships in any monorepo, made first-class.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">~500 lines</div>
-      <div class="feature-title">Fits in any context</div>
-      <div class="feature-desc">A 365-module, 21-package monorepo compresses to ~500 lines. Dead modules are omitted. Paths are shortened. No noise.</div>
+      <div class="feature-title">Cross-Package Edges</div>
+      <div class="feature-desc">Every inter-package import, explicit and queryable.</div>
     </div>
   </div>
 </section>
 
 <hr class="section-divider" />
 
-<!-- ─── Deep Audit ─────────────────────────────────────────────── -->
+<!-- ─── Deep Audit ───────────────────────────────────────────── -->
 <section id="deep-audit">
   <div class="section-header">
-    <div class="section-num">deep-audit</div>
-    <h2>10-phase code audit.<br /><span class="accent">One slash command.</span></h2>
+    <div class="section-num">02 &mdash; Deep Audit</div>
+    <h2>/deep-audit <span class="accent">pkg/src</span></h2>
     <p class="section-sub">
-      The install script adds <code class="inline">/deep-audit</code> as a Claude Code slash command. Point it at any package and it performs a systematic, multi-pass audit — finding bugs, dead code, overengineering, race conditions, and logical errors. All results written to disk as actionable plans.
+      10-phase systematic code audit as a Claude Code slash command. Finds bugs, dead code, race conditions, schema mismatches, and overengineering. Writes actionable plans to disk.
     </p>
-  </div>
-
-  <div class="code-block">
-    <div class="code-block-header">
-      <span class="code-block-label">Claude Code</span>
-      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-    </div>
-    <pre><code><span class="tok-cmd">/deep-audit</span> <span class="tok-string">packages/orchestrator/src</span></code></pre>
   </div>
 
   <div class="phase-list">
     <div class="phase-item">
-      <div class="phase-num">0</div>
+      <div class="phase-num">00</div>
       <div class="phase-body">
-        <div class="phase-title">Generate artifacts</div>
-        <div class="phase-desc">Runs supergraph to generate map.txt, deps.txt, imports.txt, complexity.txt, dead.txt, schema-match.txt, trace-boundaries.txt, logic-audit.txt.</div>
+        <div class="phase-title">Generate & Read</div>
+        <div class="phase-desc">Runs supergraph, reads all artifacts. Full context before analysis begins.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">1</div>
+      <div class="phase-num">02</div>
       <div class="phase-body">
-        <div class="phase-title">Read the map</div>
-        <div class="phase-desc">Reads all generated artifacts in full. Every subsequent phase depends on this complete context.</div>
+        <div class="phase-title">Structural Audit</div>
+        <div class="phase-desc">Dead exports, circular deps, complexity hotspots, oversized modules.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">2</div>
+      <div class="phase-num">03</div>
       <div class="phase-body">
-        <div class="phase-title">Structural audit</div>
-        <div class="phase-desc">Dead exports, circular dependencies, complexity hotspots, type-safety escape hatches, oversized modules, dependency fan-out/fan-in.</div>
+        <div class="phase-title">Deep Read</div>
+        <div class="phase-desc">Source files prioritized by risk. Duplicates, inconsistencies, bugs, unfinished features.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">3</div>
+      <div class="phase-num">04</div>
       <div class="phase-body">
-        <div class="phase-title">Deep audit</div>
-        <div class="phase-desc">Reads source files prioritized by risk. Checks for duplicates, overengineering, inconsistencies, dead code, unfinished features, bugs, error handling gaps.</div>
+        <div class="phase-title">Cross-Cutting</div>
+        <div class="phase-desc">Architectural coherence, abstraction consistency, SRP violations.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">4</div>
+      <div class="phase-num">05</div>
       <div class="phase-body">
-        <div class="phase-title">Cross-cutting analysis</div>
-        <div class="phase-desc">Architectural coherence, abstraction level consistency, single responsibility violations, structural impedance (pure adapters, data clumps, type overlaps).</div>
+        <div class="phase-title">Data Flow</div>
+        <div class="phase-desc">Schema-type mismatches, unsafe assertions, error paths, missing validation.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">5</div>
+      <div class="phase-num">06</div>
       <div class="phase-body">
-        <div class="phase-title">Data flow trace</div>
-        <div class="phase-desc">Schema-type mismatches, error path analysis, unsafe type assertions, JSON roundtrip losses, missing post-deserialization validation.</div>
+        <div class="phase-title">Logic</div>
+        <div class="phase-desc">Decision table gaps, guard consistency, temporal ordering bugs.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">6</div>
+      <div class="phase-num">07</div>
       <div class="phase-body">
-        <div class="phase-title">Logic analysis</div>
-        <div class="phase-desc">Decision table gap detection, guard consistency, cross-representation mismatches (Zod vs TS types), temporal ordering bugs, enforcement gaps.</div>
+        <div class="phase-title">Invariants</div>
+        <div class="phase-desc">Property-based tests on pure functions. Distinguishes real bugs from wrong invariants.</div>
       </div>
     </div>
     <div class="phase-item">
-      <div class="phase-num">7</div>
+      <div class="phase-num">08</div>
       <div class="phase-body">
-        <div class="phase-title">Invariant verification</div>
-        <div class="phase-desc">Discovers pure functions, generates postcondition invariants, runs property-based tests, analyzes failures to distinguish real bugs from wrong invariants.</div>
-      </div>
-    </div>
-    <div class="phase-item">
-      <div class="phase-num">8</div>
-      <div class="phase-body">
-        <div class="phase-title">Write plans</div>
-        <div class="phase-desc">Groups all findings into 1-12 actionable plans ordered by severity. Each plan: scope, effort, file-level changes, checklist. Every issue cites file + line range.</div>
-      </div>
-    </div>
-    <div class="phase-item">
-      <div class="phase-num">9-10</div>
-      <div class="phase-body">
-        <div class="phase-title">Present and execute</div>
-        <div class="phase-desc">Shows the plan table. Say "do all" and it dispatches plans in parallel waves via subagents, verifying each wave before continuing.</div>
+        <div class="phase-title">Plans & Execute</div>
+        <div class="phase-desc">Groups findings into actionable plans by severity. Dispatches fixes via parallel subagents.</div>
       </div>
     </div>
   </div>
 
   <div class="callout" style="margin-top: 24px;">
-    <strong>Output:</strong> all findings go to <code class="inline">audit/&lt;package&gt;/findings.md</code> and <code class="inline">audit/&lt;package&gt;/plans/</code>. The deep-audit reads code itself — no subagent delegation during analysis phases — so it maintains full cross-file context.
+    <strong>Output:</strong> <code class="inline">audit/&lt;pkg&gt;/findings.md</code> + <code class="inline">audit/&lt;pkg&gt;/plans/</code>. No subagent delegation during analysis &mdash; full cross-file context throughout.
   </div>
 </section>
 
 <hr class="section-divider" />
 
-<!-- ─── For AI agents ─────────────────────────────────────────── -->
-<section id="for-ai-agents">
-  <div class="section-header">
-    <div class="section-num">for AI agents</div>
-    <h2>One file is all<br /><span class="accent">an agent needs.</span></h2>
-    <p class="section-sub">
-      Large monorepos exceed the context window of any AI model when loaded naively. supergraph.txt solves this: a pre-analyzed, structured map of every relationship in the codebase.
-    </p>
-  </div>
-
-  <div class="features-grid">
-    <div class="feature-item">
-      <div class="feature-icon">&lt;500 lines</div>
-      <div class="feature-title">Fits in any context window</div>
-      <div class="feature-desc">A 365-module monorepo compresses to ~500 lines. Attach it to any agent's context and it has a complete map — module paths, exports, imports, cross-package edges.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">grep</div>
-      <div class="feature-title">Structured for search</div>
-      <div class="feature-desc">Consistent format means agents can grep for any symbol, any package, any edge. "Where is X defined?" "What does Y export?" "Who imports Z?" — answered without reading source.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">-></div>
-      <div class="feature-title">Cross-package edges explicit</div>
-      <div class="feature-desc">The hardest relationships to infer from raw source are spelled out. Every inter-package import: labeled, directional, queryable. Agents stop confusing internal and external deps.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">/deep-audit</div>
-      <div class="feature-title">Agent-native workflow</div>
-      <div class="feature-desc">The deep-audit command is designed for AI agents from the ground up. 10 phases of systematic analysis, all written to disk, executable via subagent dispatch.</div>
-    </div>
-  </div>
-
-  <div class="agent-highlight" data-label="// WHY TEXT, NOT HTML">
-    <p>
-      The HTML visualization is useful for humans exploring the graph interactively.
-      But for AI agents, <strong>plain text is the native format.</strong>
-      <span class="accent">supergraph.txt</span> is grep-able, diff-able, and small enough to fit in a single context window.
-      The agent knows the architecture before writing a single line of code.
-    </p>
-  </div>
-</section>
-
-<hr class="section-divider" />
-
-<!-- ─── Visualization ──────────────────────────────────────────── -->
+<!-- ─── Visualization ────────────────────────────────────────── -->
 <section id="visualization">
   <div class="section-header">
-    <div class="section-num">visualization</div>
-    <h2>Interactive graph.<br /><span class="accent">For humans.</span></h2>
+    <div class="section-num">03 &mdash; Visualization</div>
+    <h2><span class="accent">supergraph.html</span></h2>
     <p class="section-sub">
-      supergraph also generates <code class="inline">audit/supergraph.html</code> — a fully self-contained, zero-dependency interactive visualization of the module graph. Physics simulation, search, package filtering, issue overlays.
+      Also generates a self-contained interactive graph. Force-directed physics, search, package filtering, issue overlays. The background of this page is a live example.
     </p>
   </div>
 
-  <div class="features-grid">
-    <div class="feature-item">
-      <div class="feature-icon">&#x2B21;</div>
-      <div class="feature-title">Physics simulation</div>
-      <div class="feature-desc">Force-directed layout with live physics. Nodes repel, edges pull. Toggle with <code class="inline">p</code>.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">&#x2295;</div>
-      <div class="feature-title">Zoom & pan</div>
-      <div class="feature-desc">Scroll to zoom, drag to pan. Handles hundreds of nodes across dozens of packages.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">&#x25C8;</div>
-      <div class="feature-title">Package legend</div>
-      <div class="feature-desc">Every package gets a distinct color. Click a package to isolate it and its cross-package edges.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">&#x26A0;</div>
-      <div class="feature-title">Issue overlays</div>
-      <div class="feature-desc">Circular dependencies, missing exports, unresolved imports — overlaid directly on affected nodes.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">&#x2315;</div>
-      <div class="feature-title">Search</div>
-      <div class="feature-desc">Fuzzy search across all module paths. Matching nodes highlight and the viewport snaps to the result cluster.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">&#x2726;</div>
-      <div class="feature-title">Symbol annotations</div>
-      <div class="feature-desc">Click any node to see every exported symbol — functions, types, constants, classes — with full detail panel.</div>
-    </div>
-  </div>
-
-  <table class="shortcuts-table" style="margin-top: 40px;">
+  <table class="shortcuts-table">
     <thead>
-      <tr>
-        <th>key</th>
-        <th>action</th>
-      </tr>
+      <tr><th>Key</th><th>Action</th></tr>
     </thead>
     <tbody>
-      <tr>
-        <td><kbd class="kbd">p</kbd></td>
-        <td>Toggle physics simulation</td>
-      </tr>
-      <tr>
-        <td><kbd class="kbd">l</kbd></td>
-        <td>Toggle module labels</td>
-      </tr>
-      <tr>
-        <td><kbd class="kbd">Escape</kbd></td>
-        <td>Close detail panel</td>
-      </tr>
-      <tr>
-        <td><kbd class="kbd">scroll</kbd></td>
-        <td>Zoom in / out</td>
-      </tr>
-      <tr>
-        <td><kbd class="kbd">drag</kbd></td>
-        <td>Pan canvas / pin nodes</td>
-      </tr>
+      <tr><td><kbd class="kbd">p</kbd></td><td>Toggle physics</td></tr>
+      <tr><td><kbd class="kbd">l</kbd></td><td>Toggle labels</td></tr>
+      <tr><td><kbd class="kbd">scroll</kbd></td><td>Zoom</td></tr>
+      <tr><td><kbd class="kbd">drag</kbd></td><td>Pan / pin nodes</td></tr>
+      <tr><td><kbd class="kbd">click</kbd></td><td>Inspect node symbols</td></tr>
     </tbody>
   </table>
 </section>
 
 <hr class="section-divider" />
 
-<!-- ─── Live demo ─────────────────────────────────────────────── -->
-<section id="demo" style="max-width: none; padding: 100px 40px 0;">
-  <div style="max-width: 1100px; margin: 0 auto;">
-    <div class="section-header">
-      <div class="section-num">live demo</div>
-      <h2>A real monorepo.<br /><span class="accent">21 packages. 365 modules.</span></h2>
-      <p class="section-sub">
-        Interactive supergraph visualization generated from a production monorepo. Drag to pan, scroll to zoom, click any node to inspect.
-      </p>
-    </div>
-  </div>
-  <iframe
-    src="example-supergraph.html"
-    style="width: 100%; height: 80vh; border: 1px solid var(--border); background: #08080a;"
-    loading="lazy"
-  ></iframe>
-</section>
-
-<hr class="section-divider" />
-
-<!-- ─── Footer ────────────────────────────────────────────────── -->
 <footer>
   <span class="footer-logo">supergraph</span>
-  <span class="footer-note">// built by bravenew.xyz</span>
+  <span class="footer-note">bravenew.xyz</span>
 </footer>
 
-<!-- ─── Scripts ───────────────────────────────────────────────── -->
 <script>
-  // ── Hero canvas animation ──────────────────────────────────────
-  (function () {
-    const canvas = document.getElementById('hero-canvas');
-    const ctx = canvas.getContext('2d');
-
-    const NODE_COUNT = 28;
-    const MAX_DIST = 180;
-
-    let W, H, nodes;
-
-    function resize() {
-      W = canvas.offsetWidth;
-      H = canvas.offsetHeight;
-      canvas.width = W;
-      canvas.height = H;
-    }
-
-    function makeNode() {
-      const pkg = Math.floor(Math.random() * 5);
-      const colors = ['#c9f06b', '#7eb8f0', '#f0b87e', '#c47ef0', '#7ef0d0'];
-      return {
-        x: Math.random() * W,
-        y: Math.random() * H,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: (Math.random() - 0.5) * 0.4,
-        r: 3 + Math.random() * 3,
-        pkg,
-        color: colors[pkg],
-        pulse: Math.random() * Math.PI * 2,
-        pulseSpeed: 0.01 + Math.random() * 0.02,
-      };
-    }
-
-    function init() {
-      resize();
-      nodes = Array.from({ length: NODE_COUNT }, makeNode);
-    }
-
-    function draw() {
-      ctx.clearRect(0, 0, W, H);
-
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const a = nodes[i];
-          const b = nodes[j];
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < MAX_DIST) {
-            const alpha = (1 - dist / MAX_DIST) * 0.35;
-            const cross = a.pkg !== b.pkg;
-            ctx.beginPath();
-            ctx.moveTo(a.x, a.y);
-            ctx.lineTo(b.x, b.y);
-            ctx.strokeStyle = cross
-              ? `rgba(201,240,107,${alpha})`
-              : `rgba(157,155,151,${alpha * 0.5})`;
-            ctx.lineWidth = cross ? 1 : 0.5;
-            ctx.stroke();
-          }
-        }
-      }
-
-      for (const n of nodes) {
-        n.pulse += n.pulseSpeed;
-        const glow = 0.7 + 0.3 * Math.sin(n.pulse);
-        const r = n.r * glow;
-
-        const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 4);
-        grad.addColorStop(0, n.color + '55');
-        grad.addColorStop(1, n.color + '00');
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r * 4, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = n.color;
-        ctx.fill();
-      }
-    }
-
-    function update() {
-      for (const n of nodes) {
-        n.x += n.vx;
-        n.y += n.vy;
-        if (n.x < 0 || n.x > W) n.vx *= -1;
-        if (n.y < 0 || n.y > H) n.vy *= -1;
-        n.x = Math.max(0, Math.min(W, n.x));
-        n.y = Math.max(0, Math.min(H, n.y));
-      }
-    }
-
-    function loop() {
-      update();
-      draw();
-      requestAnimationFrame(loop);
-    }
-
-    window.addEventListener('resize', resize);
-    init();
-    loop();
-  })();
-
-  // ── Copy helpers ───────────────────────────────────────────────
   function copyText(btn, text) {
     navigator.clipboard.writeText(text).then(() => {
       const orig = btn.textContent;
       btn.textContent = '\u2713';
       btn.classList.add('copied');
-      setTimeout(() => {
-        btn.textContent = orig;
-        btn.classList.remove('copied');
-      }, 1800);
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
     });
   }
 
@@ -1155,10 +770,7 @@
       const orig = btn.textContent;
       btn.textContent = '\u2713 copied';
       btn.classList.add('copied');
-      setTimeout(() => {
-        btn.textContent = orig;
-        btn.classList.remove('copied');
-      }, 1800);
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
     });
   }
 </script>

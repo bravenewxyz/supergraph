@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { detectLanguage } from "../../graph/src/cli/lang/index.js";
 import { runComplexity } from "../../graph/src/cli/complexity.js";
 
 export async function runComplexityCommand(args: string[]): Promise<void> {
@@ -14,7 +15,15 @@ export async function runComplexityCommand(args: string[]): Promise<void> {
   const topN = topIdx !== -1 && args[topIdx + 1] ? parseInt(args[topIdx + 1]!, 10) : undefined;
   const minIdx = args.indexOf("--min-complexity");
   const minComplexity = minIdx !== -1 && args[minIdx + 1] ? parseInt(args[minIdx + 1]!, 10) : undefined;
+  const srcRoot = resolve(srcDir);
 
-  const output = await runComplexity({ srcRoot: resolve(srcDir), outPath, topN, minComplexity });
-  if (!outPath) process.stdout.write(output);
+  const driver = await detectLanguage(srcRoot);
+  if (driver) {
+    console.error(`Detected language: ${driver.name}`);
+    const output = await driver.complexity({ srcRoot, outPath, topN, minComplexity });
+    if (!outPath) process.stdout.write(output);
+  } else {
+    const output = await runComplexity({ srcRoot, outPath, topN, minComplexity });
+    if (!outPath) process.stdout.write(output);
+  }
 }

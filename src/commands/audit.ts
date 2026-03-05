@@ -1,20 +1,16 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
-// TS analysis tools
-import { runMap } from "../../graph/src/cli/map.js";
-import { runComplexity } from "../../graph/src/cli/complexity.js";
-import { runDeadExports } from "../../graph/src/cli/dead-exports.js";
+// Language driver abstraction
+import { detectLanguage } from "../../graph/src/cli/lang/index.js";
+import type { LanguageDriver } from "../../graph/src/cli/lang/index.js";
+
+// TS-only flow tools (imported lazily via direct imports since they're always TS)
 import { runSchemaMatch } from "../../flow/src/cli/schema-match.js";
 import { runTrace } from "../../flow/src/cli/trace.js";
 import { runLogicAudit } from "../../flow/src/cli/logic-audit.js";
 import { runContracts } from "../../flow/src/cli/contracts.js";
 import { runInvariantDiscover } from "../../flow/src/cli/invariant.js";
-
-// Go analysis tools
-import { runGoMap } from "../../graph/src/cli/go-map.js";
-import { runGoComplexity } from "../../graph/src/cli/go-complexity.js";
-import { runGoDeadExports } from "../../graph/src/cli/go-dead-exports.js";
 
 // Cross-package tools
 import { runAggregate } from "../../scripts/supergraph.js";
@@ -48,22 +44,25 @@ type PkgTarget = {
   outDir: string;
   invDir: string;
   jsonDir: string;
-};
-
-type GoPkgTarget = {
-  goDir: string;
-  pkgName: string;
-  outDir: string;
-  jsonDir: string;
+  driver: LanguageDriver;
 };
 
 // ---------------------------------------------------------------------------
 // Name derivation
 // ---------------------------------------------------------------------------
 
-function derivePkgName(p: string): string {
+function derivePkgName(p: string, driver: LanguageDriver): string {
   const normalized = p.replace(/\/+$/, "");
   const parts = normalized.split("/");
+
+  if (driver.id === "go") {
+    const last = parts[parts.length - 1]!;
+    const secondLast = parts.length >= 2 ? parts[parts.length - 2] : null;
+    if (secondLast && secondLast !== "go-packages")
+      return `go-${secondLast}-${last}`;
+    return `go-${last}`;
+  }
+
   const srcIdx = parts.lastIndexOf("src");
   if (srcIdx <= 0) {
     const last = parts[parts.length - 1]!;
@@ -77,16 +76,6 @@ function derivePkgName(p: string): string {
     return `${grandparent}-${parent}`;
   }
   return parent;
-}
-
-function deriveGoPkgName(goModDir: string): string {
-  const normalized = goModDir.replace(/\/+$/, "");
-  const parts = normalized.split("/");
-  const last = parts[parts.length - 1]!;
-  const secondLast = parts.length >= 2 ? parts[parts.length - 2] : null;
-  if (secondLast && secondLast !== "go-packages")
-    return `go-${secondLast}-${last}`;
-  return `go-${last}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,38 +147,45 @@ async function isGoPackage(dir: string): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Job builders — direct function calls instead of Bun.spawn
+// Job builders
 // ---------------------------------------------------------------------------
 
-function buildTsTools(t: PkgTarget): ToolRun[] {
-  const { srcDir, outDir, invDir, jsonDir } = t;
+function buildCoreTools(t: PkgTarget): ToolRun[] {
+  const { srcDir, outDir, jsonDir, driver } = t;
+  const suffix = driver.id === "typescript" ? "" : ` (${driver.name})`;
   return [
     {
-      label: "structural map",
+      label: `structural map${suffix}`,
       phase: "1",
-      run: () => runMap({ srcRoot: srcDir, format: "text", comments: true, outPath: `${outDir}/map.txt` }).then(() => {}),
+      run: () => driver.map({ srcRoot: srcDir, format: "text", comments: driver.id === "typescript", outPath: `${outDir}/map.txt` }).then(() => {}),
       checkFile: `${outDir}/map.txt`,
       extraFiles: [`${outDir}/deps.txt`, `${outDir}/imports.txt`],
     },
     {
-      label: "structural map",
+      label: `structural map${suffix}`,
       phase: "1",
-      run: () => runMap({ srcRoot: srcDir, format: "json", outPath: `${jsonDir}/map.json` }).then(() => {}),
+      run: () => driver.map({ srcRoot: srcDir, format: "json", outPath: `${jsonDir}/map.json` }).then(() => {}),
       checkFile: `${jsonDir}/map.json`,
       json: true,
     },
     {
-      label: "complexity & type-safety",
+      label: `complexity${suffix}`,
       phase: "2",
-      run: () => runComplexity({ srcRoot: srcDir, outPath: `${outDir}/complexity.txt` }).then(() => {}),
+      run: () => driver.complexity({ srcRoot: srcDir, outPath: `${outDir}/complexity.txt` }).then(() => {}),
       checkFile: `${outDir}/complexity.txt`,
     },
     {
-      label: "dead export detection",
+      label: `dead export detection${suffix}`,
       phase: "2",
-      run: () => runDeadExports({ srcRoot: srcDir, outPath: `${outDir}/dead.txt` }).then(() => {}),
+      run: () => driver.deadExports({ srcRoot: srcDir, outPath: `${outDir}/dead.txt` }).then(() => {}),
       checkFile: `${outDir}/dead.txt`,
     },
+  ];
+}
+
+function buildTsOnlyTools(t: PkgTarget): ToolRun[] {
+  const { srcDir, outDir, invDir, jsonDir } = t;
+  return [
     {
       label: "schema ↔ type mismatches",
       phase: "5",
@@ -258,36 +254,12 @@ function buildTsTools(t: PkgTarget): ToolRun[] {
   ];
 }
 
-function buildGoTools(t: GoPkgTarget): ToolRun[] {
-  const { goDir, outDir, jsonDir } = t;
-  return [
-    {
-      label: "structural map (Go)",
-      phase: "1",
-      run: () => runGoMap({ srcRoot: goDir, format: "text", outPath: `${outDir}/map.txt` }).then(() => {}),
-      checkFile: `${outDir}/map.txt`,
-      extraFiles: [`${outDir}/deps.txt`, `${outDir}/imports.txt`],
-    },
-    {
-      label: "structural map (Go)",
-      phase: "1",
-      run: () => runGoMap({ srcRoot: goDir, format: "json", outPath: `${jsonDir}/map.json` }).then(() => {}),
-      checkFile: `${jsonDir}/map.json`,
-      json: true,
-    },
-    {
-      label: "complexity (Go)",
-      phase: "2",
-      run: () => runGoComplexity({ srcRoot: goDir, outPath: `${outDir}/complexity.txt` }).then(() => {}),
-      checkFile: `${outDir}/complexity.txt`,
-    },
-    {
-      label: "dead export detection (Go)",
-      phase: "2",
-      run: () => runGoDeadExports({ srcRoot: goDir, outPath: `${outDir}/dead.txt` }).then(() => {}),
-      checkFile: `${outDir}/dead.txt`,
-    },
-  ];
+function buildTools(t: PkgTarget): ToolRun[] {
+  const tools = buildCoreTools(t);
+  if (t.driver.id === "typescript") {
+    tools.push(...buildTsOnlyTools(t));
+  }
+  return tools;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,57 +396,44 @@ function checkCollisions(targets: PkgTarget[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Per-package audit
+// Per-package audit (unified)
 // ---------------------------------------------------------------------------
 
 async function auditPackage(devtoolsRoot: string, t: PkgTarget): Promise<number> {
+  const langLabel = t.driver.id === "typescript" ? "" : `  (${t.driver.name})`;
   console.log(`\n${"━".repeat(60)}`);
-  console.log(`  ${t.pkgName}  ←  ${t.srcDir}`);
+  console.log(`  ${t.pkgName}  ←  ${t.srcDir}${langLabel}`);
   console.log(`${"━".repeat(60)}`);
 
   await mkdir(t.outDir, { recursive: true });
   await mkdir(t.invDir, { recursive: true });
   await mkdir(t.jsonDir, { recursive: true });
 
-  const tools = buildTsTools(t);
+  const tools = buildTools(t);
   console.log(`  Running ${tools.length} tools in parallel...\n`);
   const results = await runTools(tools);
   const failures = reportResults(results);
 
-  const { dash, graph } = await buildDashboards(devtoolsRoot, t);
-  console.log("");
-  console.log(`  Text:  ${t.outDir}/`);
-  console.log(`  JSON:  ${t.jsonDir}/`);
-  if (dash) console.log(`  Dash:  ${t.outDir}/dashboard.html`);
-  if (graph) console.log(`  Graph: ${t.outDir}/graph.html`);
-  if (failures > 0) console.log(`  ⚠  ${failures} tool(s) failed`);
-
-  return failures;
-}
-
-async function auditGoPackage(t: GoPkgTarget): Promise<number> {
-  console.log(`\n${"━".repeat(60)}`);
-  console.log(`  ${t.pkgName}  ←  ${t.goDir}  (Go)`);
-  console.log(`${"━".repeat(60)}`);
-
-  await mkdir(t.outDir, { recursive: true });
-  await mkdir(t.jsonDir, { recursive: true });
-
-  const tools = buildGoTools(t);
-  console.log(`  Running ${tools.length} Go tools in parallel...\n`);
-  const results = await runTools(tools);
-  const failures = reportResults(results);
-
-  console.log("");
-  console.log(`  Text:  ${t.outDir}/`);
-  console.log(`  JSON:  ${t.jsonDir}/`);
+  // Dashboards only for TS packages (they use flow-tool JSON)
+  if (t.driver.id === "typescript") {
+    const { dash, graph } = await buildDashboards(devtoolsRoot, t);
+    console.log("");
+    console.log(`  Text:  ${t.outDir}/`);
+    console.log(`  JSON:  ${t.jsonDir}/`);
+    if (dash) console.log(`  Dash:  ${t.outDir}/dashboard.html`);
+    if (graph) console.log(`  Graph: ${t.outDir}/graph.html`);
+  } else {
+    console.log("");
+    console.log(`  Text:  ${t.outDir}/`);
+    console.log(`  JSON:  ${t.jsonDir}/`);
+  }
   if (failures > 0) console.log(`  ⚠  ${failures} tool(s) failed`);
 
   return failures;
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point — replaces scripts/audit-prep.ts
+// Main entry point
 // ---------------------------------------------------------------------------
 
 export async function runAuditPipeline(args: string[]): Promise<void> {
@@ -487,7 +446,7 @@ export async function runAuditPipeline(args: string[]): Promise<void> {
 
 Usage:
   supergraph                            Audit all packages under packages/ + go-packages/
-  supergraph <dir> [...]                Audit specific package(s) (auto-detects Go via go.mod)
+  supergraph <dir> [...]                Audit specific package(s) (auto-detects language)
   supergraph --no-go                    Skip Go packages
   supergraph --go-only                  Only audit Go packages
   supergraph --root <path>              Target repo root (default: cwd)
@@ -502,10 +461,6 @@ Usage:
       ? resolve(args[rootIdx + 1]!)
       : process.cwd();
 
-  // Resolve devtools root: where dashboard/ lives.
-  // In compiled binary, __dirname points to the binary's bundled root,
-  // but all templates are bundled via imports. For filesystem-based runs,
-  // walk up from src/commands/ to find the supergraph repo root.
   const devtoolsRoot = resolve(import.meta.dir, "../..");
 
   // Filter out flags and their values to get explicit dirs
@@ -516,7 +471,7 @@ Usage:
     return true;
   });
 
-  // Partition explicit dirs into Go and TS packages
+  // Partition explicit dirs by detected language
   const explicitGoDirs: string[] = [];
   const explicitTsDirs: string[] = [];
   if (explicitDirs.length > 0) {
@@ -528,6 +483,10 @@ Usage:
       }
     }
   }
+
+  // Import drivers lazily to get references for target construction
+  const { goDriver } = await import("../../graph/src/cli/lang/go-driver.js");
+  const { tsDriver } = await import("../../graph/src/cli/lang/ts-driver.js");
 
   let totalFailures = 0;
 
@@ -559,7 +518,7 @@ Usage:
 
     if (srcDirs.length > 0) {
       const targets: PkgTarget[] = srcDirs.map((srcDir) => {
-        const pkgName = derivePkgName(srcDir);
+        const pkgName = derivePkgName(srcDir, tsDriver);
         const outDir = `audit/packages/${pkgName}`;
         return {
           srcDir,
@@ -567,6 +526,7 @@ Usage:
           outDir,
           invDir: `${outDir}/invariants`,
           jsonDir: `${outDir}/json`,
+          driver: tsDriver,
         };
       });
 
@@ -599,18 +559,25 @@ Usage:
       }
     }
     if (goDirs.length > 0) {
-      const goTargets: GoPkgTarget[] = goDirs.map((goDir) => {
-        const pkgName = deriveGoPkgName(goDir);
+      const goTargets: PkgTarget[] = goDirs.map((goDir) => {
+        const pkgName = derivePkgName(goDir, goDriver);
         const outDir = `audit/packages/${pkgName}`;
-        return { goDir, pkgName, outDir, jsonDir: `${outDir}/json` };
+        return {
+          srcDir: goDir,
+          pkgName,
+          outDir,
+          invDir: `${outDir}/invariants`,
+          jsonDir: `${outDir}/json`,
+          driver: goDriver,
+        };
       });
       console.log(`\nGo audit targets (${goTargets.length}):`);
       for (const t of goTargets) {
-        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.goDir}`);
+        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
       }
 
       for (const t of goTargets) {
-        totalFailures += await auditGoPackage(t);
+        totalFailures += await auditPackage(devtoolsRoot, t);
       }
     }
   }
