@@ -1,6 +1,6 @@
 {
   "name": "supergraph",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Monorepo intelligence — structural analysis, deep audits, and interactive visualization",
   "private": true,
   "workspaces": [
