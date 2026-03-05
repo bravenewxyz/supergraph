@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, relative } from "node:path";
+import { Glob } from "bun";
 
 // Embed dashboard templates so they're available in compiled binaries
 import DASHBOARD_INDEX_HTML from "../../packages/dashboard/index.html" with { type: "text" };
@@ -87,10 +88,141 @@ function derivePkgName(p: string, driver: LanguageDriver): string {
 }
 
 // ---------------------------------------------------------------------------
-// Package discovery
+// Package discovery — monorepo-aware
 // ---------------------------------------------------------------------------
 
-async function discoverPackages(packagesDir: string): Promise<string[]> {
+/** Read workspace glob patterns from all common monorepo config files. */
+async function readWorkspaceGlobs(root: string): Promise<string[]> {
+  const globs: string[] = [];
+
+  // 1. package.json workspaces (npm, bun, yarn, turborepo)
+  try {
+    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf-8"));
+    const ws = pkg.workspaces;
+    if (Array.isArray(ws)) {
+      globs.push(...ws);
+    } else if (ws && Array.isArray(ws.packages)) {
+      // yarn classic: { packages: [...] }
+      globs.push(...ws.packages);
+    }
+  } catch {}
+
+  // 2. pnpm-workspace.yaml
+  if (globs.length === 0) {
+    try {
+      const yaml = await readFile(join(root, "pnpm-workspace.yaml"), "utf-8");
+      // Simple YAML array parser — handles "packages:\n  - 'packages/*'\n  - 'apps/*'"
+      const lines = yaml.split("\n");
+      let inPackages = false;
+      for (const line of lines) {
+        if (/^packages\s*:/.test(line)) {
+          inPackages = true;
+          continue;
+        }
+        if (inPackages) {
+          const m = line.match(/^\s+-\s+['"]?([^'"#]+?)['"]?\s*$/);
+          if (m) {
+            globs.push(m[1]!.trim());
+          } else if (/^\S/.test(line)) {
+            break; // next top-level key
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 3. lerna.json
+  if (globs.length === 0) {
+    try {
+      const lerna = JSON.parse(await readFile(join(root, "lerna.json"), "utf-8"));
+      if (Array.isArray(lerna.packages)) {
+        globs.push(...lerna.packages);
+      }
+    } catch {}
+  }
+
+  // 4. rush.json
+  if (globs.length === 0) {
+    try {
+      const rush = JSON.parse(await readFile(join(root, "rush.json"), "utf-8"));
+      if (Array.isArray(rush.projects)) {
+        for (const p of rush.projects) {
+          if (p.projectFolder) globs.push(p.projectFolder);
+        }
+      }
+    } catch {}
+  }
+
+  return globs;
+}
+
+/** Resolve workspace globs to actual package directories that contain source code. */
+async function resolveWorkspaceDirs(root: string, patterns: string[]): Promise<string[]> {
+  const pkgDirs = new Set<string>();
+
+  for (let pattern of patterns) {
+    // Strip negation patterns (e.g. "!packages/internal")
+    if (pattern.startsWith("!")) continue;
+
+    // Normalize: "packages/*" → match directories at that level
+    // Ensure pattern matches directories (not deep files)
+    if (!pattern.includes("*")) {
+      // Exact path like "apps/web" — use directly
+      const abs = resolve(root, pattern);
+      try {
+        const s = await stat(abs);
+        if (s.isDirectory()) pkgDirs.add(abs);
+      } catch {}
+      continue;
+    }
+
+    // Use Bun's Glob to resolve patterns
+    const glob = new Glob(pattern);
+    for await (const match of glob.scan({ cwd: root, onlyFiles: false })) {
+      const abs = resolve(root, match);
+      try {
+        const s = await stat(abs);
+        if (!s.isDirectory()) continue;
+        // Skip node_modules matches
+        if (match.includes("node_modules")) continue;
+        // Verify it's a real package (has package.json)
+        try {
+          await stat(join(abs, "package.json"));
+          pkgDirs.add(abs);
+        } catch {}
+      } catch {}
+    }
+  }
+
+  return [...pkgDirs].sort();
+}
+
+/** Find src/ directories within resolved package dirs. */
+async function findSrcDirs(pkgDirs: string[]): Promise<string[]> {
+  const srcDirs: string[] = [];
+  for (const dir of pkgDirs) {
+    const srcDir = join(dir, "src");
+    try {
+      const s = await stat(srcDir);
+      if (s.isDirectory()) {
+        srcDirs.push(srcDir);
+        continue;
+      }
+    } catch {}
+    // No src/ — check if the package root itself has source files
+    try {
+      const entries = await readdir(dir);
+      const hasSource = entries.some(
+        (e) => e.endsWith(".ts") || e.endsWith(".tsx") || e.endsWith(".js") || e.endsWith(".jsx"),
+      );
+      if (hasSource) srcDirs.push(dir);
+    } catch {}
+  }
+  return srcDirs;
+}
+
+/** Legacy fallback: walk a directory looking for src/ subdirectories. */
+async function walkForSrcDirs(baseDir: string): Promise<string[]> {
   const srcDirs: string[] = [];
 
   async function walk(dir: string, depth: number) {
@@ -109,8 +241,48 @@ async function discoverPackages(packagesDir: string): Promise<string[]> {
     }
   }
 
-  await walk(packagesDir, 0);
+  await walk(baseDir, 0);
   return srcDirs.sort();
+}
+
+/**
+ * Discover all TS package src dirs in a monorepo.
+ *
+ * Strategy (in order):
+ *   1. Read workspace globs from package.json / pnpm-workspace.yaml / lerna.json / rush.json
+ *   2. Resolve globs → package dirs → find src/ in each
+ *   3. Fallback: if no config found, walk packages/ or src/ at root
+ */
+async function discoverPackages(root: string): Promise<string[]> {
+  // 1. Try workspace config
+  const globs = await readWorkspaceGlobs(root);
+  if (globs.length > 0) {
+    const pkgDirs = await resolveWorkspaceDirs(root, globs);
+    if (pkgDirs.length > 0) {
+      const srcDirs = await findSrcDirs(pkgDirs);
+      if (srcDirs.length > 0) return srcDirs;
+    }
+  }
+
+  // 2. Fallback: check common monorepo directory conventions
+  const conventionDirs = ["packages", "apps", "libs", "modules", "services"];
+  for (const dir of conventionDirs) {
+    const abs = resolve(root, dir);
+    try {
+      await stat(abs);
+      const srcDirs = await walkForSrcDirs(abs);
+      if (srcDirs.length > 0) return srcDirs;
+    } catch {}
+  }
+
+  // 3. Single-package repo: root has src/
+  const rootSrc = resolve(root, "src");
+  try {
+    const s = await stat(rootSrc);
+    if (s.isDirectory()) return [rootSrc];
+  } catch {}
+
+  return [];
 }
 
 async function discoverGoPackages(goPackagesDir: string): Promise<string[]> {
@@ -302,24 +474,33 @@ async function fileSizeKB(path: string): Promise<string> {
   }
 }
 
-async function runTools(tools: ToolRun[], muted: boolean): Promise<RunResult[]> {
+async function runTools(tools: ToolRun[], muted: boolean, concurrency = 3): Promise<RunResult[]> {
   const unmute = muted ? muteConsole() : undefined;
   try {
-    return await Promise.all(
-      tools.map(async (tool): Promise<RunResult> => {
+    const results: RunResult[] = new Array(tools.length);
+    let nextIdx = 0;
+
+    async function worker() {
+      while (nextIdx < tools.length) {
+        const idx = nextIdx++;
+        const tool = tools[idx]!;
         const t0 = Date.now();
         try {
           await tool.run();
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
           const size = await fileSizeKB(tool.checkFile);
-          return { tool, ok: true, elapsed, size };
+          results[idx] = { tool, ok: true, elapsed, size };
         } catch (err) {
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
           const msg = err instanceof Error ? err.message : String(err);
-          return { tool, ok: false, elapsed, error: msg };
+          results[idx] = { tool, ok: false, elapsed, error: msg };
         }
-      }),
-    );
+      }
+    }
+
+    const workers = Array.from({ length: Math.min(concurrency, tools.length) }, () => worker());
+    await Promise.all(workers);
+    return results;
   } finally {
     unmute?.();
   }
@@ -508,7 +689,7 @@ export async function runAuditPipeline(args: string[]): Promise<void> {
     console.log(`supergraph — full audit pipeline
 
 Usage:
-  supergraph                            Audit all packages under packages/ + go-packages/
+  supergraph                            Auto-detect monorepo packages and audit all
   supergraph <dir> [...]                Audit specific package(s) (auto-detects language)
   supergraph --no-go                    Skip Go packages
   supergraph --go-only                  Only audit Go packages
@@ -563,18 +744,11 @@ Usage:
     if (explicitTsDirs.length > 0) {
       srcDirs = explicitTsDirs;
     } else if (explicitDirs.length === 0) {
-      const packagesDir = resolve(ROOT, "packages");
-      try {
-        await stat(packagesDir);
-      } catch {
-        console.error(
-          "No packages/ directory found. Pass explicit src dirs or run from monorepo root.",
-        );
-        process.exit(1);
-      }
-      srcDirs = await discoverPackages(packagesDir);
+      srcDirs = await discoverPackages(ROOT);
       if (srcDirs.length === 0) {
-        console.error("No packages with src/ directories found under packages/.");
+        console.error(
+          "No packages found. Checked workspace configs (package.json workspaces, pnpm-workspace.yaml, lerna.json, rush.json), common directories (packages/, apps/, libs/), and root src/.\nPass explicit src dirs or run from a monorepo root.",
+        );
         process.exit(1);
       }
     } else {
@@ -736,6 +910,10 @@ Usage:
       const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
+      // Consume stdout when piped to prevent buffer deadlock / memory buildup
+      if (spawnIO === "pipe") {
+        for await (const _ of proc.stdout) { /* drain */ }
+      }
       const code = await proc.exited;
       if (code !== 0) {
         const stderr = await new Response(proc.stderr).text();
@@ -746,6 +924,10 @@ Usage:
       const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
+      // Consume stdout when piped to prevent buffer deadlock / memory buildup
+      if (spawnIO === "pipe") {
+        for await (const _ of proc.stdout) { /* drain */ }
+      }
       const code = await proc.exited;
       if (code !== 0) {
         const stderr = await new Response(proc.stderr).text();
