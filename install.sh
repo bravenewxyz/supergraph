@@ -4,7 +4,7 @@ set -euo pipefail
 REPO="bravenewxyz/supergraph"
 BRANCH="master"
 BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
-BIN_DIR="/usr/local/bin"
+BIN_DIR="$HOME/.local/bin"
 CLAUDE_CMD_DIR="$HOME/.claude/commands"
 
 echo "supergraph — installing..."
@@ -31,6 +31,7 @@ RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TA
 
 # ─── 1. Install binary ──────────────────────────────────────────
 echo "  [1/2] Downloading supergraph binary (${TARGET})..."
+mkdir -p "${BIN_DIR}"
 TMP="$(mktemp -d)"
 curl -fsSL "${RELEASE_URL}" | tar xz -C "${TMP}"
 mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
@@ -52,3 +53,13 @@ echo ""
 echo "Done. You now have:"
 echo "  supergraph    — run in any monorepo to generate audit/supergraph.txt"
 echo "  /deep-audit   — Claude Code slash command for 10-phase package audits"
+echo ""
+
+# ─── Ensure PATH includes BIN_DIR ────────────────────────────────
+if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then
+  echo "Note: ${BIN_DIR} is not in your PATH."
+  echo "Add it by running:"
+  echo ""
+  echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc"
+  echo ""
+fi
