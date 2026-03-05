@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0c;--bg2:#111115;--bg3:#18181d;--bg4:#1f1f26;
+  --border:#2a2a33;--border2:#3a3a46;
+  --text:#e8e6e3;--text2:#9d9b97;--text3:#6b6966;
+  --accent:#c9f06b;--accent2:#a8cc4e;
+  --red:#f06b6b;--orange:#f0a86b;--yellow:#f0db6b;--blue:#6bb0f0;--purple:#a86bf0;
+  --font-mono:'JetBrains Mono',monospace;--font-sans:'Instrument Sans',sans-serif;
+  --radius:6px;
+}
+html{font-size:14px;background:var(--bg);color:var(--text);font-family:var(--font-sans)}
+body{min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.shell{max-width:1440px;margin:0 auto;padding:24px 32px 64px}
+.header{display:flex;align-items:baseline;gap:16px;margin-bottom:8px}
+.header h1{font-family:var(--font-mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.03em;color:var(--accent)}
+.header .pkg{font-size:1rem;color:var(--text2);font-weight:400}
+.header .ts{font-size:.75rem;color:var(--text3);margin-left:auto;font-family:var(--font-mono)}
+
+.stats-row{display:flex;gap:12px;margin:20px 0 28px;flex-wrap:wrap}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;min-width:160px;flex:1}
+.stat-card .val{font-family:var(--font-mono);font-size:1.75rem;font-weight:700;color:var(--text);line-height:1}
+.stat-card .lbl{font-size:.75rem;color:var(--text3);margin-top:4px;text-transform:uppercase;letter-spacing:.06em}
+.stat-card.warn .val{color:var(--orange)}
+.stat-card.bad .val{color:var(--red)}
+.stat-card.good .val{color:var(--accent)}
+
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:0;gap:0;position:sticky;top:0;z-index:10;background:var(--bg);padding-top:8px}
+.tab{padding:10px 20px;cursor:pointer;color:var(--text3);font-weight:600;font-size:.85rem;border-bottom:2px solid transparent;transition:all .15s;user-select:none;font-family:var(--font-mono);letter-spacing:-.02em}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab .badge{display:inline-block;background:var(--bg4);color:var(--text3);font-size:.7rem;padding:1px 6px;border-radius:10px;margin-left:6px;font-weight:500;vertical-align:1px}
+.tab.active .badge{background:var(--accent);color:var(--bg)}
+
+.panel{display:none;padding:24px 0;animation:fadeIn .2s ease}
+.panel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+.section-title{font-family:var(--font-mono);font-size:1rem;font-weight:600;color:var(--text);margin:24px 0 12px;display:flex;align-items:center;gap:8px}
+.section-title:first-child{margin-top:0}
+.section-title .count{font-size:.75rem;color:var(--text3);font-weight:400}
+
+table{width:100%;border-collapse:collapse;font-size:.82rem}
+thead th{text-align:left;padding:8px 12px;color:var(--text3);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);position:sticky;top:44px;background:var(--bg);z-index:5}
+tbody td{padding:7px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+tbody tr:hover{background:var(--bg2)}
+.mono{font-family:var(--font-mono);font-size:.78rem}
+.path{color:var(--text2);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sev{display:inline-block;padding:1px 7px;border-radius:10px;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.sev.error,.sev.critical{background:rgba(240,107,107,.15);color:var(--red)}
+.sev.warning,.sev.high{background:rgba(240,168,107,.15);color:var(--orange)}
+.sev.info,.sev.medium,.sev.med{background:rgba(107,176,240,.15);color:var(--blue)}
+.sev.low{background:rgba(168,107,240,.15);color:var(--purple)}
+.method{font-family:var(--font-mono);font-size:.72rem;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.03em}
+.method.GET{color:#6bf0c3;background:rgba(107,240,195,.1)}
+.method.POST{color:#6bb0f0;background:rgba(107,176,240,.1)}
+.method.PUT{color:#f0db6b;background:rgba(240,219,107,.1)}
+.method.DELETE{color:#f06b6b;background:rgba(240,107,107,.1)}
+.method.PATCH{color:#a86bf0;background:rgba(168,107,240,.1)}
+
+.dep-graph{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:12px}
+.dep-node{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;transition:border-color .15s}
+.dep-node:hover{border-color:var(--border2)}
+.dep-node .name{font-family:var(--font-mono);font-size:.8rem;font-weight:600;color:var(--text);margin-bottom:6px;word-break:break-all}
+.dep-node .deps{font-size:.72rem;color:var(--text3);line-height:1.5}
+.dep-node .deps span{color:var(--text2)}
+
+.fn-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px;margin-top:12px}
+.fn-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px}
+.fn-card .fn-name{font-family:var(--font-mono);font-size:.82rem;font-weight:600;color:var(--accent2)}
+.fn-card .fn-file{font-size:.7rem;color:var(--text3);margin-top:2px}
+.fn-card .fn-meta{display:flex;gap:12px;margin-top:8px;font-size:.72rem;color:var(--text2)}
+.fn-card .fn-meta .k{color:var(--text3)}
+
+.bar-row{display:flex;align-items:center;gap:10px;margin:4px 0}
+.bar-label{font-family:var(--font-mono);font-size:.72rem;color:var(--text2);min-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:18px;border-radius:3px;background:var(--accent);opacity:.7;min-width:2px;transition:width .3s ease}
+.bar-val{font-family:var(--font-mono);font-size:.68rem;color:var(--text3);min-width:30px}
+
+.empty{color:var(--text3);font-style:italic;padding:24px 0;text-align:center}
+
+.filter-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.filter-bar input{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px 12px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);outline:none;min-width:220px}
+.filter-bar input:focus{border-color:var(--accent)}
+.filter-bar select{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;color:var(--text);font-size:.82rem;font-family:var(--font-mono);outline:none;cursor:pointer}
+
+.pill-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{font-family:var(--font-mono);font-size:.68rem;padding:2px 8px;border-radius:10px;background:var(--bg4);color:var(--text3)}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:900px){.grid-2{grid-template-columns:1fr}}
+
+.boundary-kind{font-family:var(--font-mono);font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:3px;letter-spacing:.02em}
+.boundary-kind.type-assertion{color:var(--orange);background:rgba(240,168,107,.1)}
+.boundary-kind.json-serialize{color:var(--blue);background:rgba(107,176,240,.1)}
+.boundary-kind.json-parse{color:var(--purple);background:rgba(168,107,240,.1)}
+.boundary-kind.schema-validate{color:var(--accent);background:rgba(201,240,107,.1)}
+
+.no-data{background:var(--bg2);border:1px dashed var(--border);border-radius:var(--radius);padding:40px;text-align:center;color:var(--text3);font-size:.9rem;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="shell" id="app">
+  <div class="header">
+    <h1>audit</h1>
+    <span class="pkg" id="pkgName">—</span>
+    <span class="ts" id="genTime"></span>
+  </div>
+
+  <div class="stats-row" id="statsRow"></div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div id="panels"></div>
+</div>
+
+<script id="__AUDIT_DATA__" type="application/json">null</script>
+
+<script>
+const DATA_EL = document.getElementById("__AUDIT_DATA__");
+const raw = JSON.parse(DATA_EL.textContent);
+if (!raw || raw === "null") {
+  document.getElementById("app").innerHTML = '<div class="no-data" style="margin-top:80px">No audit data. Run <code style="color:var(--accent)">bun devtools/scripts/audit-prep.ts &lt;src-dir&gt;</code> to generate.</div>';
+  throw new Error("no data");
+}
+
+const D = {
+  map: raw.map || null,
+  contracts: raw.contracts || null,
+  schemaMatch: raw["schema-match"] || null,
+  logicAudit: raw["logic-audit"] || null,
+  traceBoundaries: raw["trace-boundaries"] || null,
+  discovery: raw.discovery || null,
+};
+
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (k === "className") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(), v);
+    else el.setAttribute(k, v);
+  }
+  for (const c of children.flat()) {
+    if (c == null) continue;
+    el.append(typeof c === "string" || typeof c === "number" ? document.createTextNode(String(c)) : c);
+  }
+  return el;
+}
+
+function shortPath(p) {
+  if (!p) return "";
+  const parts = p.split("/");
+  const srcIdx = parts.indexOf("src");
+  return srcIdx >= 0 ? parts.slice(srcIdx).join("/") : parts.slice(-3).join("/");
+}
+
+function sevClass(s) {
+  return "sev " + (s || "info").toLowerCase();
+}
+
+function buildStats() {
+  const row = document.getElementById("statsRow");
+  const cards = [];
+  if (D.map) {
+    cards.push({ val: D.map.stats.totalFiles, lbl: "Modules", cls: "" });
+    cards.push({ val: D.map.stats.nodesByKind.function || 0, lbl: "Functions", cls: "" });
+    cards.push({ val: D.map.stats.totalEdges, lbl: "Edges", cls: "" });
+  }
+  if (D.contracts) {
+    const m = D.contracts.matched?.length || 0;
+    const u = D.contracts.unmatched?.length || 0;
+    const o = D.contracts.orphaned?.length || 0;
+    cards.push({ val: m, lbl: "Routes matched", cls: "good" });
+    if (u) cards.push({ val: u, lbl: "Unmatched FE calls", cls: "warn" });
+    if (o) cards.push({ val: o, lbl: "Orphaned BE routes", cls: "warn" });
+  }
+  if (D.schemaMatch) {
+    cards.push({ val: D.schemaMatch.mismatches || 0, lbl: "Schema mismatches", cls: D.schemaMatch.mismatches > 0 ? "bad" : "good" });
+    if (D.schemaMatch.enforcementGaps) cards.push({ val: D.schemaMatch.enforcementGaps, lbl: "Enforcement gaps", cls: "warn" });
+  }
+  if (D.logicAudit) {
+    const gc = D.logicAudit.guards?.length || 0;
+    if (gc) cards.push({ val: gc, lbl: "Guard issues", cls: "warn" });
+  }
+  if (D.traceBoundaries) {
+    cards.push({ val: D.traceBoundaries.boundaries?.length || 0, lbl: "Boundaries", cls: "" });
+  }
+  if (D.discovery) {
+    cards.push({ val: D.discovery.length || 0, lbl: "Pure functions", cls: "" });
+  }
+  for (const c of cards) {
+    const card = h("div", { className: "stat-card " + c.cls },
+      h("div", { className: "val" }, String(c.val)),
+      h("div", { className: "lbl" }, c.lbl),
+    );
+    row.append(card);
+  }
+}
+
+const TAB_DEFS = [
+  { id: "overview", label: "Overview", build: buildOverview },
+  { id: "contracts", label: "Contracts", build: buildContracts, count: () => (D.contracts?.matched?.length || 0) + (D.contracts?.unmatched?.length || 0) + (D.contracts?.orphaned?.length || 0) },
+  { id: "schemas", label: "Schemas", build: buildSchemas, count: () => D.schemaMatch?.results?.length || 0 },
+  { id: "boundaries", label: "Boundaries", build: buildBoundaries, count: () => D.traceBoundaries?.boundaries?.length || 0 },
+  { id: "logic", label: "Logic", build: buildLogic, count: () => (D.logicAudit?.guards?.length || 0) + (D.logicAudit?.statusFunctions?.length || 0) },
+  { id: "discovery", label: "Invariants", build: buildDiscovery, count: () => D.discovery?.length || 0 },
+  { id: "graph", label: "Graph", build: buildGraph },
+];
+
+function initTabs() {
+  const tabsEl = document.getElementById("tabs");
+  const panelsEl = document.getElementById("panels");
+
+  for (const t of TAB_DEFS) {
+    const badge = t.count ? h("span", { className: "badge" }, String(t.count())) : null;
+    const tab = h("div", { className: "tab", "data-tab": t.id }, t.label, badge);
+    tab.addEventListener("click", () => activateTab(t.id));
+    tabsEl.append(tab);
+
+    const panel = h("div", { className: "panel", id: "panel-" + t.id });
+    panelsEl.append(panel);
+  }
+  activateTab("overview");
+}
+
+const built = new Set();
+function activateTab(id) {
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === id));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + id));
+  if (!built.has(id)) {
+    const def = TAB_DEFS.find(t => t.id === id);
+    if (def) def.build(document.getElementById("panel-" + id));
+    built.add(id);
+  }
+}
+
+function buildOverview(el) {
+  if (!D.map) { el.append(h("div", { className: "no-data" }, "No map data")); return; }
+
+  el.append(h("div", { className: "section-title" }, "Most Imported Modules"));
+  const maxImp = Math.max(...D.map.mostImported.map(m => m.importers));
+  for (const m of D.map.mostImported) {
+    el.append(h("div", { className: "bar-row" },
+      h("span", { className: "bar-label" }, m.module.replace("src/", "")),
+      h("div", { className: "bar", style: `width:${(m.importers / maxImp) * 100}%` }),
+      h("span", { className: "bar-val" }, String(m.importers)),
+    ));
+  }
+
+  el.append(h("div", { className: "section-title" }, "Largest Modules", h("span", { className: "count" }, "by symbol count")));
+  const maxSym = Math.max(...D.map.largestModules.map(m => m.symbolCount));
+  for (const m of D.map.largestModules.slice(0, 20)) {
+    el.append(h("div", { className: "bar-row" },
+      h("span", { className: "bar-label" }, m.module.replace("src/", "")),
+      h("div", { className: "bar", style: `width:${(m.symbolCount / maxSym) * 100}%` }),
+      h("span", { className: "bar-val" }, String(m.symbolCount)),
+    ));
+  }
+
+  el.append(h("div", { className: "section-title" }, "Symbol Distribution"));
+  const kinds = D.map.stats.nodesByKind;
+  const maxK = Math.max(...Object.values(kinds));
+  const sorted = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
+  for (const [kind, count] of sorted) {
+    if (kind === "module") continue;
+    el.append(h("div", { className: "bar-row" },
+      h("span", { className: "bar-label", style: "min-width:140px" }, kind),
+      h("div", { className: "bar", style: `width:${(count / maxK) * 100}%` }),
+      h("span", { className: "bar-val" }, String(count)),
+    ));
+  }
+
+  el.append(h("div", { className: "section-title" }, "Directory Structure"));
+  const dirs = D.map.directories.filter(d => d.modules.length > 0 || d.subdirectories.length > 0);
+  const maxMods = Math.max(...dirs.map(d => d.modules.length), 1);
+  for (const d of dirs) {
+    el.append(h("div", { className: "bar-row" },
+      h("span", { className: "bar-label" }, d.path || "/"),
+      h("div", { className: "bar", style: `width:${(d.modules.length / maxMods) * 100}%` }),
+      h("span", { className: "bar-val" }, String(d.modules.length) + " files"),
+    ));
+  }
+}
+
+function buildContracts(el) {
+  if (!D.contracts) { el.append(h("div", { className: "no-data" }, "No contracts data")); return; }
+  const c = D.contracts;
+
+  const summaryEl = h("div", { className: "filter-bar" },
+    h("span", { style: "color:var(--text2);font-size:.82rem" },
+      `Frontend: ${c.frontend.uniquePaths} paths · Backend: ${c.backend.routes} routes`),
+  );
+  el.append(summaryEl);
+
+  const searchInput = h("input", { placeholder: "Filter routes...", type: "text" });
+  el.append(h("div", { className: "filter-bar" }, searchInput));
+
+  const tableWrap = h("div");
+
+  function renderTable(filter) {
+    tableWrap.innerHTML = "";
+    const f = (filter || "").toLowerCase();
+
+    if (c.matched?.length) {
+      const filtered = c.matched.filter(r => !f || r.frontendPath.toLowerCase().includes(f) || r.method.toLowerCase().includes(f));
+      if (filtered.length) {
+        tableWrap.append(h("div", { className: "section-title" }, "Matched", h("span", { className: "count" }, `${filtered.length}`)));
+        const tbl = h("table", null,
+          h("thead", null, h("tr", null,
+            h("th", null, "Method"), h("th", null, "Path"), h("th", null, "Frontend File"), h("th", null, "Line"))),
+          h("tbody", null, ...filtered.map(r =>
+            h("tr", null,
+              h("td", null, h("span", { className: "method " + r.method }, r.method)),
+              h("td", { className: "mono" }, r.frontendPath),
+              h("td", { className: "path" }, shortPath(r.file)),
+              h("td", { className: "mono" }, r.line ? String(r.line) : "—"),
+            )
+          ))
+        );
+        tableWrap.append(tbl);
+      }
+    }
+
+    if (c.unmatched?.length) {
+      const filtered = c.unmatched.filter(r => !f || (r.frontendPath || r.path || "").toLowerCase().includes(f));
+      if (filtered.length) {
+        tableWrap.append(h("div", { className: "section-title", style: "color:var(--orange)" }, "Unmatched FE Calls", h("span", { className: "count" }, `${filtered.length}`)));
+        const tbl = h("table", null,
+          h("thead", null, h("tr", null,
+            h("th", null, "Method"), h("th", null, "Path"), h("th", null, "File"), h("th", null, "Line"))),
+          h("tbody", null, ...filtered.map(r =>
+            h("tr", null,
+              h("td", null, h("span", { className: "method " + (r.method || "GET") }, r.method || "?")),
+              h("td", { className: "mono" }, r.frontendPath || r.path || "?"),
+              h("td", { className: "path" }, shortPath(r.file)),
+              h("td", { className: "mono" }, r.line ? String(r.line) : "—"),
+            )
+          ))
+        );
+        tableWrap.append(tbl);
+      }
+    }
+
+    if (c.orphaned?.length) {
+      const filtered = c.orphaned.filter(r => !f || (r.backendPath || r.path || "").toLowerCase().includes(f));
+      if (filtered.length) {
+        tableWrap.append(h("div", { className: "section-title", style: "color:var(--red)" }, "Orphaned BE Routes", h("span", { className: "count" }, `${filtered.length}`)));
+        const tbl = h("table", null,
+          h("thead", null, h("tr", null,
+            h("th", null, "Method"), h("th", null, "Path"), h("th", null, "File"))),
+          h("tbody", null, ...filtered.map(r =>
+            h("tr", null,
+              h("td", null, h("span", { className: "method " + (r.method || "GET") }, r.method || "?")),
+              h("td", { className: "mono" }, r.backendPath || r.path || "?"),
+              h("td", { className: "path" }, shortPath(r.file)),
+            )
+          ))
+        );
+        tableWrap.append(tbl);
+      }
+    }
+  }
+
+  searchInput.addEventListener("input", () => renderTable(searchInput.value));
+  renderTable("");
+  el.append(tableWrap);
+}
+
+function buildSchemas(el) {
+  if (!D.schemaMatch) { el.append(h("div", { className: "no-data" }, "No schema match data")); return; }
+  const sm = D.schemaMatch;
+
+  el.append(h("div", { className: "stats-row" },
+    h("div", { className: "stat-card good" }, h("div", { className: "val" }, String(sm.matches || 0)), h("div", { className: "lbl" }, "Matches")),
+    h("div", { className: "stat-card bad" }, h("div", { className: "val" }, String(sm.mismatches || 0)), h("div", { className: "lbl" }, "Mismatches")),
+    h("div", { className: "stat-card warn" }, h("div", { className: "val" }, String(sm.enforcementGaps || 0)), h("div", { className: "lbl" }, "Enforcement Gaps")),
+  ));
+
+  if (!sm.results?.length) return;
+
+  const grouped = {};
+  for (const r of sm.results) {
+    const key = r.schema;
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(r);
+  }
+
+  for (const [schema, items] of Object.entries(grouped)) {
+    const first = items[0];
+    el.append(h("div", { className: "section-title" },
+      h("span", { className: "mono", style: "color:var(--accent)" }, schema),
+      h("span", { className: "count" }, `${items.length} issue(s) · ${shortPath(first.schemaFile)}`),
+    ));
+
+    const tbl = h("table", null,
+      h("thead", null, h("tr", null,
+        h("th", null, "Field"), h("th", null, "Category"), h("th", null, "Severity"), h("th", null, "Message"), h("th", null, "Enforcement"))),
+      h("tbody", null, ...items.flatMap(item =>
+        (item.mismatches || []).map(m =>
+          h("tr", null,
+            h("td", { className: "mono" }, m.path || "—"),
+            h("td", null, h("span", { className: sevClass(m.category === "extra-field" ? "warning" : "error") }, m.category || "—")),
+            h("td", null, h("span", { className: sevClass(m.severity) }, m.severity || "—")),
+            h("td", { style: "max-width:300px" }, m.message || "—"),
+            h("td", { className: "mono", style: "font-size:.7rem" }, m.enforcement ? `${m.enforcement.level}` : "—"),
+          )
+        )
+      ))
+    );
+    el.append(tbl);
+  }
+}
+
+function buildBoundaries(el) {
+  if (!D.traceBoundaries?.boundaries?.length) { el.append(h("div", { className: "no-data" }, "No boundary data")); return; }
+
+  const bounds = D.traceBoundaries.boundaries;
+  const byKind = {};
+  for (const b of bounds) {
+    const k = b.kind || "unknown";
+    if (!byKind[k]) byKind[k] = [];
+    byKind[k].push(b);
+  }
+
+  el.append(h("div", { className: "section-title" }, "By Kind"));
+  const maxCount = Math.max(...Object.values(byKind).map(a => a.length));
+  for (const [kind, items] of Object.entries(byKind).sort((a, b) => b[1].length - a[1].length)) {
+    el.append(h("div", { className: "bar-row" },
+      h("span", { className: "bar-label", style: "min-width:160px" }, kind),
+      h("div", { className: "bar", style: `width:${(items.length / maxCount) * 100}%` }),
+      h("span", { className: "bar-val" }, String(items.length)),
+    ));
+  }
+
+  const filterKind = h("select", null,
+    h("option", { value: "" }, "All kinds"),
+    ...Object.keys(byKind).map(k => h("option", { value: k }, k + ` (${byKind[k].length})`)),
+  );
+  const filterFile = h("input", { placeholder: "Filter by file...", type: "text" });
+  el.append(h("div", { className: "filter-bar", style: "margin-top:20px" }, filterKind, filterFile));
+
+  const tableWrap = h("div");
+
+  function render() {
+    tableWrap.innerHTML = "";
+    const kf = filterKind.value;
+    const ff = filterFile.value.toLowerCase();
+    const filtered = bounds.filter(b =>
+      (!kf || b.kind === kf) &&
+      (!ff || (b.filePath || "").toLowerCase().includes(ff) || (b.functionContext || "").toLowerCase().includes(ff))
+    );
+
+    const tbl = h("table", null,
+      h("thead", null, h("tr", null,
+        h("th", null, "Kind"), h("th", null, "File"), h("th", null, "Line"), h("th", null, "Function"), h("th", null, "Error Handler"), h("th", null, "Snippet"))),
+      h("tbody", null, ...filtered.slice(0, 200).map(b =>
+        h("tr", null,
+          h("td", null, h("span", { className: "boundary-kind " + (b.kind || "").replace(/[_ ]/g, "-") }, b.kind || "?")),
+          h("td", { className: "path" }, shortPath(b.filePath)),
+          h("td", { className: "mono" }, b.line ? String(b.line) : "—"),
+          h("td", { className: "mono" }, b.functionContext || "—"),
+          h("td", { className: "mono", style: "font-size:.7rem" }, b.errorHandler ? `${b.errorHandler.kind}` : "—"),
+          h("td", { className: "mono", style: "max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.7rem;color:var(--text3)" },
+            (b.raw || "").slice(0, 80)),
+        )
+      ))
+    );
+    if (filtered.length > 200) {
+      tableWrap.append(h("div", { style: "color:var(--text3);font-size:.8rem;margin-top:8px" }, `Showing 200 of ${filtered.length}`));
+    }
+    tableWrap.append(tbl);
+  }
+
+  filterKind.addEventListener("change", render);
+  filterFile.addEventListener("input", render);
+  render();
+  el.append(tableWrap);
+}
+
+function buildLogic(el) {
+  if (!D.logicAudit) { el.append(h("div", { className: "no-data" }, "No logic audit data")); return; }
+
+  if (D.logicAudit.guards?.length) {
+    el.append(h("div", { className: "section-title", style: "color:var(--orange)" }, "Guard Inconsistencies", h("span", { className: "count" }, `${D.logicAudit.guards.length}`)));
+    const tbl = h("table", null,
+      h("thead", null, h("tr", null,
+        h("th", null, "File"), h("th", null, "Line"), h("th", null, "Confidence"), h("th", null, "Message"))),
+      h("tbody", null, ...D.logicAudit.guards.map(g =>
+        h("tr", null,
+          h("td", { className: "path" }, shortPath(g.filePath)),
+          h("td", { className: "mono" }, g.line ? String(g.line) : "—"),
+          h("td", null, h("span", { className: sevClass(g.confidence) }, g.confidence || "—")),
+          h("td", { style: "max-width:500px;font-size:.78rem" }, g.message || "—"),
+        )
+      ))
+    );
+    el.append(tbl);
+  }
+
+  if (D.logicAudit.crossRep?.length) {
+    el.append(h("div", { className: "section-title" }, "Cross-Representation Mismatches", h("span", { className: "count" }, `${D.logicAudit.crossRep.length}`)));
+    for (const cr of D.logicAudit.crossRep) {
+      el.append(h("div", { className: "fn-card" },
+        h("div", { className: "fn-name" }, cr.schema || cr.name || "—"),
+        h("div", { className: "fn-file" }, cr.message || JSON.stringify(cr)),
+      ));
+    }
+  }
+
+  if (D.logicAudit.statusFunctions?.length) {
+    el.append(h("div", { className: "section-title" }, "Status Functions", h("span", { className: "count" }, "sorted by branch complexity")));
+    const fns = [...D.logicAudit.statusFunctions].sort((a, b) => b.branchCount - a.branchCount);
+    el.append(h("div", { className: "fn-list" },
+      ...fns.map(f =>
+        h("div", { className: "fn-card" },
+          h("div", { className: "fn-name" }, f.name),
+          h("div", { className: "fn-file" }, shortPath(f.filePath) + `:${f.line}`),
+          h("div", { className: "fn-meta" },
+            h("span", null, h("span", { className: "k" }, "branches "), String(f.branchCount)),
+            h("span", null, h("span", { className: "k" }, "lines "), String(f.lineCount)),
+          ),
+          f.returnType ? h("div", { style: "font-size:.68rem;color:var(--text3);margin-top:4px;font-family:var(--font-mono);word-break:break-all" }, f.returnType) : null,
+        )
+      )
+    ));
+  }
+}
+
+function buildDiscovery(el) {
+  if (!D.discovery?.length) { el.append(h("div", { className: "no-data" }, "No invariant discovery data")); return; }
+
+  const fns = [...D.discovery].sort((a, b) => b.purityScore - a.purityScore);
+  const highPurity = fns.filter(f => f.purityScore >= 0.7);
+  const medPurity = fns.filter(f => f.purityScore >= 0.4 && f.purityScore < 0.7);
+  const lowPurity = fns.filter(f => f.purityScore < 0.4);
+
+  el.append(h("div", { className: "stats-row" },
+    h("div", { className: "stat-card good" }, h("div", { className: "val" }, String(highPurity.length)), h("div", { className: "lbl" }, "High Purity (≥0.7)")),
+    h("div", { className: "stat-card" }, h("div", { className: "val" }, String(medPurity.length)), h("div", { className: "lbl" }, "Medium (0.4–0.7)")),
+    h("div", { className: "stat-card" }, h("div", { className: "val" }, String(lowPurity.length)), h("div", { className: "lbl" }, "Low (<0.4)")),
+  ));
+
+  const searchInput = h("input", { placeholder: "Filter functions...", type: "text" });
+  const sortSelect = h("select", null,
+    h("option", { value: "purity" }, "Sort: purity ↓"),
+    h("option", { value: "name" }, "Sort: name A-Z"),
+    h("option", { value: "params" }, "Sort: params ↓"),
+  );
+  el.append(h("div", { className: "filter-bar" }, searchInput, sortSelect));
+
+  const listWrap = h("div");
+
+  function render() {
+    listWrap.innerHTML = "";
+    const f = searchInput.value.toLowerCase();
+    let items = fns.filter(fn =>
+      !f || fn.name.toLowerCase().includes(f) || (fn.filePath || "").toLowerCase().includes(f)
+    );
+    const s = sortSelect.value;
+    if (s === "name") items.sort((a, b) => a.name.localeCompare(b.name));
+    else if (s === "params") items.sort((a, b) => (b.params?.length || 0) - (a.params?.length || 0));
+    else items.sort((a, b) => b.purityScore - a.purityScore);
+
+    listWrap.append(h("div", { className: "fn-list" },
+      ...items.slice(0, 100).map(fn => {
+        const pColor = fn.purityScore >= 0.7 ? "var(--accent)" : fn.purityScore >= 0.4 ? "var(--yellow)" : "var(--text3)";
+        return h("div", { className: "fn-card" },
+          h("div", { style: "display:flex;justify-content:space-between;align-items:baseline" },
+            h("div", { className: "fn-name" }, fn.name),
+            h("span", { className: "mono", style: `color:${pColor};font-size:.78rem;font-weight:700` }, fn.purityScore.toFixed(2)),
+          ),
+          h("div", { className: "fn-file" }, shortPath(fn.filePath) + `:${fn.line}`),
+          fn.purityFlags?.length ? h("div", { className: "pill-row" },
+            ...fn.purityFlags.map(flag => h("span", { className: "pill" }, flag))
+          ) : null,
+          fn.params?.length ? h("div", { className: "fn-meta" },
+            ...fn.params.slice(0, 5).map(p =>
+              h("span", null, h("span", { className: "k" }, p.name + " "), p.type?.kind === "primitive" ? p.type.value : p.type?.kind || "?"))
+          ) : null,
+        );
+      })
+    ));
+    if (items.length > 100) listWrap.append(h("div", { style: "color:var(--text3);margin-top:8px;text-align:center" }, `Showing 100 of ${items.length}`));
+  }
+
+  searchInput.addEventListener("input", render);
+  sortSelect.addEventListener("change", render);
+  render();
+  el.append(listWrap);
+}
+
+function buildGraph(el) {
+  if (!D.map?.dependencyGraph) { el.append(h("div", { className: "no-data" }, "No dependency graph data")); return; }
+
+  const graph = D.map.dependencyGraph;
+  const entries = Object.entries(graph).sort((a, b) => b[1].length - a[1].length);
+
+  const searchInput = h("input", { placeholder: "Filter modules...", type: "text" });
+  el.append(h("div", { className: "filter-bar" }, searchInput));
+  el.append(h("div", { className: "section-title" }, "Dependency Graph", h("span", { className: "count" }, `${entries.length} modules with internal deps`)));
+
+  const gridWrap = h("div", { className: "dep-graph" });
+
+  function render() {
+    gridWrap.innerHTML = "";
+    const f = searchInput.value.toLowerCase();
+    const filtered = entries.filter(([mod]) => !f || mod.toLowerCase().includes(f));
+    for (const [mod, deps] of filtered.slice(0, 80)) {
+      gridWrap.append(h("div", { className: "dep-node" },
+        h("div", { className: "name" }, mod.replace("src/", "")),
+        h("div", { className: "deps" },
+          deps.length ? deps.map((d, i) => [
+            i > 0 ? ", " : "",
+            h("span", null, d.replace("src/", ""))
+          ]).flat() : h("span", { style: "color:var(--text3)" }, "no deps"),
+        ),
+      ));
+    }
+    if (filtered.length > 80) gridWrap.append(h("div", { style: "color:var(--text3);grid-column:1/-1;text-align:center;margin:8px" }, `Showing 80 of ${filtered.length}`));
+  }
+
+  searchInput.addEventListener("input", render);
+  render();
+  el.append(gridWrap);
+}
+
+if (D.map) {
+  document.getElementById("pkgName").textContent = D.map.package || D.map.srcRoot || "";
+  document.getElementById("genTime").textContent = D.map.generatedAt ? new Date(D.map.generatedAt).toLocaleString() : "";
+}
+
+buildStats();
+initTabs();
+</script>
+</body>
+</html>

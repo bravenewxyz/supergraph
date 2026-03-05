@@ -1,0 +1,33 @@
+{
+  "name": "@devtools/flow",
+  "version": "0.1.0",
+  "description": "Universal static data flow analysis — type-level boundary checking, pluggable schema extraction, pipeline tracing",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "schema-match": "bun run src/cli/schema-match.ts",
+    "trace": "bun run src/cli/trace.ts",
+    "invariant": "bun run src/cli/invariant.ts",
+    "contracts": "bun run src/cli/contracts.ts",
+    "logic-audit": "bun run src/cli/logic-audit.ts"
+  },
+  "dependencies": {
+    "@devtools/graph": "workspace:*",
+    "@ast-grep/napi": "^0.40.0",
+    "typescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.5.3",
+    "tiny-invariant": "^1.3.3",
+    "z3-solver": "^4.16.0"
+  }
+}

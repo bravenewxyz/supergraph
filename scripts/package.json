@@ -1,0 +1,21 @@
+{
+  "name": "@devtools/scripts",
+  "version": "0.1.0",
+  "description": "Audit and tooling scripts for guild-v3",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "audit-prep": "bun audit-prep.ts",
+    "generate-docs": "bun generate-docs.ts",
+    "pkg-graph": "bun pkg-graph.ts",
+    "supergraph": "bun supergraph.ts",
+    "superschema": "bun superschema.ts",
+    "superlink": "bun superlink.ts",
+    "check-health": "bun check-health.ts",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "@devtools/graph": "workspace:*",
+    "@devtools/flow": "workspace:*"
+  }
+}

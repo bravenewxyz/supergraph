@@ -1,0 +1,10 @@
+export { parseTypeScript } from "./ts-structural.js";
+export type { ParseResult } from "./ts-structural.js";
+export { extractFromFile, extractFromFiles } from "./extractor.js";
+export type { ExtractionResult } from "./extractor.js";
+export { SemanticParser } from "./ts-semantic.js";
+export type { SemanticEnrichment, SemanticParserOptions } from "./ts-semantic.js";
+export { IncrementalParser } from "./incremental.js";
+export type { ChangeSet, IncrementalResult, ParseFileResult } from "./incremental.js";
+export { extractComments } from "./comment-extractor.js";
+export type { ExtractedComment, CommentKind } from "./comment-extractor.js";

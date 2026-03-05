@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audit — Graph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#08080a;--bg2:#111115;--bg3:#18181d;--bg4:#1f1f26;
+  --border:#2a2a33;--border2:#3a3a46;
+  --text:#e8e6e3;--text2:#9d9b97;--text3:#6b6966;
+  --accent:#c9f06b;--accent2:#a8cc4e;
+  --red:#f06b6b;--orange:#f0a86b;--yellow:#f0db6b;--blue:#6bb0f0;--purple:#a86bf0;--cyan:#6be8f0;
+  --font-mono:'JetBrains Mono',monospace;--font-sans:'Instrument Sans',sans-serif;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font-sans)}
+canvas{display:block;position:absolute;top:0;left:0}
+
+#hud{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;padding:10px 16px;background:rgba(8,8,10,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);z-index:20;pointer-events:auto}
+#hud h1{font-family:var(--font-mono);font-size:.95rem;font-weight:700;color:var(--accent);letter-spacing:-.03em;white-space:nowrap}
+#hud .sep{width:1px;height:20px;background:var(--border)}
+#hud .stat{font-size:.72rem;color:var(--text3);font-family:var(--font-mono)}
+#hud .stat b{color:var(--text2);font-weight:600}
+#search{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:5px 10px;color:var(--text);font-family:var(--font-mono);font-size:.78rem;outline:none;width:220px}
+#search:focus{border-color:var(--accent)}
+#search::placeholder{color:var(--text3)}
+.hud-btn{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:4px 10px;color:var(--text2);font-family:var(--font-mono);font-size:.72rem;cursor:pointer;white-space:nowrap}
+.hud-btn:hover{border-color:var(--accent);color:var(--text)}
+.hud-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(201,240,107,.08)}
+#hud .spacer{flex:1}
+
+#legend{position:fixed;bottom:16px;left:16px;background:rgba(17,17,21,.9);border:1px solid var(--border);border-radius:6px;padding:12px 14px;z-index:20;font-size:.7rem;font-family:var(--font-mono);max-width:220px;max-height:calc(100vh - 200px);overflow-y:auto}
+#legend .lrow{display:flex;align-items:center;gap:8px;margin:2px 0;cursor:pointer;padding:2px 4px;border-radius:3px}
+#legend .lrow:hover{background:rgba(255,255,255,.04)}
+#legend .ldot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+#legend .ltxt{color:var(--text3)}
+#legend .lsec{color:var(--text2);font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;margin-top:8px;margin-bottom:2px;padding-left:4px}
+#legend .lrow.dimmed .ldot{opacity:.25}
+#legend .lrow.dimmed .ltxt{opacity:.35}
+
+#detail{position:fixed;top:46px;right:0;width:380px;height:calc(100% - 46px);background:rgba(17,17,21,.95);border-left:1px solid var(--border);z-index:20;overflow-y:auto;padding:16px;transform:translateX(100%);transition:transform .2s ease;backdrop-filter:blur(8px)}
+#detail.open{transform:translateX(0)}
+#detail .close{position:absolute;top:12px;right:12px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:1.1rem;font-family:var(--font-mono)}
+#detail .close:hover{color:var(--text)}
+#detail .mod-name{font-family:var(--font-mono);font-size:1rem;font-weight:700;color:var(--accent);margin-bottom:4px;padding-right:28px;word-break:break-all}
+#detail .mod-dir{font-size:.72rem;color:var(--text3);margin-bottom:12px}
+.detail-section{margin-bottom:16px}
+.detail-section h3{font-family:var(--font-mono);font-size:.75rem;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.detail-section h3 .cnt{color:var(--text3);font-weight:400}
+.sym-list{list-style:none;max-height:280px;overflow-y:auto}
+.sym-list li{padding:3px 0;font-family:var(--font-mono);font-size:.72rem;color:var(--text2);display:flex;align-items:baseline;gap:6px}
+.sym-list li .kind{font-size:.62rem;color:var(--text3);background:var(--bg4);padding:1px 5px;border-radius:3px;flex-shrink:0}
+.sym-list li .exported{color:var(--accent2)}
+.sym-list li .unexported{color:var(--text3)}
+.dep-list{list-style:none}
+.dep-list li{padding:2px 0;font-family:var(--font-mono);font-size:.72rem;cursor:pointer;color:var(--blue)}
+.dep-list li:hover{text-decoration:underline}
+.issue-item{padding:4px 0;font-size:.72rem;border-bottom:1px solid var(--border)}
+.issue-item .itag{font-family:var(--font-mono);font-size:.62rem;padding:1px 5px;border-radius:3px;display:inline-block;margin-right:4px}
+.issue-item .itag.boundary{background:rgba(240,168,107,.12);color:var(--orange)}
+.issue-item .itag.schema{background:rgba(240,107,107,.12);color:var(--red)}
+.issue-item .itag.guard{background:rgba(240,219,107,.12);color:var(--yellow)}
+.issue-item .itag.purity{background:rgba(201,240,107,.12);color:var(--accent)}
+.issue-item .imsg{color:var(--text3);font-size:.68rem;margin-top:1px}
+
+#minimap{position:fixed;bottom:16px;right:16px;width:180px;height:130px;background:rgba(17,17,21,.85);border:1px solid var(--border);border-radius:6px;z-index:20;overflow:hidden;cursor:pointer}
+#minimap canvas{width:100%;height:100%}
+
+#tooltip{position:fixed;pointer-events:none;background:rgba(17,17,21,.95);border:1px solid var(--border);border-radius:4px;padding:6px 10px;font-family:var(--font-mono);font-size:.72rem;color:var(--text);z-index:30;display:none;max-width:280px;backdrop-filter:blur(8px)}
+#tooltip .tt-name{font-weight:600;color:var(--accent)}
+#tooltip .tt-stat{color:var(--text3);font-size:.66rem;margin-top:2px}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="hud">
+  <h1>graph</h1>
+  <div class="sep"></div>
+  <span class="stat" id="statNodes"></span>
+  <span class="stat" id="statEdges"></span>
+  <div class="sep"></div>
+  <input id="search" placeholder="Search modules..." type="text">
+  <button class="hud-btn active" id="btnGroups">Groups</button>
+  <button class="hud-btn active" id="btnEdges">Edges</button>
+  <button class="hud-btn" id="btnIssues">Issues</button>
+  <button class="hud-btn" id="btnLabels">Labels</button>
+  <button class="hud-btn active" id="btnPhysics">Physics</button>
+  <button class="hud-btn" id="btnReset">Reset</button>
+  <div class="spacer"></div>
+  <span class="stat" id="statZoom"></span>
+</div>
+<div id="legend"></div>
+<div id="detail"><button class="close">&times;</button></div>
+<div id="minimap"><canvas id="minicanvas"></canvas></div>
+<div id="tooltip"></div>
+
+<script id="__AUDIT_DATA__" type="application/json">null</script>
+
+<script>
+const raw = JSON.parse(document.getElementById("__AUDIT_DATA__").textContent);
+if (!raw) { document.body.innerHTML = '<div style="color:#6b6966;text-align:center;margin-top:40vh;font-family:monospace">No audit data.</div>'; throw new Error("no data"); }
+
+const D = {
+  map: raw.map || null,
+  contracts: raw.contracts || null,
+  schemaMatch: raw["schema-match"] || null,
+  logicAudit: raw["logic-audit"] || null,
+  traceBoundaries: raw["trace-boundaries"] || null,
+  discovery: raw.discovery || null,
+};
+
+if (!D.map) { document.body.innerHTML = '<div style="color:#6b6966;text-align:center;margin-top:40vh;font-family:monospace">No map data available.</div>'; throw new Error("no map"); }
+
+const DIR_COLORS = [
+  "#c9f06b","#6bb0f0","#f0a86b","#a86bf0","#6be8f0","#f06b9d",
+  "#f0db6b","#6bf09d","#b06bf0","#f06b6b","#6b8ef0","#d4f06b",
+  "#f0886b","#6bf0d4","#c06bf0","#8af06b",
+];
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const miniCanvas = document.getElementById("minicanvas");
+const miniCtx = miniCanvas.getContext("2d");
+
+let W, H;
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  miniCanvas.width = 180 * devicePixelRatio;
+  miniCanvas.height = 130 * devicePixelRatio;
+  miniCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const modules = D.map.modules;
+const depGraph = D.map.dependencyGraph;
+const pathToIdx = {};
+modules.forEach((m, i) => pathToIdx[m.path] = i);
+
+function getFolder(path) {
+  const parts = path.split("/");
+  parts.pop();
+  return parts.join("/") || path;
+}
+
+function getTopDir(path) {
+  const parts = path.split("/");
+  return parts.length > 2 ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+function shortName(path) {
+  const parts = path.split("/");
+  return parts[parts.length - 1] || path;
+}
+
+const folderSet = new Set();
+const topDirSet = new Set();
+modules.forEach(m => {
+  folderSet.add(getFolder(m.path));
+  topDirSet.add(getTopDir(m.path));
+});
+const topDirList = [...topDirSet].sort();
+const topDirColorMap = {};
+topDirList.forEach((d, i) => topDirColorMap[d] = DIR_COLORS[i % DIR_COLORS.length]);
+
+function colorForFolder(folder) {
+  return topDirColorMap[getTopDir(folder + "/x")] || "#555";
+}
+
+const issuesByModule = {};
+function addIssue(modPath, issue) {
+  if (!issuesByModule[modPath]) issuesByModule[modPath] = [];
+  issuesByModule[modPath].push(issue);
+}
+
+function matchModPath(filePath) {
+  if (!filePath) return null;
+  const short = filePath.replace(/.*?src\//, "src/").replace(/\.tsx?$/, "");
+  if (pathToIdx[short] !== undefined) return short;
+  for (const m of modules) {
+    if (filePath.includes(m.relativePath || m.path)) return m.path;
+  }
+  return null;
+}
+
+if (D.traceBoundaries?.boundaries) {
+  for (const b of D.traceBoundaries.boundaries) {
+    const mp = matchModPath(b.filePath);
+    if (mp) addIssue(mp, { type: "boundary", kind: b.kind, fn: b.functionContext, line: b.line });
+  }
+}
+if (D.schemaMatch?.results) {
+  for (const r of D.schemaMatch.results) {
+    const mp = matchModPath(r.schemaFile);
+    if (mp) {
+      for (const mm of (r.mismatches || [])) {
+        addIssue(mp, { type: "schema", schema: r.schema, field: mm.path, severity: mm.severity, msg: mm.message });
+      }
+    }
+  }
+}
+if (D.logicAudit?.guards) {
+  for (const g of D.logicAudit.guards) {
+    const mp = matchModPath(g.filePath);
+    if (mp) addIssue(mp, { type: "guard", confidence: g.confidence, msg: g.message, line: g.line });
+  }
+}
+if (D.logicAudit?.statusFunctions) {
+  for (const f of D.logicAudit.statusFunctions) {
+    const mp = matchModPath(f.filePath);
+    if (mp) addIssue(mp, { type: "status", name: f.name, branches: f.branchCount, lines: f.lineCount });
+  }
+}
+
+const purityByModule = {};
+if (D.discovery) {
+  for (const fn of D.discovery) {
+    const mp = matchModPath(fn.filePath);
+    if (mp) {
+      if (!purityByModule[mp]) purityByModule[mp] = [];
+      purityByModule[mp].push({ name: fn.name, score: fn.purityScore });
+    }
+  }
+}
+
+const nodes = modules.map((m, i) => {
+  const sym = m.stats?.totalSymbols || m.symbols?.length || 1;
+  const folder = getFolder(m.path);
+  const topDir = getTopDir(m.path);
+  const issues = issuesByModule[m.path] || [];
+  const purity = purityByModule[m.path] || [];
+  const r = Math.max(6, Math.min(28, 4 + Math.sqrt(sym) * 2.5));
+  return {
+    idx: i,
+    path: m.path,
+    short: shortName(m.path),
+    folder,
+    topDir,
+    color: topDirColorMap[topDir] || "#555",
+    symbols: m.symbols || [],
+    stats: m.stats || {},
+    imports: m.imports || [],
+    internalDeps: m.internalDeps || [],
+    externalDeps: m.externalDeps || [],
+    issues,
+    purity,
+    r,
+    x: (Math.random() - 0.5) * 800,
+    y: (Math.random() - 0.5) * 600,
+    vx: 0, vy: 0,
+    pinned: false,
+  };
+});
+
+const folderGroups = {};
+for (const n of nodes) {
+  if (!folderGroups[n.folder]) folderGroups[n.folder] = [];
+  folderGroups[n.folder].push(n.idx);
+}
+
+const topDirGroups = {};
+for (const n of nodes) {
+  if (!topDirGroups[n.topDir]) topDirGroups[n.topDir] = [];
+  topDirGroups[n.topDir].push(n.idx);
+}
+
+const hiddenFolders = new Set();
+
+function resolveModPath(raw) {
+  if (pathToIdx[raw] !== undefined) return raw;
+  if (raw.startsWith("@/")) {
+    const resolved = "src/" + raw.slice(2);
+    if (pathToIdx[resolved] !== undefined) return resolved;
+  }
+  return null;
+}
+
+const edgeSet = new Set();
+const edges = [];
+function addEdge(si, ti) {
+  const key = si + ":" + ti;
+  if (edgeSet.has(key)) return;
+  edgeSet.add(key);
+  edges.push({ source: si, target: ti });
+}
+
+for (const [src, targets] of Object.entries(depGraph)) {
+  const si = pathToIdx[src];
+  if (si === undefined) continue;
+  for (const tgt of targets) {
+    const ti = pathToIdx[tgt];
+    if (ti === undefined) continue;
+    addEdge(si, ti);
+  }
+}
+
+for (const mod of modules) {
+  const si = pathToIdx[mod.path];
+  if (si === undefined) continue;
+  for (const imp of (mod.imports || [])) {
+    const resolved = resolveModPath(imp.module);
+    if (resolved === null) continue;
+    const ti = pathToIdx[resolved];
+    if (ti === undefined || ti === si) continue;
+    addEdge(si, ti);
+  }
+}
+
+document.getElementById("statNodes").innerHTML = `<b>${nodes.length}</b> modules`;
+document.getElementById("statEdges").innerHTML = `<b>${edges.length}</b> edges`;
+
+let camX = 0, camY = 0, camZoom = 1;
+let showGroups = true;
+let showEdges = true;
+let showLabels = false;
+let showIssuesOnly = false;
+let physicsRunning = true;
+let selectedNode = null;
+let hoveredNode = null;
+let searchTerm = "";
+let dragNode = null;
+let isPanning = false;
+let panStart = { x: 0, y: 0 };
+
+function screenToWorld(sx, sy) {
+  return { x: (sx - W / 2) / camZoom + camX, y: (sy - H / 2) / camZoom + camY };
+}
+function worldToScreen(wx, wy) {
+  return { x: (wx - camX) * camZoom + W / 2, y: (wy - camY) * camZoom + H / 2 };
+}
+
+function simulate() {
+  if (!physicsRunning) return;
+  const alpha = 0.3;
+  const repulsion = 1200;
+  const attraction = 0.008;
+  const damping = 0.88;
+  const centerPull = 0.001;
+  const folderPull = showGroups ? 0.015 : 0.003;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const ni = nodes[i];
+    if (ni.pinned) continue;
+    ni.vx *= damping;
+    ni.vy *= damping;
+    ni.vx -= ni.x * centerPull;
+    ni.vy -= ni.y * centerPull;
+  }
+
+  for (let i = 0; i < nodes.length; i++) {
+    const ni = nodes[i];
+    if (ni.pinned) continue;
+    for (let j = i + 1; j < nodes.length; j++) {
+      const nj = nodes[j];
+      let dx = ni.x - nj.x;
+      let dy = ni.y - nj.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) d2 = 1;
+      const d = Math.sqrt(d2);
+      const sameFolder = ni.folder === nj.folder;
+      const sameTopDir = ni.topDir === nj.topDir;
+      const rep = sameFolder ? repulsion * 0.3 : (sameTopDir ? repulsion * 0.6 : repulsion);
+      const f = rep / d2;
+      const fx = (dx / d) * f;
+      const fy = (dy / d) * f;
+      ni.vx += fx;
+      ni.vy += fy;
+      if (!nj.pinned) { nj.vx -= fx; nj.vy -= fy; }
+    }
+  }
+
+  for (const e of edges) {
+    const s = nodes[e.source];
+    const t = nodes[e.target];
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const sameFolder = s.folder === t.folder;
+    const ideal = sameFolder ? 60 : 120;
+    const f = (d - ideal) * attraction;
+    const fx = (dx / d) * f;
+    const fy = (dy / d) * f;
+    if (!s.pinned) { s.vx += fx; s.vy += fy; }
+    if (!t.pinned) { t.vx -= fx; t.vy -= fy; }
+  }
+
+  if (showGroups) {
+    for (const [, idxs] of Object.entries(folderGroups)) {
+      if (idxs.length < 2) continue;
+      let cx = 0, cy = 0;
+      for (const i of idxs) { cx += nodes[i].x; cy += nodes[i].y; }
+      cx /= idxs.length; cy /= idxs.length;
+      for (const i of idxs) {
+        const n = nodes[i];
+        if (n.pinned) continue;
+        n.vx += (cx - n.x) * folderPull;
+        n.vy += (cy - n.y) * folderPull;
+      }
+    }
+  }
+
+  for (const n of nodes) {
+    if (n.pinned) continue;
+    n.x += n.vx * alpha;
+    n.y += n.vy * alpha;
+  }
+}
+
+function isVisible(n) {
+  if (hiddenFolders.has(n.folder) || hiddenFolders.has(n.topDir)) return false;
+  if (showIssuesOnly && n.issues.length === 0) return false;
+  if (searchTerm && !n.path.toLowerCase().includes(searchTerm) && !n.short.toLowerCase().includes(searchTerm)) return false;
+  return true;
+}
+
+function convexHull(points) {
+  if (points.length < 3) return points.slice();
+  points.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const lower = [];
+  for (const p of points) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = points.length - 1; i >= 0; i--) {
+    const p = points[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function cross(o, a, b) {
+  return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+}
+
+function drawPaddedHull(hull, pad, color, alpha, label) {
+  if (hull.length === 0) return;
+  ctx.globalAlpha = alpha;
+
+  if (hull.length === 1) {
+    ctx.beginPath();
+    ctx.arc(hull[0][0], hull[0][1], pad, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    return;
+  }
+
+  if (hull.length === 2) {
+    const dx = hull[1][0] - hull[0][0];
+    const dy = hull[1][1] - hull[0][1];
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = -dy / d * pad;
+    const ny = dx / d * pad;
+    ctx.beginPath();
+    ctx.moveTo(hull[0][0] + nx, hull[0][1] + ny);
+    ctx.lineTo(hull[1][0] + nx, hull[1][1] + ny);
+    ctx.arc(hull[1][0], hull[1][1], pad, Math.atan2(ny, nx), Math.atan2(-ny, -nx));
+    ctx.lineTo(hull[0][0] - nx, hull[0][1] - ny);
+    ctx.arc(hull[0][0], hull[0][1], pad, Math.atan2(-ny, -nx), Math.atan2(ny, nx));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    return;
+  }
+
+  ctx.beginPath();
+  for (let i = 0; i < hull.length; i++) {
+    const curr = hull[i];
+    const next = hull[(i + 1) % hull.length];
+    const prev = hull[(i - 1 + hull.length) % hull.length];
+
+    const dx1 = curr[0] - prev[0], dy1 = curr[1] - prev[1];
+    const d1 = Math.sqrt(dx1 * dx1 + dy1 * dy1) || 1;
+    const dx2 = next[0] - curr[0], dy2 = next[1] - curr[1];
+    const d2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1;
+
+    const n1x = -dy1 / d1, n1y = dx1 / d1;
+    const n2x = -dy2 / d2, n2y = dx2 / d2;
+
+    const ox1 = curr[0] + n1x * pad;
+    const oy1 = curr[1] + n1y * pad;
+    const ox2 = curr[0] + n2x * pad;
+    const oy2 = curr[1] + n2y * pad;
+
+    const a1 = Math.atan2(n1y, n1x);
+    const a2 = Math.atan2(n2y, n2x);
+
+    if (i === 0) ctx.moveTo(ox1, oy1);
+    else ctx.lineTo(ox1, oy1);
+
+    ctx.arc(curr[0], curr[1], pad, a1, a2, false);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+
+  if (label && camZoom > 0.25) {
+    let cx = 0, cy = 0;
+    for (const p of hull) { cx += p[0]; cy += p[1]; }
+    cx /= hull.length; cy /= hull.length;
+    let minY = Infinity;
+    for (const p of hull) { if (p[1] < minY) minY = p[1]; }
+    const fontSize = Math.max(9, Math.min(14, 11 / camZoom));
+    ctx.globalAlpha = Math.min(alpha * 3, 0.6);
+    ctx.font = `600 ${fontSize}px 'JetBrains Mono'`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = color;
+    ctx.fillText(label, cx, minY - pad * 0.5);
+  }
+}
+
+function drawGroups() {
+  if (!showGroups) return;
+
+  for (const [topDir, idxs] of Object.entries(topDirGroups)) {
+    if (hiddenFolders.has(topDir)) continue;
+    const pts = [];
+    for (const i of idxs) {
+      const n = nodes[i];
+      if (!isVisible(n)) continue;
+      pts.push([n.x, n.y]);
+    }
+    if (pts.length < 1) continue;
+    const hull = convexHull(pts);
+    const color = topDirColorMap[topDir] || "#555";
+    drawPaddedHull(hull, 40, color, 0.04, null);
+  }
+
+  for (const [folder, idxs] of Object.entries(folderGroups)) {
+    if (idxs.length < 2) continue;
+    if (hiddenFolders.has(folder)) continue;
+    const topDir = getTopDir(folder + "/x");
+    if (hiddenFolders.has(topDir)) continue;
+    const pts = [];
+    for (const i of idxs) {
+      const n = nodes[i];
+      if (!isVisible(n)) continue;
+      pts.push([n.x, n.y]);
+    }
+    if (pts.length < 2) continue;
+    const hull = convexHull(pts);
+    const color = topDirColorMap[topDir] || "#555";
+    const label = folder.replace("src/", "");
+    drawPaddedHull(hull, 24, color, 0.08, label);
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(camZoom, camZoom);
+  ctx.translate(-camX, -camY);
+
+  drawGroups();
+
+  if (showEdges || selectedNode !== null) {
+    for (const e of edges) {
+      const s = nodes[e.source];
+      const t = nodes[e.target];
+      const sv = isVisible(s);
+      const tv = isVisible(t);
+      if (!sv && !tv) continue;
+
+      const isHighlighted = selectedNode !== null && (e.source === selectedNode || e.target === selectedNode);
+      if (!showEdges && !isHighlighted) continue;
+
+      ctx.globalAlpha = isHighlighted ? 0.85 : (selectedNode !== null ? 0.07 : 0.45);
+      ctx.strokeStyle = isHighlighted
+        ? (e.source === selectedNode ? "#6bb0f0" : "#f0a86b")
+        : "#555560";
+      ctx.lineWidth = isHighlighted ? 2 / camZoom : 1 / camZoom;
+      ctx.beginPath();
+      ctx.moveTo(s.x, s.y);
+      ctx.lineTo(t.x, t.y);
+      ctx.stroke();
+
+      if (isHighlighted || camZoom > 1.2) {
+        const dx = t.x - s.x;
+        const dy = t.y - s.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const arrowLen = Math.min(8 / camZoom, d * 0.15);
+        const ax = t.x - (dx / d) * (t.r + 2);
+        const ay = t.y - (dy / d) * (t.r + 2);
+        const angle = Math.atan2(dy, dx);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - arrowLen * Math.cos(angle - 0.35), ay - arrowLen * Math.sin(angle - 0.35));
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - arrowLen * Math.cos(angle + 0.35), ay - arrowLen * Math.sin(angle + 0.35));
+        ctx.stroke();
+      }
+    }
+  }
+
+  ctx.globalAlpha = 1;
+  for (const n of nodes) {
+    if (!isVisible(n)) continue;
+
+    const isSelected = n.idx === selectedNode;
+    const isHovered = n.idx === hoveredNode;
+    const dimmed = selectedNode !== null && !isSelected &&
+      !edges.some(e => (e.source === selectedNode && e.target === n.idx) || (e.target === selectedNode && e.source === n.idx));
+
+    ctx.globalAlpha = dimmed ? 0.15 : 1;
+
+    if (n.issues.length > 0) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r + 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(240,107,107,0.15)";
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = n.color;
+    ctx.globalAlpha = dimmed ? 0.1 : (isSelected || isHovered ? 0.95 : 0.65);
+    ctx.fill();
+
+    if (isSelected || isHovered) {
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2 / camZoom;
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+    }
+
+    if (n.issues.length > 0 && !dimmed) {
+      ctx.globalAlpha = 1;
+      const bx = n.x + n.r * 0.6;
+      const by = n.y - n.r * 0.6;
+      ctx.beginPath();
+      ctx.arc(bx, by, Math.max(4, 6 / camZoom), 0, Math.PI * 2);
+      ctx.fillStyle = "#f06b6b";
+      ctx.fill();
+      if (camZoom > 0.6) {
+        ctx.fillStyle = "#fff";
+        ctx.font = `${Math.max(6, 8 / camZoom)}px 'JetBrains Mono'`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(n.issues.length), bx, by);
+      }
+    }
+
+    if ((showLabels || isSelected || isHovered || camZoom > 1.5) && !dimmed) {
+      ctx.globalAlpha = isSelected || isHovered ? 1 : 0.7;
+      const fontSize = Math.max(8, Math.min(12, 10 / camZoom));
+      ctx.font = `500 ${fontSize}px 'JetBrains Mono'`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = isSelected ? "#c9f06b" : "#e8e6e3";
+      ctx.fillText(n.short, n.x, n.y + n.r + 3);
+    }
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function drawMinimap() {
+  miniCtx.clearRect(0, 0, 180, 130);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const n of nodes) {
+    if (n.x - n.r < minX) minX = n.x - n.r;
+    if (n.y - n.r < minY) minY = n.y - n.r;
+    if (n.x + n.r > maxX) maxX = n.x + n.r;
+    if (n.y + n.r > maxY) maxY = n.y + n.r;
+  }
+  const pad = 20;
+  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  const gw = maxX - minX || 1;
+  const gh = maxY - minY || 1;
+  const scale = Math.min(180 / gw, 130 / gh);
+  const ox = (180 - gw * scale) / 2;
+  const oy = (130 - gh * scale) / 2;
+
+  if (showEdges) {
+    for (const e of edges) {
+      const s = nodes[e.source]; const t = nodes[e.target];
+      miniCtx.strokeStyle = "rgba(58,58,70,0.4)";
+      miniCtx.lineWidth = 0.5;
+      miniCtx.beginPath();
+      miniCtx.moveTo(ox + (s.x - minX) * scale, oy + (s.y - minY) * scale);
+      miniCtx.lineTo(ox + (t.x - minX) * scale, oy + (t.y - minY) * scale);
+      miniCtx.stroke();
+    }
+  }
+  for (const n of nodes) {
+    if (!isVisible(n)) continue;
+    miniCtx.beginPath();
+    miniCtx.arc(ox + (n.x - minX) * scale, oy + (n.y - minY) * scale, Math.max(1.5, n.r * scale * 0.5), 0, Math.PI * 2);
+    miniCtx.fillStyle = n.issues.length > 0 ? "#f06b6b" : n.color;
+    miniCtx.globalAlpha = 0.8;
+    miniCtx.fill();
+  }
+  miniCtx.globalAlpha = 1;
+
+  const vpLeft = camX - W / (2 * camZoom);
+  const vpTop = camY - H / (2 * camZoom);
+  const vpW = W / camZoom;
+  const vpH = H / camZoom;
+  miniCtx.strokeStyle = "rgba(201,240,107,0.5)";
+  miniCtx.lineWidth = 1;
+  miniCtx.strokeRect(
+    ox + (vpLeft - minX) * scale,
+    oy + (vpTop - minY) * scale,
+    vpW * scale,
+    vpH * scale,
+  );
+}
+
+function findNodeAt(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  let best = null;
+  let bestD = Infinity;
+  for (const n of nodes) {
+    if (!isVisible(n)) continue;
+    const dx = w.x - n.x;
+    const dy = w.y - n.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < n.r + 4 && d < bestD) { best = n; bestD = d; }
+  }
+  return best;
+}
+
+function showTooltip(n, sx, sy) {
+  const tt = document.getElementById("tooltip");
+  tt.style.display = "block";
+  tt.style.left = (sx + 14) + "px";
+  tt.style.top = (sy - 10) + "px";
+  const issueNote = n.issues.length > 0 ? `<br><span style="color:#f06b6b">${n.issues.length} issue(s)</span>` : "";
+  tt.innerHTML = `<div class="tt-name">${n.short}</div><div class="tt-stat">${n.path}<br>${n.stats.totalSymbols || 0} symbols · ${n.stats.exportedSymbols || 0} exported · ${n.internalDeps.length} deps${issueNote}</div>`;
+}
+function hideTooltip() { document.getElementById("tooltip").style.display = "none"; }
+
+function openDetail(nIdx) {
+  selectedNode = nIdx;
+  const n = nodes[nIdx];
+  const det = document.getElementById("detail");
+  det.classList.add("open");
+
+  let html = `<button class="close">&times;</button>`;
+  html += `<div class="mod-name">${n.path}</div>`;
+  html += `<div class="mod-dir">${n.folder} · ${n.stats.totalSymbols || 0} symbols</div>`;
+
+  if (n.symbols.length) {
+    html += `<div class="detail-section"><h3>Symbols <span class="cnt">${n.symbols.length}</span></h3><ul class="sym-list">`;
+    const sorted = [...n.symbols].sort((a, b) => (b.exported ? 1 : 0) - (a.exported ? 1 : 0) || a.name.localeCompare(b.name));
+    for (const s of sorted) {
+      const cls = s.exported ? "exported" : "unexported";
+      html += `<li><span class="kind">${s.kind}</span><span class="${cls}">${s.name}</span>${s.lines ? ` <span style="color:var(--text3);font-size:.6rem">L${s.lines.start}–${s.lines.end}</span>` : ""}</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (n.internalDeps.length) {
+    html += `<div class="detail-section"><h3>Internal Deps <span class="cnt">${n.internalDeps.length}</span></h3><ul class="dep-list">`;
+    for (const d of n.internalDeps) {
+      html += `<li data-path="${d}">${d.replace("src/","")}</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  const importers = [];
+  for (const e of edges) {
+    if (e.target === n.idx && !importers.includes(e.source)) importers.push(e.source);
+  }
+  if (importers.length) {
+    html += `<div class="detail-section"><h3>Imported By <span class="cnt">${importers.length}</span></h3><ul class="dep-list">`;
+    for (const si of importers) {
+      html += `<li data-path="${nodes[si].path}">${nodes[si].path.replace("src/","")}</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (n.externalDeps.length) {
+    html += `<div class="detail-section"><h3>External Deps <span class="cnt">${n.externalDeps.length}</span></h3><ul class="dep-list" style="color:var(--text3);cursor:default">`;
+    for (const d of n.externalDeps) {
+      html += `<li style="color:var(--text3);cursor:default">${d}</li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (n.purity.length) {
+    html += `<div class="detail-section"><h3>Pure Functions <span class="cnt">${n.purity.length}</span></h3><ul class="sym-list">`;
+    const sorted = [...n.purity].sort((a, b) => b.score - a.score);
+    for (const p of sorted) {
+      const color = p.score >= 0.7 ? "var(--accent)" : p.score >= 0.4 ? "var(--yellow)" : "var(--text3)";
+      html += `<li><span class="kind" style="color:${color}">${p.score.toFixed(2)}</span><span class="exported">${p.name}</span></li>`;
+    }
+    html += `</ul></div>`;
+  }
+
+  if (n.issues.length) {
+    html += `<div class="detail-section"><h3 style="color:var(--red)">Issues <span class="cnt">${n.issues.length}</span></h3>`;
+    for (const iss of n.issues) {
+      const tag = iss.type;
+      let msg = "";
+      if (iss.type === "boundary") msg = `${iss.kind} in ${iss.fn || "?"}() L${iss.line || "?"}`;
+      else if (iss.type === "schema") msg = `${iss.schema}.${iss.field}: ${iss.msg || ""}`;
+      else if (iss.type === "guard") msg = iss.msg || "";
+      else if (iss.type === "status") msg = `${iss.name}() — ${iss.branches} branches, ${iss.lines} lines`;
+      html += `<div class="issue-item"><span class="itag ${tag}">${tag}</span><div class="imsg">${msg}</div></div>`;
+    }
+    html += `</div>`;
+  }
+
+  det.innerHTML = html;
+
+  det.querySelector(".close").addEventListener("click", () => {
+    det.classList.remove("open");
+    selectedNode = null;
+  });
+
+  det.querySelectorAll(".dep-list li[data-path]").forEach(li => {
+    li.addEventListener("click", () => {
+      const idx = pathToIdx[li.dataset.path];
+      if (idx !== undefined) {
+        openDetail(idx);
+        const n2 = nodes[idx];
+        camX = n2.x; camY = n2.y;
+      }
+    });
+  });
+}
+
+canvas.addEventListener("mousedown", (e) => {
+  const n = findNodeAt(e.clientX, e.clientY);
+  if (n) {
+    dragNode = n;
+    n.pinned = true;
+    return;
+  }
+  isPanning = true;
+  panStart = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  if (dragNode) {
+    const w = screenToWorld(e.clientX, e.clientY);
+    dragNode.x = w.x;
+    dragNode.y = w.y;
+    return;
+  }
+  if (isPanning) {
+    const dx = e.clientX - panStart.x;
+    const dy = e.clientY - panStart.y;
+    camX -= dx / camZoom;
+    camY -= dy / camZoom;
+    panStart = { x: e.clientX, y: e.clientY };
+    return;
+  }
+  const n = findNodeAt(e.clientX, e.clientY);
+  if (n) {
+    hoveredNode = n.idx;
+    canvas.style.cursor = "pointer";
+    showTooltip(n, e.clientX, e.clientY);
+  } else {
+    hoveredNode = null;
+    canvas.style.cursor = "grab";
+    hideTooltip();
+  }
+});
+
+canvas.addEventListener("mouseup", (e) => {
+  if (dragNode) {
+    if (!e.shiftKey) dragNode.pinned = false;
+    const clickDist = 3;
+    const w = screenToWorld(e.clientX, e.clientY);
+    const dx = w.x - dragNode.x;
+    const dy = w.y - dragNode.y;
+    if (Math.sqrt(dx * dx + dy * dy) < clickDist) {
+      openDetail(dragNode.idx);
+    }
+    dragNode = null;
+    return;
+  }
+  isPanning = false;
+});
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const zoomSpeed = 1.08;
+  const oldZoom = camZoom;
+  camZoom *= e.deltaY < 0 ? zoomSpeed : 1 / zoomSpeed;
+  camZoom = Math.max(0.05, Math.min(12, camZoom));
+  const w = screenToWorld(e.clientX, e.clientY);
+  camX += (w.x - camX) * (1 - oldZoom / camZoom);
+  camY += (w.y - camY) * (1 - oldZoom / camZoom);
+}, { passive: false });
+
+canvas.addEventListener("dblclick", (e) => {
+  const n = findNodeAt(e.clientX, e.clientY);
+  if (n) { n.pinned = !n.pinned; }
+});
+
+document.getElementById("search").addEventListener("input", (e) => {
+  searchTerm = e.target.value.toLowerCase();
+});
+
+document.getElementById("btnGroups").addEventListener("click", function() {
+  showGroups = !showGroups;
+  this.classList.toggle("active", showGroups);
+});
+
+document.getElementById("btnEdges").addEventListener("click", function() {
+  showEdges = !showEdges;
+  this.classList.toggle("active", showEdges);
+});
+
+document.getElementById("btnLabels").addEventListener("click", function() {
+  showLabels = !showLabels;
+  this.classList.toggle("active", showLabels);
+});
+
+document.getElementById("btnIssues").addEventListener("click", function() {
+  showIssuesOnly = !showIssuesOnly;
+  this.classList.toggle("active", showIssuesOnly);
+});
+
+document.getElementById("btnPhysics").addEventListener("click", function() {
+  physicsRunning = !physicsRunning;
+  this.classList.toggle("active", physicsRunning);
+});
+
+document.getElementById("btnReset").addEventListener("click", () => {
+  camX = 0; camY = 0; camZoom = 1;
+  selectedNode = null;
+  hiddenFolders.clear();
+  document.getElementById("detail").classList.remove("open");
+  for (const n of nodes) { n.pinned = false; }
+  buildLegend();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    selectedNode = null;
+    document.getElementById("detail").classList.remove("open");
+    hideTooltip();
+  }
+  if (e.key === "l" && document.activeElement !== document.getElementById("search")) {
+    showLabels = !showLabels;
+    document.getElementById("btnLabels").classList.toggle("active", showLabels);
+  }
+  if (e.key === "g" && document.activeElement !== document.getElementById("search")) {
+    showGroups = !showGroups;
+    document.getElementById("btnGroups").classList.toggle("active", showGroups);
+  }
+});
+
+function buildLegend() {
+  const legendEl = document.getElementById("legend");
+  let html = "";
+
+  for (const topDir of topDirList) {
+    const color = topDirColorMap[topDir];
+    const count = topDirGroups[topDir]?.length || 0;
+    const topHidden = hiddenFolders.has(topDir);
+    const cls = topHidden ? "lrow dimmed" : "lrow";
+    html += `<div class="${cls}" data-toggle-top="${topDir}"><div class="ldot" style="background:${color}"></div><span class="ltxt" style="font-weight:600">${topDir.replace("src/","")} (${count})</span></div>`;
+
+    const subFolders = Object.keys(folderGroups)
+      .filter(f => getTopDir(f + "/x") === topDir && f !== topDir)
+      .sort();
+
+    for (const folder of subFolders) {
+      const fc = folderGroups[folder].length;
+      const fHidden = hiddenFolders.has(folder) || topHidden;
+      const fcls = fHidden ? "lrow dimmed" : "lrow";
+      const label = folder.replace(topDir + "/", "");
+      html += `<div class="${fcls}" data-toggle-folder="${folder}" style="padding-left:18px"><div class="ldot" style="background:${color};width:7px;height:7px;opacity:.6"></div><span class="ltxt">${label} (${fc})</span></div>`;
+    }
+  }
+
+  legendEl.innerHTML = html;
+
+  legendEl.querySelectorAll("[data-toggle-top]").forEach(el => {
+    el.addEventListener("click", () => {
+      const dir = el.dataset.toggleTop;
+      if (hiddenFolders.has(dir)) {
+        hiddenFolders.delete(dir);
+        for (const f of Object.keys(folderGroups)) {
+          if (getTopDir(f + "/x") === dir) hiddenFolders.delete(f);
+        }
+      } else {
+        hiddenFolders.add(dir);
+      }
+      buildLegend();
+    });
+  });
+
+  legendEl.querySelectorAll("[data-toggle-folder]").forEach(el => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const folder = el.dataset.toggleFolder;
+      if (hiddenFolders.has(folder)) hiddenFolders.delete(folder);
+      else hiddenFolders.add(folder);
+      buildLegend();
+    });
+  });
+}
+
+buildLegend();
+
+let frame = 0;
+function loop() {
+  simulate();
+  draw();
+  frame++;
+  if (frame % 10 === 0) {
+    drawMinimap();
+    document.getElementById("statZoom").innerHTML = `<b>${camZoom.toFixed(2)}</b>x`;
+  }
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

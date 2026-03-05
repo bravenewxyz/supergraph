@@ -1,0 +1,6 @@
+{
+  "name": "@devtools/dashboard",
+  "version": "0.1.0",
+  "description": "Single-file HTML audit dashboard for guild-v3 devtools",
+  "private": true
+}
