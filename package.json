@@ -1,0 +1,16 @@
+{
+  "name": "supergraph",
+  "version": "1.0.0",
+  "description": "Interactive cross-package module graph visualizer for monorepos",
+  "module": "src/index.ts",
+  "bin": {
+    "supergraph": "src/index.ts"
+  },
+  "scripts": {
+    "start": "bun src/index.ts",
+    "build": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile bin/supergraph"
+  },
+  "devDependencies": {
+    "bun-types": "latest"
+  }
+}
