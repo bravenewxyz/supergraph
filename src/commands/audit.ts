@@ -1,6 +1,9 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
+
+// Embed dashboard templates so they're available in compiled binaries
+import DASHBOARD_INDEX_HTML from "../../dashboard/index.html" with { type: "text" };
+import DASHBOARD_GRAPH_HTML from "../../dashboard/graph.html" with { type: "text" };
 
 // Language driver abstraction
 import { detectLanguage } from "../../graph/src/cli/lang/index.js";
@@ -357,17 +360,19 @@ async function loadPayload(jsonDir: string): Promise<Record<string, unknown>> {
   return payload;
 }
 
+const DASHBOARD_TEMPLATES: Record<string, string> = {
+  "index.html": DASHBOARD_INDEX_HTML,
+  "graph.html": DASHBOARD_GRAPH_HTML,
+};
+
 async function injectTemplate(
-  devtoolsRoot: string,
   templateFile: string,
   payload: Record<string, unknown>,
   outPath: string,
 ): Promise<boolean> {
   try {
-    const template = await readFile(
-      resolve(devtoolsRoot, "dashboard", templateFile),
-      "utf-8",
-    );
+    const template = DASHBOARD_TEMPLATES[templateFile];
+    if (!template) throw new Error(`Unknown template: ${templateFile}`);
     const injected = template.replace(
       '<script id="__AUDIT_DATA__" type="application/json">null</script>',
       `<script id="__AUDIT_DATA__" type="application/json">${JSON.stringify(payload)}</script>`,
@@ -381,17 +386,12 @@ async function injectTemplate(
 }
 
 async function buildDashboards(
-  devtoolsRoot: string,
   t: PkgTarget,
 ): Promise<{ dash: boolean; graph: boolean }> {
-  // Dashboard templates aren't available in compiled binaries (not embedded by bundler)
-  const templateDir = resolve(devtoolsRoot, "dashboard");
-  if (!existsSync(templateDir)) return { dash: false, graph: false };
-
   const payload = await loadPayload(t.jsonDir);
   const [dash, graph] = await Promise.all([
-    injectTemplate(devtoolsRoot, "index.html", payload, `${t.outDir}/dashboard.html`),
-    injectTemplate(devtoolsRoot, "graph.html", payload, `${t.outDir}/graph.html`),
+    injectTemplate("index.html", payload, `${t.outDir}/dashboard.html`),
+    injectTemplate("graph.html", payload, `${t.outDir}/graph.html`),
   ]);
   return { dash, graph };
 }
@@ -419,7 +419,7 @@ function checkCollisions(targets: PkgTarget[]): void {
 // Per-package audit (unified)
 // ---------------------------------------------------------------------------
 
-async function auditPackage(devtoolsRoot: string, t: PkgTarget, anim?: AnimationHandle): Promise<number> {
+async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<number> {
   const langLabel = t.driver.id === "typescript" ? "" : `  (${t.driver.name})`;
   if (anim) {
     anim.update(`auditing ${t.pkgName}...`);
@@ -445,7 +445,7 @@ async function auditPackage(devtoolsRoot: string, t: PkgTarget, anim?: Animation
   // Dashboards only for TS packages (they use flow-tool JSON)
   if (t.driver.id === "typescript") {
     anim?.update(`${t.pkgName}: building dashboards...`);
-    const { dash, graph } = await buildDashboards(devtoolsRoot, t);
+    const { dash, graph } = await buildDashboards(t);
     if (!anim) {
       console.log("");
       console.log(`  Text:  ${t.outDir}/`);
@@ -617,7 +617,7 @@ Usage:
     }
 
     for (const t of tsTargets) {
-      totalFailures += await auditPackage(devtoolsRoot, t, anim);
+      totalFailures += await auditPackage(t, anim);
     }
   }
 
@@ -634,7 +634,7 @@ Usage:
     }
 
     for (const t of goTargets) {
-      totalFailures += await auditPackage(devtoolsRoot, t, anim);
+      totalFailures += await auditPackage(t, anim);
     }
   }
 
