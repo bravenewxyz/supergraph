@@ -1,4 +1,3 @@
-import goLang from "@ast-grep/lang-go";
 import { parse, registerDynamicLanguage } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
 import type { SymbolEdge } from "../schema/edges.js";
@@ -9,10 +8,27 @@ import { createSymbolNode } from "../schema/nodes.js";
 // Register Go language once
 let goRegistered = false;
 function ensureGoRegistered(): void {
-  if (!goRegistered) {
-    registerDynamicLanguage({ go: goLang });
-    goRegistered = true;
+  if (goRegistered) return;
+
+  // If AST_GREP_LANG_GO_PATH is set (standalone binary), use it directly
+  // to construct the lang config instead of importing the package (which
+  // would try to dlopen from a path that doesn't exist outside node_modules).
+  const envPath = process.env.AST_GREP_LANG_GO_PATH;
+  if (envPath) {
+    registerDynamicLanguage({
+      go: {
+        libraryPath: envPath,
+        extensions: ["go"],
+        languageSymbol: "tree_sitter_go",
+        expandoChar: "µ",
+      },
+    });
+  } else {
+    // Normal mode: import from package (works in dev / bun run)
+    const goLang = require("@ast-grep/lang-go");
+    registerDynamicLanguage({ go: goLang.default ?? goLang });
   }
+  goRegistered = true;
 }
 
 export interface ParseResult {

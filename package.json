@@ -15,7 +15,7 @@
   },
   "scripts": {
     "start": "bun serve.ts",
-    "build": "bun build --compile --minify src/index.ts --outfile bin/supergraph",
+    "build": "bun run scripts/build.ts",
     "release": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"release: v$(jq -r .version package.json)\" && git push",
     "test": "bun test --recursive",
     "typecheck": "bun run --filter='*' typecheck",

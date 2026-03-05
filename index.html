@@ -563,7 +563,7 @@
   <div class="hero-content">
     <p class="hero-tagline">Your entire monorepo in <span style="color: var(--accent);">one file.</span></p>
     <p class="hero-desc">
-      supergraph analyzes your monorepo and generates a compact text map of every module, symbol, dependency edge, and issue. ~500 lines that fit in any AI context window. For humans, it generates an interactive graph visualization.
+      supergraph analyzes your monorepo and generates a unified text map &mdash; every module, schema, endpoint, type, and cross-package edge. Domain-aware. Fits in one AI context window. For humans, an interactive graph visualization.
     </p>
     <div class="hero-install-group">
       <div class="hero-install">
@@ -577,7 +577,7 @@
         <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
       </div>
     </div>
-    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span> for Claude Code.</p>
+    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span> and <span class="hl">/high-level</span> for Claude Code.</p>
   </div>
 </section>
 
@@ -589,57 +589,54 @@
 <section id="output">
   <div class="section-header">
     <div class="section-num">01 &mdash; The Output</div>
-    <h2><span class="accent">supergraph.txt</span></h2>
+    <h2><span class="accent">superhigh.txt</span></h2>
     <p class="section-sub">
-      Run <code class="inline">supergraph</code> in any monorepo. Get <code class="inline">audit/supergraph.txt</code> &mdash; every package, module, exported symbol, and cross-package edge in a structured, compressed format.
+      Run <code class="inline">supergraph</code> in any monorepo. Get <code class="inline">audit/superhigh.txt</code> &mdash; a unified map combining module graphs, domain schemas, endpoint flows, TS types, and cross-package edges. One file, zero redundancy.
     </p>
   </div>
 
   <div class="code-block">
     <div class="code-block-header">
-      <span class="code-block-label">audit/supergraph.txt &mdash; real output, 21 packages</span>
+      <span class="code-block-label">audit/superhigh.txt &mdash; real output, 21 packages</span>
       <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
     </div>
-    <pre><code><span class="tok-cmd">GNOMEFORTRESS-V2 SUPERGRAPH</span> <span class="tok-punct">|</span> <span class="tok-string">2026-03-05</span>
-<span class="tok-num">365</span>m <span class="tok-punct">&middot;</span> <span class="tok-num">852</span>ie <span class="tok-punct">&middot;</span> <span class="tok-num">209</span>xe
+    <pre><code><span class="tok-cmd">SUPERHIGH</span> <span class="tok-punct">|</span> <span class="tok-string">2026-03-05</span>
 
-<span class="tok-comment"># PACKAGES  (short=npm,modules)</span>
-<span class="tok-pkg">agent</span>=@gnomefortress/agent,7m  <span class="tok-pkg">cli</span>=@gnomefortress/cli,13m
-<span class="tok-pkg">core</span>=@gnomefortress/core,14m  <span class="tok-pkg">fortress</span>=@gnomefortress/fortress,85m
-<span class="tok-pkg">graph</span>=@gnomefortress/graph,37m  <span class="tok-pkg">flow</span>=@gnomefortress/flow,35m  ...
+<span class="tok-comment"># PART 1 — DOMAINS</span>
 
-<span class="tok-comment"># MODULES  path [exp(/total)]&lt;-importers symbols | ext-deps</span>
+<span class="tok-pkg">[guild]</span>
+<span class="tok-sym">r/guild</span> GET /v2/guilds/:id  <span class="tok-num">cache:60s</span>
+<span class="tok-sym">c/guild</span> createGuild,updateGuild,deleteGuild
+<span class="tok-sym">z/GuildSchema</span> id:str name:str urlName:str? imageUrl:str? <span class="tok-num">+8</span>
+<span class="tok-sym">t/guilds</span> id:int name:varchar url_name:varchar <span class="tok-num">+12</span>
+
+<span class="tok-comment"># PART 2 — PACKAGES</span>
 
 <span class="tok-pkg">[fortress]</span>
-<span class="tok-sym">actors/orchestrator</span> [<span class="tok-num">68/93</span>]<span class="tok-punct">&lt;-</span>2 OrchestratorActorContext,OrchestratorActorInput,actor,+63
-    <span class="tok-punct">|</span> @gnomefortress/constants,@gnomefortress/graph,xstate
-<span class="tok-sym">events</span> [<span class="tok-num">119/120</span>]<span class="tok-punct">&lt;-</span>16 AbortEvent,ActorErrorLog,AnomalyDetectedEvent,+111
-    <span class="tok-punct">|</span> @gnomefortress/graph,xstate
+<span class="tok-sym">actors/orchestrator</span> [<span class="tok-num">68/93</span>]<span class="tok-punct">&lt;-</span>2 OrchestratorActorContext,actor,+63
+<span class="tok-sym">events</span> [<span class="tok-num">119/120</span>]<span class="tok-punct">&lt;-</span>16 AbortEvent,ActorErrorLog,+111
 
-<span class="tok-pkg">[graph]</span>
-<span class="tok-sym">store/graph-store</span> [<span class="tok-num">2/4</span>]<span class="tok-punct">&lt;-</span>9 SerializedGraph,GraphStore <span class="tok-punct">|</span> graphology
-<span class="tok-sym">schema/nodes</span> [4]<span class="tok-punct">&lt;-</span>11 SymbolNode,SymbolKind,createSymbolNode,KIND_PRIORITY
+<span class="tok-comment"># PART 3 — TYPES</span>
 
-<span class="tok-comment"># CROSS-PACKAGE DEPENDENCIES</span>
-<span class="tok-edge">fortress/actors/orchestrator</span> <span class="tok-punct">-></span> constants/idx graph/idx utils/idx xstate/idx
-<span class="tok-edge">fortress/events</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx xstate/idx</code></pre>
+<span class="tok-sym">GuildResponse</span> { id:num name:str urlName:str roles:Role[] <span class="tok-num">+6</span> }
+<span class="tok-sym">CreateGuildInput</span> { name:str urlName:str? description:str? }</code></pre>
   </div>
 
   <div class="features-grid">
     <div class="feature-item">
-      <div class="feature-icon">[68/93]</div>
-      <div class="feature-title">Symbol Counts</div>
-      <div class="feature-desc">Exported vs total per module. API surface at a glance.</div>
+      <div class="feature-icon">domains</div>
+      <div class="feature-title">Domain-Aware</div>
+      <div class="feature-desc">Routes, controllers, Zod schemas, SQL tables, and Redis keys grouped by domain.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">&lt;-16</div>
-      <div class="feature-title">Fan-in</div>
-      <div class="feature-desc">How many modules depend on this one. High = critical. Zero = dead code.</div>
+      <div class="feature-icon">schemas</div>
+      <div class="feature-title">Full Schema Fields</div>
+      <div class="feature-desc">Zod schemas, SQL tables, and TS types with field definitions inline. No separate lookup needed.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">-></div>
-      <div class="feature-title">Cross-Package Edges</div>
-      <div class="feature-desc">Every inter-package import, explicit and queryable.</div>
+      <div class="feature-icon">shortcut</div>
+      <div class="feature-title">Two Versions</div>
+      <div class="feature-desc">superhigh.txt (full) and superhigh-shortcut.txt (compressed paths, abbreviated deps) for context-constrained agents.</div>
     </div>
   </div>
 </section>

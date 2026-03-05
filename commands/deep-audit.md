@@ -31,6 +31,7 @@ These four files must be read **in their entirety** (never skim, chunk, or parti
 
 | File | Contains | Phase |
 |---|---|---|
+| `superhigh.txt` | Unified monorepo map: domains, schemas, modules, types, edges | 0 |
 | `map.txt` | Per-module symbols, functions, types, variables, comments, deps | 1 |
 | `deps.txt` | Full dependency graph — every module → its internal deps | 1 |
 | `imports.txt` | All modules sorted by inbound edge count | 1 |
@@ -51,7 +52,7 @@ These four files must be read **in their entirety** (never skim, chunk, or parti
 supergraph
 ```
 
-This discovers all packages, runs every analysis tool in parallel, and generates artifacts for every package under `audit/packages/<name>/`. If `supergraph` is not installed, install it first: `brew install bravenewxyz/supergraph/supergraph`.
+This discovers all packages, runs every analysis tool in parallel, and generates artifacts for every package under `audit/packages/<name>/`. It also generates `audit/superhigh.txt` and `audit/superhigh-shortcut.txt` — unified maps combining module graphs, schemas, flows, and cross-package edges. If `supergraph` is not installed, install it first: `brew install bravenewxyz/supergraph/supergraph`.
 
 **Then focus the deep audit (Phases 1–10) on the requested packages.** If the user specified one or more packages, audit those. If none specified, audit all discovered packages. For multi-package audits, run each package through Phases 1–8 independently, then present all plans together in Phase 9.
 
@@ -59,7 +60,9 @@ All tools run in parallel; failures are non-fatal. If any tool fails, note it an
 
 ## Phase 1: Read the map
 
-Read all three map files in full before Phase 2. Notation for `map.txt`:
+**First**, read `audit/superhigh.txt` in its entirety — this is the unified view of the entire monorepo: domain blocks with schemas, all package modules, TS types, and cross-package edges. This gives you full architectural context before diving into per-package artifacts.
+
+**Then** read all three per-package map files in full before Phase 2. Notation for `map.txt`:
 - `+` exported, ` ` unexported | `fn` function | `L42-55` line range
 - `←` internal deps | `←ext` external deps | `━━━ module ━━━` separator
 - `// ...` = extracted code comments

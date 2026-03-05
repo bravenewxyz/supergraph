@@ -606,5 +606,31 @@ Usage:
     }
   }
 
+  // Generate superhigh outputs (full + shortcut)
+  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
+  console.log("\nGenerating superhigh...");
+  const superhighResults = await Promise.allSettled([
+    (async () => {
+      const proc = Bun.spawn(["bun", superhighScript, "--full", "--root", ROOT], {
+        cwd: ROOT, stdout: "inherit", stderr: "inherit",
+      });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`superhigh --full exited with ${code}`);
+    })(),
+    (async () => {
+      const proc = Bun.spawn(["bun", superhighScript, "--root", ROOT], {
+        cwd: ROOT, stdout: "inherit", stderr: "inherit",
+      });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`superhigh shortcut exited with ${code}`);
+    })(),
+  ]);
+
+  for (const r of superhighResults) {
+    if (r.status === "rejected") {
+      console.error(`  ✗  superhigh failed: ${r.reason}`);
+    }
+  }
+
   if (totalFailures > 0) process.exit(1);
 }

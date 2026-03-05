@@ -29,29 +29,43 @@ esac
 TARGET="${PLATFORM}-${ARCH_SUFFIX}"
 RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TARGET}.tar.gz"
 
-# ─── 1. Install binary ──────────────────────────────────────────
-echo "  [1/2] Downloading supergraph binary (${TARGET})..."
+# ─── 1. Install binary + native libraries ──────────────────────
+echo "  [1/3] Downloading supergraph binary (${TARGET})..."
 mkdir -p "${BIN_DIR}"
 TMP="$(mktemp -d)"
 curl -fsSL "${RELEASE_URL}" | tar xz -C "${TMP}"
 mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
 chmod +x "${BIN_DIR}/supergraph"
-rm -rf "${TMP}"
 echo "        -> ${BIN_DIR}/supergraph"
 
+# Install native libraries (for Go analysis)
+SUPERGRAPH_LIB="${BIN_DIR}/../lib/supergraph"
+mkdir -p "${SUPERGRAPH_LIB}"
+if [ -d "${TMP}/lib" ]; then
+  cp -r "${TMP}/lib/"* "${SUPERGRAPH_LIB}/"
+  echo "        -> ${SUPERGRAPH_LIB}/ (native libs)"
+fi
+rm -rf "${TMP}"
+
 # ─── 2. Install deep-audit command for Claude Code ──────────────
-echo "  [2/2] Installing /deep-audit command for Claude Code..."
+echo "  [2/3] Installing /deep-audit command for Claude Code..."
 mkdir -p "${CLAUDE_CMD_DIR}"
 curl -fsSL "${BASE}/commands/deep-audit.md" -o "${CLAUDE_CMD_DIR}/deep-audit.md"
 echo "        -> ${CLAUDE_CMD_DIR}/deep-audit.md"
 
-# ─── 3. Mark setup done (skip first-run install) ────────────────
+# ─── 3. Install /high-level command for Claude Code ──────────────
+echo "  [3/3] Installing /high-level command for Claude Code..."
+curl -fsSL "${BASE}/commands/high-level.md" -o "${CLAUDE_CMD_DIR}/high-level.md"
+echo "        -> ${CLAUDE_CMD_DIR}/high-level.md"
+
+# ─── 4. Mark setup done (skip first-run install) ────────────────
 mkdir -p "$HOME/.supergraph"
 date -u +%Y-%m-%dT%H:%M:%SZ > "$HOME/.supergraph/.setup-done"
 
 echo ""
 echo "Done. You now have:"
 echo "  supergraph    — run in any monorepo to generate audit/supergraph.txt"
+echo "  /high-level   — Claude Code slash command to read the full supergraph"
 echo "  /deep-audit   — Claude Code slash command for 10-phase package audits"
 echo ""
 

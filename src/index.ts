@@ -17,26 +17,44 @@
  *   supergraph pkg-graph [--root <path>]    Cross-package: pkg-graph.html
  */
 
-import { resolve, join } from "node:path";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve, join, dirname } from "node:path";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 
-// Auto-install /deep-audit Claude Code command on first run
-import { existsSync } from "node:fs";
+// ── Resolve lang-go parser.so for standalone binary distribution ──────────
+// The .so is loaded via dlopen (not require), so it can't be embedded in the
+// binary. We ship it alongside in lib/ and tell lang-go where to find it.
+const _execDir = dirname(process.execPath);
+const _langGoSearchPaths = [
+  join(_execDir, "lib", "lang-go-parser.so"),                // direct: ./lib/
+  join(_execDir, "..", "lib", "supergraph", "lang-go-parser.so"), // install.sh: ~/.local/lib/supergraph/
+  join(_execDir, "..", "libexec", "lib", "lang-go-parser.so"),    // homebrew: libexec/lib/
+];
+
+if (!process.env.AST_GREP_LANG_GO_PATH) {
+  for (const p of _langGoSearchPaths) {
+    if (existsSync(p)) {
+      process.env.AST_GREP_LANG_GO_PATH = p;
+      break;
+    }
+  }
+}
 
 const supergraphDir = join(homedir(), ".supergraph");
 const setupDone = join(supergraphDir, ".setup-done");
 if (!existsSync(setupDone)) {
-  const DEEP_AUDIT_URL = "https://raw.githubusercontent.com/bravenewxyz/supergraph/master/commands/deep-audit.md";
+  const BASE_URL = "https://raw.githubusercontent.com/bravenewxyz/supergraph/master/commands";
   const claudeCmdDir = join(homedir(), ".claude", "commands");
-  const deepAuditDest = join(claudeCmdDir, "deep-audit.md");
   try {
-    const res = await fetch(DEEP_AUDIT_URL);
-    if (res.ok) {
-      mkdirSync(claudeCmdDir, { recursive: true });
-      writeFileSync(deepAuditDest, await res.text());
-      console.log(`Installed /deep-audit command for Claude Code`);
+    mkdirSync(claudeCmdDir, { recursive: true });
+    const commands = ["deep-audit.md", "high-level.md"];
+    for (const cmd of commands) {
+      const res = await fetch(`${BASE_URL}/${cmd}`);
+      if (res.ok) {
+        writeFileSync(join(claudeCmdDir, cmd), await res.text());
+      }
     }
+    console.log(`Installed /deep-audit and /high-level commands for Claude Code`);
     mkdirSync(supergraphDir, { recursive: true });
     writeFileSync(setupDone, new Date().toISOString());
   } catch {
@@ -74,6 +92,10 @@ Commands:
   invariant <subcmd>      Invariant verification system
   aggregate               Build cross-package supergraph visualization
   pkg-graph               Build package dependency visualization
+
+The full pipeline also generates:
+  audit/superhigh.txt             Unified map: domains + schemas + modules + types
+  audit/superhigh-shortcut.txt    Compressed version for AI context windows
 
 Global options:
   --root <path>           Target repo root (default: cwd)

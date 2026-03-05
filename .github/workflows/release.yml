@@ -49,9 +49,8 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
-          - os: macos-latest
+          - os: macos-13
             target: darwin-x64
-            cross: true
           - os: ubuntu-latest
             target: linux-x64
 
@@ -67,16 +66,14 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: Build binary
-        run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
-            bun build --compile --minify --target=bun-${{ matrix.target }} src/index.ts --outfile supergraph
-          else
-            bun build --compile --minify src/index.ts --outfile supergraph
-          fi
+        run: bun run scripts/build.ts --target ${{ matrix.target }}
+
+      - name: Verify binary runs standalone
+        run: ./supergraph --help
 
       - name: Package
         run: |
-          tar czf supergraph-${{ matrix.target }}.tar.gz supergraph
+          tar czf supergraph-${{ matrix.target }}.tar.gz supergraph lib/
           shasum -a 256 supergraph-${{ matrix.target }}.tar.gz > supergraph-${{ matrix.target }}.tar.gz.sha256
 
       - uses: actions/upload-artifact@v4
@@ -151,6 +148,8 @@ jobs:
 
             def install
               bin.install "supergraph"
+              # Install native libs for Go analysis support
+              (libexec/"lib").install Dir["lib/*"] if Dir.exist?("lib")
             end
 
             def post_install
