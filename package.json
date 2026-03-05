@@ -22,7 +22,8 @@
     "audit-prep": "bun scripts/audit-prep.ts",
     "supergraph": "bun scripts/supergraph.ts",
     "pkg-graph": "bun scripts/pkg-graph.ts",
-    "check-health": "bun scripts/check-health.ts"
+    "check-health": "bun scripts/check-health.ts",
+    "demo": "bun src/ui/graph-animation.ts"
   },
   "devDependencies": {
     "bun-types": "latest"

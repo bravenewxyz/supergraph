@@ -1,36 +1,55 @@
 #!/usr/bin/env bun
 /**
  * 3D ASCII graph animation — visualizes the supergraph building up.
- * Nodes appear, edges connect, the graph rotates in 3D space.
+ * Built on top of the 3D ASCII render engine.
+ *
+ * Run standalone:  bun src/ui/graph-animation.ts
  */
 
-const CHARS = " .·:+*#@";
-const EDGE_CHAR = "·";
-const NODE_CHARS = ["◉", "●", "○", "◆", "◇", "▪"];
-const COLORS = [
-  "\x1b[32m",  // green
-  "\x1b[36m",  // cyan
-  "\x1b[35m",  // magenta
-  "\x1b[33m",  // yellow
-  "\x1b[34m",  // blue
-  "\x1b[31m",  // red
-];
-const DIM = "\x1b[2m";
-const RESET = "\x1b[0m";
-const ACCENT = "\x1b[38;2;201;240;107m"; // #c9f06b
-const GREY = "\x1b[38;5;240m";
+import {
+  type Vec3, type Camera, type Projected,
+  v3, rgb, DIM, RESET, BOLD,
+  Framebuffer, Projector, ParticleSystem,
+  createCamera, drawLine, drawGlow, drawLabel, drawText,
+  runScene,
+} from "./engine.js";
 
-type Node3D = {
-  x: number; y: number; z: number;
+// ── Colors ──────────────────────────────────────────────────────────────────
+
+const ACCENT = rgb(201, 240, 107);  // #c9f06b
+const GREY = rgb(80, 80, 80);
+const DARK = rgb(50, 50, 50);
+
+const PKG_COLORS = [
+  rgb(80, 220, 100),   // green
+  rgb(80, 200, 220),   // cyan
+  rgb(200, 100, 220),  // magenta
+  rgb(220, 200, 80),   // yellow
+  rgb(80, 130, 220),   // blue
+  rgb(220, 100, 80),   // red
+  rgb(150, 220, 80),   // lime
+  rgb(220, 150, 80),   // orange
+  rgb(100, 180, 200),  // teal
+  rgb(200, 120, 180),  // pink
+];
+
+// ── Graph data ──────────────────────────────────────────────────────────────
+
+type GraphNode = {
+  pos: Vec3;
+  targetPos: Vec3;   // for spring animation
+  vel: Vec3;
   label: string;
   pkg: number;
-  active: boolean;
   spawnT: number;
+  glowT: number;     // last glow trigger time
 };
 
-type Edge3D = {
-  from: number; to: number;
+type GraphEdge = {
+  from: number;
+  to: number;
   spawnT: number;
+  cross: boolean;    // cross-package edge
 };
 
 const PKG_NAMES = [
@@ -46,32 +65,47 @@ const MODULE_NAMES = [
   "parser", "render", "state", "effect", "query",
 ];
 
-function createGraph(nodeCount: number): { nodes: Node3D[]; edges: Edge3D[] } {
-  const nodes: Node3D[] = [];
-  const edges: Edge3D[] = [];
+function createGraph(nodeCount: number) {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
 
   for (let i = 0; i < nodeCount; i++) {
     const pkg = Math.floor(Math.random() * PKG_NAMES.length);
-    const angle = (pkg / PKG_NAMES.length) * Math.PI * 2;
-    const radius = 1.2 + Math.random() * 0.8;
+    const clusterAngle = (pkg / PKG_NAMES.length) * Math.PI * 2;
+    const clusterR = 1.8 + Math.random() * 0.6;
     const mod = MODULE_NAMES[Math.floor(Math.random() * MODULE_NAMES.length)]!;
 
+    // Nodes start at origin and spring toward their target
+    const targetPos = v3.create(
+      Math.cos(clusterAngle) * clusterR + (Math.random() - 0.5) * 0.8,
+      (Math.random() - 0.5) * 2.5,
+      Math.sin(clusterAngle) * clusterR + (Math.random() - 0.5) * 0.8,
+    );
+
     nodes.push({
-      x: Math.cos(angle) * radius + (Math.random() - 0.5) * 0.6,
-      y: (Math.random() - 0.5) * 2,
-      z: Math.sin(angle) * radius + (Math.random() - 0.5) * 0.6,
+      pos: v3.create(
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3,
+        (Math.random() - 0.5) * 0.3,
+      ),
+      targetPos,
+      vel: v3.create(0, 0, 0),
       label: `${PKG_NAMES[pkg]}/${mod}`,
       pkg,
-      active: false,
-      spawnT: i * 0.12 + Math.random() * 0.08,
+      spawnT: i * 0.15 + Math.random() * 0.1,
+      glowT: -10,
     });
   }
 
   // Intra-package edges
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[i]!.pkg === nodes[j]!.pkg && Math.random() < 0.4) {
-        edges.push({ from: i, to: j, spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.1 });
+      if (nodes[i]!.pkg === nodes[j]!.pkg && Math.random() < 0.45) {
+        edges.push({
+          from: i, to: j,
+          spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.15,
+          cross: false,
+        });
       }
     }
   }
@@ -79,8 +113,12 @@ function createGraph(nodeCount: number): { nodes: Node3D[]; edges: Edge3D[] } {
   // Cross-package edges
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[i]!.pkg !== nodes[j]!.pkg && Math.random() < 0.08) {
-        edges.push({ from: i, to: j, spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.3 });
+      if (nodes[i]!.pkg !== nodes[j]!.pkg && Math.random() < 0.06) {
+        edges.push({
+          from: i, to: j,
+          spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.4,
+          cross: true,
+        });
       }
     }
   }
@@ -88,124 +126,147 @@ function createGraph(nodeCount: number): { nodes: Node3D[]; edges: Edge3D[] } {
   return { nodes, edges };
 }
 
-function project(x: number, y: number, z: number, rotY: number, rotX: number, W: number, H: number) {
-  // Rotate around Y
-  const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
-  let rx = x * cosY - z * sinY;
-  let rz = x * sinY + z * cosY;
+// ── Physics ─────────────────────────────────────────────────────────────────
 
-  // Rotate around X
-  const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
-  let ry = y * cosX - rz * sinX;
-  rz = y * sinX + rz * cosX;
+function updatePhysics(nodes: GraphNode[], dt: number, t: number) {
+  const springK = 3.0;
+  const damping = 0.88;
 
-  // Perspective
-  const d = 5;
-  const scale = d / (d + rz);
-  const sx = Math.round(W / 2 + rx * scale * W * 0.25);
-  const sy = Math.round(H / 2 - ry * scale * H * 0.35);
+  for (const n of nodes) {
+    if (t < n.spawnT) continue;
+    const age = t - n.spawnT;
+    if (age < 0) continue;
 
-  return { sx, sy, depth: rz, scale };
+    // Spring force toward target
+    const dx = n.targetPos.x - n.pos.x;
+    const dy = n.targetPos.y - n.pos.y;
+    const dz = n.targetPos.z - n.pos.z;
+
+    n.vel.x += dx * springK * dt;
+    n.vel.y += dy * springK * dt;
+    n.vel.z += dz * springK * dt;
+
+    // Damping
+    n.vel.x *= damping;
+    n.vel.y *= damping;
+    n.vel.z *= damping;
+
+    // Integrate
+    n.pos.x += n.vel.x * dt;
+    n.pos.y += n.vel.y * dt;
+    n.pos.z += n.vel.z * dt;
+  }
 }
 
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * Math.max(0, Math.min(1, t));
-}
+// ── Render ───────────────────────────────────────────────────────────────────
 
-function renderFrame(
-  nodes: Node3D[],
-  edges: Edge3D[],
+function renderGraph(
+  fb: Framebuffer,
+  proj: Projector,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  particles: ParticleSystem,
   t: number,
-  W: number,
-  H: number,
-  rotY: number,
-  rotX: number,
-  statusLine: string,
-): string {
-  // Buffer: [char, color]
-  const buf: [string, string][] = new Array(W * H).fill(null).map(() => [" ", ""]);
+) {
+  // Project all visible nodes
+  const projected: (Projected & { node: GraphNode; idx: number })[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]!;
+    if (t < n.spawnT) continue;
+    const p = proj.project(n.pos);
+    if (p.visible) {
+      projected.push({ ...p, node: n, idx: i });
+    }
+  }
 
-  const set = (x: number, y: number, ch: string, color: string, depth: number) => {
-    if (x < 0 || x >= W || y < 0 || y >= H) return;
-    const idx = y * W + x;
-    buf[idx] = [ch, color];
-  };
+  // Sort back-to-front for correct overlap
+  projected.sort((a, b) => b.depth - a.depth);
 
-  // Draw edges
+  // ── Draw edges ──
   for (const e of edges) {
     const age = t - e.spawnT;
     if (age < 0) continue;
-    const alpha = Math.min(1, age / 0.5);
+    const progress = Math.min(1, age / 0.6);
 
     const a = nodes[e.from]!;
     const b = nodes[e.to]!;
-    const pa = project(a.x, a.y, a.z, rotY, rotX, W, H);
-    const pb = project(b.x, b.y, b.z, rotY, rotX, W, H);
+    if (t < a.spawnT || t < b.spawnT) continue;
 
-    const cross = a.pkg !== b.pkg;
-    const color = cross ? ACCENT : GREY;
-    const ch = cross ? "·" : "·";
+    const pa = proj.project(a.pos);
+    const pb = proj.project(b.pos);
 
-    // Bresenham-ish line
-    const steps = Math.max(Math.abs(pb.sx - pa.sx), Math.abs(pb.sy - pa.sy));
-    const drawSteps = Math.round(steps * alpha);
-    for (let s = 0; s <= drawSteps; s++) {
-      const frac = steps === 0 ? 0 : s / steps;
-      const px = Math.round(lerp(pa.sx, pb.sx, frac));
-      const py = Math.round(lerp(pa.sy, pb.sy, frac));
-      const depth = lerp(pa.depth, pb.depth, frac);
-      set(px, py, ch, color, depth);
+    if (e.cross) {
+      // Cross-package: accent colored, dashed
+      drawLine(fb, pa, pb, {
+        char: "-",
+        fg: ACCENT,
+        dashGap: 2,
+      }, progress);
+    } else {
+      // Intra-package: dim grey, solid dots
+      drawLine(fb, pa, pb, {
+        char: ".",
+        fg: DARK,
+      }, progress);
     }
   }
 
-  // Draw nodes (sorted by depth, back to front)
-  const projected = nodes.map((n, i) => {
-    const age = t - n.spawnT;
-    const p = project(n.x, n.y, n.z, rotY, rotX, W, H);
-    return { ...p, node: n, idx: i, age };
-  }).filter(p => p.age > 0).sort((a, b) => b.depth - a.depth);
-
+  // ── Draw node glows ──
   for (const p of projected) {
-    const age = p.age;
+    const age = t - p.node.spawnT;
+    const glowAge = t - p.node.glowT;
+    const color = PKG_COLORS[p.node.pkg % PKG_COLORS.length]!;
+
+    // Spawn burst glow
+    if (age < 0.8) {
+      const burstIntensity = (1 - age / 0.8) * 0.7;
+      drawGlow(fb, p.sx, p.sy, 3 + burstIntensity * 3, burstIntensity, color);
+    }
+
+    // Ambient glow for all nodes
+    const ambientPulse = 0.15 + 0.08 * Math.sin(t * 2.5 + p.idx * 1.7);
+    drawGlow(fb, p.sx, p.sy, 2, ambientPulse, color);
+
+    // Triggered glow (from status updates)
+    if (glowAge < 1.0 && glowAge >= 0) {
+      const trigIntensity = (1 - glowAge) * 0.9;
+      drawGlow(fb, p.sx, p.sy, 4, trigIntensity, ACCENT);
+    }
+  }
+
+  // ── Draw nodes ──
+  for (const p of projected) {
+    const age = t - p.node.spawnT;
+    const color = PKG_COLORS[p.node.pkg % PKG_COLORS.length]!;
     const pulse = 0.8 + 0.2 * Math.sin(t * 3 + p.idx);
-    const color = COLORS[p.node.pkg % COLORS.length]!;
-    const ch = age < 0.3 ? "+" : (pulse > 0.9 ? "◉" : "●");
-    set(p.sx, p.sy, ch, color, p.depth);
 
-    // Label (only for nearby/large nodes)
-    if (p.scale > 0.7 && age > 0.5) {
-      const label = p.node.label.slice(0, 12);
-      for (let c = 0; c < label.length; c++) {
-        set(p.sx + 2 + c, p.sy, label[c]!, DIM + color, p.depth);
-      }
+    // Node character based on age and pulse
+    let ch: string;
+    if (age < 0.15) {
+      ch = "*";
+    } else if (age < 0.3) {
+      ch = "+";
+    } else if (pulse > 0.92) {
+      ch = "@";
+    } else if (pulse > 0.85) {
+      ch = "#";
+    } else {
+      ch = "*";
+    }
+
+    fb.set(p.sx, p.sy, ch, color, p.depth, age < 0.5 ? 1 : 0.3);
+
+    // Labels for nodes that are close enough
+    if (p.scale > 0.15 && age > 0.6) {
+      drawLabel(fb, proj, p.node.pos, p.node.label, color);
     }
   }
 
-  // Build output
-  const lines: string[] = [];
-  for (let y = 0; y < H; y++) {
-    let line = "";
-    for (let x = 0; x < W; x++) {
-      const [ch, color] = buf[y * W + x]!;
-      if (ch !== " ") {
-        line += color + ch + RESET;
-      } else {
-        line += " ";
-      }
-    }
-    lines.push(line);
-  }
-
-  // Status bar at bottom
-  const activeNodes = nodes.filter(n => t >= n.spawnT).length;
-  const activeEdges = edges.filter(e => t >= e.spawnT).length;
-  const statsLine = `${GREY}${activeNodes}m · ${activeEdges}e${RESET}`;
-
-  lines.push("");
-  lines.push(`  ${ACCENT}supergraph${RESET}  ${statsLine}  ${DIM}${statusLine}${RESET}`);
-
-  return lines.join("\n");
+  // ── Particles ──
+  particles.draw(fb, proj);
 }
+
+// ── Exported API ────────────────────────────────────────────────────────────
 
 export type AnimationHandle = {
   update: (status: string) => void;
@@ -213,62 +274,126 @@ export type AnimationHandle = {
 };
 
 export function startAnimation(): AnimationHandle {
-  const cols = process.stdout.columns || 80;
-  const rows = process.stdout.rows || 24;
-  const W = Math.min(cols, 120);
-  const H = Math.min(rows - 4, 30);
+  const { nodes, edges } = createGraph(40);
+  const particles = new ParticleSystem();
 
-  const { nodes, edges } = createGraph(35);
+  const camera = createCamera({
+    position: v3.create(0, 0.5, 7),
+    target: v3.create(0, 0, 0),
+    fov: 1.0,
+  });
 
-  let t = 0;
-  let statusLine = "initializing...";
-  const dt = 0.06;
-  const rotSpeed = 0.012;
+  let statusText = "initializing...";
+  let activeNodes = 0;
+  let activeEdges = 0;
+  let sceneTime = 0; // track scene time for glow triggers
 
-  // Hide cursor
-  process.stdout.write("\x1b[?25l");
-  // Clear screen
-  process.stdout.write("\x1b[2J");
+  // Orbit state
+  let orbitAngle = 0;
+  const orbitRadius = 7;
+  const orbitSpeed = 0.15;
+  const orbitTilt = 0.3;
 
-  const interval = setInterval(() => {
-    t += dt;
-    const rotY = t * rotSpeed;
-    const rotX = 0.3 + Math.sin(t * 0.02) * 0.1;
+  const handle = runScene(camera, {
+    update(dt, t) {
+      sceneTime = t;
+      // Orbit camera
+      orbitAngle += orbitSpeed * dt;
+      const tiltWobble = orbitTilt + Math.sin(t * 0.12) * 0.15;
+      camera.position = v3.create(
+        Math.sin(orbitAngle) * orbitRadius,
+        Math.sin(tiltWobble) * 2.5 + 1,
+        Math.cos(orbitAngle) * orbitRadius,
+      );
 
-    const frame = renderFrame(nodes, edges, t, W, H, rotY, rotX, statusLine);
+      // Physics
+      updatePhysics(nodes, dt, t);
 
-    // Move cursor to top-left and draw
-    process.stdout.write(`\x1b[H${frame}`);
-  }, 50);
+      // Count active elements
+      activeNodes = nodes.filter(n => t >= n.spawnT).length;
+      activeEdges = edges.filter(e => t >= e.spawnT).length;
+
+      // Spawn particles on newly appearing nodes
+      for (const n of nodes) {
+        const age = t - n.spawnT;
+        if (age >= 0 && age < dt * 2) {
+          const color = PKG_COLORS[n.pkg % PKG_COLORS.length]!;
+          particles.emit(n.pos, 6, {
+            speed: 0.8,
+            life: 1.2,
+            char: ".",
+            fg: color,
+            emissive: 0.8,
+            spread: 0.6,
+          });
+          n.glowT = t;
+        }
+      }
+
+      // Spawn particles on newly appearing cross-package edges
+      for (const e of edges) {
+        if (!e.cross) continue;
+        const age = t - e.spawnT;
+        if (age >= 0 && age < dt * 2) {
+          const mid = v3.lerp(nodes[e.from]!.pos, nodes[e.to]!.pos, 0.5);
+          particles.emit(mid, 4, {
+            speed: 0.4,
+            life: 0.8,
+            fg: ACCENT,
+            emissive: 1,
+          });
+        }
+      }
+
+      particles.update(dt);
+    },
+
+    render(fb, proj, t) {
+      renderGraph(fb, proj, nodes, edges, particles, t);
+    },
+
+    statusBar(t) {
+      const stats = `${GREY}${activeNodes}m ${DIM}·${RESET} ${GREY}${activeEdges}e${RESET}`;
+      return `  ${ACCENT}${BOLD}supergraph${RESET}  ${stats}  ${DIM}${statusText}${RESET}`;
+    },
+  }, {
+    fps: 24,
+    maxWidth: 160,
+    maxHeight: 50,
+    reserveBottom: 3,
+  });
 
   return {
     update(status: string) {
-      statusLine = status;
+      statusText = status;
+      // Trigger glow on random subset of nodes
+      const count = Math.min(5, Math.floor(Math.random() * 4) + 1);
+      for (let i = 0; i < count; i++) {
+        const idx = Math.floor(Math.random() * nodes.length);
+        nodes[idx]!.glowT = sceneTime;
+      }
     },
     stop() {
-      clearInterval(interval);
-      // Show cursor
-      process.stdout.write("\x1b[?25h");
-      // Clear screen
-      process.stdout.write("\x1b[2J\x1b[H");
+      handle.stop();
     },
   };
 }
 
-// Run standalone for testing
+// ── Standalone demo ─────────────────────────────────────────────────────────
+
 if (import.meta.main) {
   const anim = startAnimation();
 
   const phases = [
     [1.0, "scanning packages..."],
-    [2.5, "building module graph..."],
-    [4.0, "analyzing exports..."],
-    [5.5, "tracing dependencies..."],
-    [7.0, "detecting cross-package edges..."],
-    [8.5, "compressing symbols..."],
-    [10.0, "writing superhigh.txt..."],
-    [11.0, "generating visualization..."],
-    [12.0, "done."],
+    [3.0, "building module graph..."],
+    [5.0, "analyzing exports..."],
+    [7.0, "tracing dependencies..."],
+    [9.0, "detecting cross-package edges..."],
+    [11.0, "compressing symbols..."],
+    [13.0, "writing superhigh.txt..."],
+    [15.0, "generating visualization..."],
+    [17.0, "done — press enter to exit"],
   ] as const;
 
   let phase = 0;
@@ -282,10 +407,40 @@ if (import.meta.main) {
     }
     if (phase >= phases.length) {
       clearInterval(check);
-      setTimeout(() => {
-        anim.stop();
-        console.log(`\x1b[38;2;201;240;107m✓\x1b[0m  supergraph complete`);
-      }, 1500);
     }
   }, 100);
+
+  // Wait for Enter to exit
+  if (process.stdin.isTTY && typeof process.stdin.setRawMode === "function") {
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", (key: Buffer) => {
+      // Enter (0x0d), or Ctrl+C (0x03), or q
+      if (key[0] === 0x0d || key[0] === 0x0a || key[0] === 0x03 || key[0] === 0x71) {
+        clearInterval(check);
+        anim.stop();
+        console.log(`${ACCENT}done${RESET}  supergraph complete`);
+        process.exit(0);
+      }
+    });
+  } else {
+    // Non-TTY: just wait for phases to complete then exit after a pause
+    const exitCheck = setInterval(() => {
+      if (phase >= phases.length) {
+        clearInterval(exitCheck);
+        setTimeout(() => {
+          anim.stop();
+          console.log(`${ACCENT}done${RESET}  supergraph complete`);
+          process.exit(0);
+        }, 2000);
+      }
+    }, 200);
+  }
+
+  // Handle Ctrl+C gracefully
+  process.on("SIGINT", () => {
+    clearInterval(check);
+    anim.stop();
+    process.exit(0);
+  });
 }
