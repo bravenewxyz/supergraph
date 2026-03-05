@@ -30,6 +30,9 @@ TARGET="${PLATFORM}-${ARCH_SUFFIX}"
 RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TARGET}.tar.gz"
 
 # ─── 1. Install binary + native libraries ──────────────────────
+# Remove any existing binary first (avoids stale copies shadowing Homebrew)
+rm -f "${BIN_DIR}/supergraph"
+
 echo "  [1/4] Downloading supergraph binary (${TARGET})..."
 mkdir -p "${BIN_DIR}"
 TMP="$(mktemp -d)"
