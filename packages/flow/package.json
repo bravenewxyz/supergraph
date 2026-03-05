@@ -1,5 +1,5 @@
 {
-  "name": "@devtools/flow",
+  "name": "@supergraph/flow",
   "version": "0.1.0",
   "description": "Universal static data flow analysis — type-level boundary checking, pluggable schema extraction, pipeline tracing",
   "type": "module",
@@ -21,7 +21,7 @@
     "logic-audit": "bun run src/cli/logic-audit.ts"
   },
   "dependencies": {
-    "@devtools/graph": "workspace:*",
+    "@supergraph/graph": "workspace:*",
     "@ast-grep/napi": "^0.40.0",
     "typescript": "^5.0.0"
   },

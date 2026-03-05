@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runLogicAudit } from "../../flow/src/cli/logic-audit.js";
+import { runLogicAudit } from "../../packages/flow/src/cli/logic-audit.js";
 
 export async function runLogicAuditCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

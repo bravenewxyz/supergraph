@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { createHash } from "node:crypto";
 
-const ROOT = resolve(import.meta.dir, "..");
+const ROOT = resolve(import.meta.dir, "../..");
 const TARGETS = ["darwin-arm64", "darwin-x64", "linux-x64"] as const;
 const REPO = "bravenewxyz/supergraph";
 const TAP_REPO = "bravenewxyz/homebrew-supergraph";
@@ -75,7 +75,7 @@ async function main() {
     }
     console.log(`\n   Building ${target}...`);
     try {
-      run(`bun run scripts/build.ts --target ${target}`, { stdio: "inherit" });
+      run(`bun run packages/scripts/build.ts --target ${target}`, { stdio: "inherit" });
     } catch (err) {
       console.log(`   Build failed for ${target}`);
       continue;

@@ -2,24 +2,24 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 // Embed dashboard templates so they're available in compiled binaries
-import DASHBOARD_INDEX_HTML from "../../dashboard/index.html" with { type: "text" };
-import DASHBOARD_GRAPH_HTML from "../../dashboard/graph.html" with { type: "text" };
+import DASHBOARD_INDEX_HTML from "../../packages/dashboard/index.html" with { type: "text" };
+import DASHBOARD_GRAPH_HTML from "../../packages/dashboard/graph.html" with { type: "text" };
 
 // Language driver abstraction
-import { detectLanguage } from "../../graph/src/cli/lang/index.js";
-import type { LanguageDriver } from "../../graph/src/cli/lang/index.js";
+import { detectLanguage } from "../../packages/graph/src/cli/lang/index.js";
+import type { LanguageDriver } from "../../packages/graph/src/cli/lang/index.js";
 
 // TS-only flow tools (imported lazily via direct imports since they're always TS)
-import { runSchemaMatch } from "../../flow/src/cli/schema-match.js";
-import { runTrace } from "../../flow/src/cli/trace.js";
-import { runLogicAudit } from "../../flow/src/cli/logic-audit.js";
-import { runContracts } from "../../flow/src/cli/contracts.js";
-import { runInvariantDiscover } from "../../flow/src/cli/invariant.js";
+import { runSchemaMatch } from "../../packages/flow/src/cli/schema-match.js";
+import { runTrace } from "../../packages/flow/src/cli/trace.js";
+import { runLogicAudit } from "../../packages/flow/src/cli/logic-audit.js";
+import { runContracts } from "../../packages/flow/src/cli/contracts.js";
+import { runInvariantDiscover } from "../../packages/flow/src/cli/invariant.js";
 
 // Cross-package tools
-import { runAggregate } from "../../scripts/supergraph.js";
-import { runPkgGraph } from "../../scripts/pkg-graph.js";
-import { runCrossLangBridge } from "../../scripts/cross-lang-bridge.js";
+import { runAggregate } from "../../packages/scripts/supergraph.js";
+import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
+import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -549,8 +549,8 @@ Usage:
   }
 
   // Import drivers lazily to get references for target construction
-  const { goDriver } = await import("../../graph/src/cli/lang/go-driver.js");
-  const { tsDriver } = await import("../../graph/src/cli/lang/ts-driver.js");
+  const { goDriver } = await import("../../packages/graph/src/cli/lang/go-driver.js");
+  const { tsDriver } = await import("../../packages/graph/src/cli/lang/ts-driver.js");
 
   // -----------------------------------------------------------------------
   // Discover all packages BEFORE starting animation (so we have real names)
@@ -725,7 +725,7 @@ Usage:
   const spawnIO = anim ? "pipe" as const : "inherit" as const;
 
   // Use process.execPath for compiled binary support, fall back to bun for dev
-  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
+  const superhighScript = resolve(devtoolsRoot, "packages", "scripts", "superhigh.ts");
   const isCompiledBinary = !process.execPath.includes("bun");
   const spawnCmd = isCompiledBinary
     ? [process.execPath, "superhigh"]  // compiled: call self with subcommand

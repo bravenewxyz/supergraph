@@ -6,8 +6,8 @@ import {
   MergeEngine,
   SymbolLockTable,
   createSymbolNode,
-} from "@devtools/graph";
-import type { GraphOperation } from "@devtools/graph";
+} from "@supergraph/graph";
+import type { GraphOperation } from "@supergraph/graph";
 import {
   arbSymbolNode,
   arbSymbolId,

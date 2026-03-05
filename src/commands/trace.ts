@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runTrace } from "../../flow/src/cli/trace.js";
+import { runTrace } from "../../packages/flow/src/cli/trace.js";
 
 export async function runTraceCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

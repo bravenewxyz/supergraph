@@ -1,4 +1,4 @@
-import type { GraphStore } from "@devtools/graph";
+import type { GraphStore } from "@supergraph/graph";
 import type { DataBoundary, ErrorPathInfo } from "../schema/boundaries.js";
 import type { Pipeline, PipelineSegment } from "../schema/pipelines.js";
 import { checkJsonRoundtrip } from "../extractor/json-roundtrip.js";

@@ -7,7 +7,7 @@ export async function runInvariantCommand(args: string[]): Promise<void> {
   const subcommand = args[0];
 
   if (subcommand === "discover") {
-    const { runInvariantDiscover } = await import("../../flow/src/cli/invariant.js");
+    const { runInvariantDiscover } = await import("../../packages/flow/src/cli/invariant.js");
 
     const restArgs = args.slice(1);
     const srcDir = restArgs.find((a) => !a.startsWith("--"));
@@ -33,6 +33,6 @@ export async function runInvariantCommand(args: string[]): Promise<void> {
     // For other subcommands (generate, verify, calibrate, contracts, check-log, mutate, prove),
     // reconstruct argv and let the original CLI handle them.
     process.argv = ["bun", "invariant.ts", ...args];
-    await import("../../flow/src/cli/invariant.js");
+    await import("../../packages/flow/src/cli/invariant.js");
   }
 }

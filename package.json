@@ -4,10 +4,10 @@
   "description": "Monorepo intelligence — structural analysis, deep audits, and interactive visualization",
   "private": true,
   "workspaces": [
-    "graph",
-    "flow",
-    "scripts",
-    "dashboard"
+    "packages/graph",
+    "packages/flow",
+    "packages/scripts",
+    "packages/dashboard"
   ],
   "module": "src/index.ts",
   "bin": {
@@ -15,14 +15,14 @@
   },
   "scripts": {
     "start": "bun serve.ts",
-    "build": "bun run scripts/build.ts",
-    "release": "bun run scripts/release.ts",
+    "build": "bun run packages/scripts/build.ts",
+    "release": "bun run packages/scripts/release.ts",
     "test": "bun test --recursive",
     "typecheck": "bun run --filter='*' typecheck",
-    "audit-prep": "bun scripts/audit-prep.ts",
-    "supergraph": "bun scripts/supergraph.ts",
-    "pkg-graph": "bun scripts/pkg-graph.ts",
-    "check-health": "bun scripts/check-health.ts",
+    "audit-prep": "bun packages/scripts/audit-prep.ts",
+    "supergraph": "bun packages/scripts/supergraph.ts",
+    "pkg-graph": "bun packages/scripts/pkg-graph.ts",
+    "check-health": "bun packages/scripts/check-health.ts",
     "demo": "bun src/ui/graph-animation.ts"
   },
   "devDependencies": {

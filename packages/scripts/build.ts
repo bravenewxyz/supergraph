@@ -80,7 +80,7 @@ function parseTarget(): Target {
 
 // ── Path resolution ────────────────────────────────────────────────────────
 
-const ROOT = resolve(import.meta.dir, "..");
+const ROOT = resolve(import.meta.dir, "../..");
 const SRC_DIR = join(ROOT, "src");
 const BUN_CACHE = join(ROOT, "node_modules", ".bun");
 

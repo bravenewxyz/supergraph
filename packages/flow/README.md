@@ -1,4 +1,4 @@
-# @devtools/flow
+# @supergraph/flow
 
 Universal static data flow analysis and invariant verification for TypeScript. Finds where data crosses serialization, validation, and error boundaries — then traces what breaks. Also verifies function invariants with property-based testing and symbolic execution (Z3).
 
@@ -217,7 +217,7 @@ The `/trace` command orchestrates the CLIs with LLM reasoning for semantic analy
 
 ## Dependencies
 
-- [`@devtools/graph`](../graph) — symbol graph, AST parsing, type checker
+- [`@supergraph/graph`](../graph) — symbol graph, AST parsing, type checker
 - [`@ast-grep/napi`](https://ast-grep.github.io/) — fast AST pattern matching for Zod/boundary detection
 - [`typescript`](https://www.typescriptlang.org/) — compiler API for type resolution
 

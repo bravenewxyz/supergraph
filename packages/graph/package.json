@@ -1,5 +1,5 @@
 {
-  "name": "@devtools/graph",
+  "name": "@supergraph/graph",
   "version": "0.1.0",
   "description": "Semantic Code Graph engine",
   "type": "module",

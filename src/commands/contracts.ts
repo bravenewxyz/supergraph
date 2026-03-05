@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runContracts } from "../../flow/src/cli/contracts.js";
+import { runContracts } from "../../packages/flow/src/cli/contracts.js";
 
 export async function runContractsCommand(args: string[]): Promise<void> {
   if (args.includes("--help") || args.includes("-h")) {

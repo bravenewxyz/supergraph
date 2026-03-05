@@ -1,11 +1,11 @@
-# @devtools/graph
+# @supergraph/graph
 
 Semantic code graph engine for TypeScript. Parses source files into a directed multigraph of symbols (functions, classes, interfaces, types, variables) connected by typed edges (imports, calls, extends, contains), then provides querying, mutation, projection, and multi-agent coordination on top.
 
 ## Quick start
 
 ```ts
-import { GraphStore, parseTypeScript } from "@devtools/graph";
+import { GraphStore, parseTypeScript } from "@supergraph/graph";
 
 const code = `
 export function greet(name: string): string {
@@ -191,7 +191,7 @@ const delta = await incremental.update(
 Converts the graph back into TypeScript source files.
 
 ```ts
-import { projectModule, projectGraph } from "@devtools/graph";
+import { projectModule, projectGraph } from "@supergraph/graph";
 
 // Single module
 const code = projectModule(moduleNode, store);
@@ -208,7 +208,7 @@ Also exports `formatTypeScript` (dprint formatter), `qualifiedNameToFilePath`, `
 Append-only operation log with conflict detection and rollback.
 
 ```ts
-import { OperationLog, MergeEngine, computeInverse, rollbackAgent } from "@devtools/graph";
+import { OperationLog, MergeEngine, computeInverse, rollbackAgent } from "@supergraph/graph";
 
 const log = new OperationLog();
 log.append(entry);

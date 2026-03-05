@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { detectLanguage } from "../../graph/src/cli/lang/index.js";
-import { runComplexity } from "../../graph/src/cli/complexity.js";
+import { detectLanguage } from "../../packages/graph/src/cli/lang/index.js";
+import { runComplexity } from "../../packages/graph/src/cli/complexity.js";
 
 export async function runComplexityCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

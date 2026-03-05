@@ -1,5 +1,5 @@
 {
-  "name": "@devtools/scripts",
+  "name": "@supergraph/scripts",
   "version": "0.1.0",
   "description": "Audit and tooling scripts for guild-v3",
   "type": "module",
@@ -15,7 +15,7 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@devtools/graph": "workspace:*",
-    "@devtools/flow": "workspace:*"
+    "@supergraph/graph": "workspace:*",
+    "@supergraph/flow": "workspace:*"
   }
 }

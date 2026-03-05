@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { runSchemaMatch } from "../../flow/src/cli/schema-match.js";
+import { runSchemaMatch } from "../../packages/flow/src/cli/schema-match.js";
 
 export async function runSchemaMatchCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

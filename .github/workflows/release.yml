@@ -79,7 +79,7 @@ jobs:
           fi
 
       - name: Build binary
-        run: bun run scripts/build.ts --target ${{ matrix.target }}
+        run: bun run packages/scripts/build.ts --target ${{ matrix.target }}
 
       - name: Verify binary runs standalone
         if: "!matrix.cross"

@@ -16,7 +16,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getArg, writeOutput } from "./util.js";
-import { GraphStore, parseTypeScript } from "@devtools/graph";
+import { GraphStore, parseTypeScript } from "@supergraph/graph";
 import { collectSourceFiles, createProgram, extractTypeShape } from "../extractor/typescript.js";
 import { createDefaultRegistry } from "../extractor/runtime-schema.js";
 import { detectBoundaries } from "../flow/boundary-detector.js";

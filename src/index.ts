@@ -148,26 +148,26 @@ Global options:
       break;
     }
     case "aggregate": {
-      const { runAggregate } = await import("../scripts/supergraph.js");
+      const { runAggregate } = await import("../packages/scripts/supergraph.js");
       await runAggregate({ root: parseRoot() });
       break;
     }
     case "pkg-graph": {
-      const { runPkgGraph } = await import("../scripts/pkg-graph.js");
+      const { runPkgGraph } = await import("../packages/scripts/pkg-graph.js");
       await runPkgGraph({ root: parseRoot() });
       break;
     }
     case "superhigh": {
       // Re-export superhigh as a subcommand so compiled binary can call itself
-      await import("../scripts/superhigh.js");
+      await import("../packages/scripts/superhigh.js");
       break;
     }
     case "superflow": {
-      await import("../scripts/superflow.js");
+      await import("../packages/scripts/superflow.js");
       break;
     }
     case "superschema": {
-      await import("../scripts/superschema.js");
+      await import("../packages/scripts/superschema.js");
       break;
     }
     case "__anim__": {

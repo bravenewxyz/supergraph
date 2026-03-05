@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { detectLanguage } from "../../graph/src/cli/lang/index.js";
-import { runDeadExports } from "../../graph/src/cli/dead-exports.js";
+import { detectLanguage } from "../../packages/graph/src/cli/lang/index.js";
+import { runDeadExports } from "../../packages/graph/src/cli/dead-exports.js";
 
 export async function runDeadExportsCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

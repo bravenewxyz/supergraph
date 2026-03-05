@@ -6,7 +6,7 @@ import type {
   SymbolEdge,
   GraphOperation,
   OperationEntry,
-} from "@devtools/graph";
+} from "@supergraph/graph";
 
 export const arbSymbolKind: fc.Arbitrary<SymbolKind> = fc.constantFrom(
   "module" as const,

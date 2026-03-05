@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { detectLanguage } from "../../graph/src/cli/lang/index.js";
-import { runMap } from "../../graph/src/cli/map.js";
+import { detectLanguage } from "../../packages/graph/src/cli/lang/index.js";
+import { runMap } from "../../packages/graph/src/cli/map.js";
 
 export async function runMapCommand(args: string[]): Promise<void> {
   const srcDir = args.find((a) => !a.startsWith("--"));

@@ -8,16 +8,16 @@
         "bun-types": "latest",
       },
     },
-    "dashboard": {
-      "name": "@devtools/dashboard",
+    "packages/dashboard": {
+      "name": "@supergraph/dashboard",
       "version": "0.1.0",
     },
-    "flow": {
-      "name": "@devtools/flow",
+    "packages/flow": {
+      "name": "@supergraph/flow",
       "version": "0.1.0",
       "dependencies": {
         "@ast-grep/napi": "^0.40.0",
-        "@devtools/graph": "workspace:*",
+        "@supergraph/graph": "workspace:*",
         "typescript": "^5.0.0",
       },
       "devDependencies": {
@@ -26,8 +26,8 @@
         "z3-solver": "^4.16.0",
       },
     },
-    "graph": {
-      "name": "@devtools/graph",
+    "packages/graph": {
+      "name": "@supergraph/graph",
       "version": "0.1.0",
       "dependencies": {
         "@ast-grep/lang-go": "^0.0.5",
@@ -40,12 +40,12 @@
         "typescript": "^5.0.0",
       },
     },
-    "scripts": {
-      "name": "@devtools/scripts",
+    "packages/scripts": {
+      "name": "@supergraph/scripts",
       "version": "0.1.0",
       "dependencies": {
-        "@devtools/flow": "workspace:*",
-        "@devtools/graph": "workspace:*",
+        "@supergraph/flow": "workspace:*",
+        "@supergraph/graph": "workspace:*",
       },
     },
   },
@@ -74,13 +74,13 @@
 
     "@ast-grep/setup-lang": ["@ast-grep/setup-lang@0.0.6", "", {}, "sha512-aSYZNF5nGQMxnwiA3Lcc8zi0AtpGlug47ADgqCgP/2n7p922FbnW7vo1rbW4kKjW72B/3mDdN7uvYidv8JnPnw=="],
 
-    "@devtools/dashboard": ["@devtools/dashboard@workspace:dashboard"],
+    "@supergraph/dashboard": ["@supergraph/dashboard@workspace:packages/dashboard"],
 
-    "@devtools/flow": ["@devtools/flow@workspace:flow"],
+    "@supergraph/flow": ["@supergraph/flow@workspace:packages/flow"],
 
-    "@devtools/graph": ["@devtools/graph@workspace:graph"],
+    "@supergraph/graph": ["@supergraph/graph@workspace:packages/graph"],
 
-    "@devtools/scripts": ["@devtools/scripts@workspace:scripts"],
+    "@supergraph/scripts": ["@supergraph/scripts@workspace:packages/scripts"],
 
     "@types/node": ["@types/node@25.3.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-DpzbrH7wIcBaJibpKo9nnSQL0MTRdnWttGyE5haGwK86xgMOkFLp7vEyfQPGLOJh5wNYiJ3V9PmUMDhV9u8kkQ=="],
 
