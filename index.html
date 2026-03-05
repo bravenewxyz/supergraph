@@ -147,7 +147,7 @@
       display: flex;
       align-items: stretch;
       gap: 0;
-      max-width: 520px;
+      max-width: 780px;
       border: 1px solid var(--border);
     }
 
@@ -158,6 +158,7 @@
       font-size: 13px;
       border-right: 1px solid var(--border);
       user-select: none;
+      flex-shrink: 0;
     }
 
     .hero-install .install-cmd {
@@ -167,6 +168,8 @@
       font-size: 13px;
       flex: 1;
       letter-spacing: 0.01em;
+      overflow-x: auto;
+      white-space: nowrap;
     }
 
     .hero-install .copy-btn {
@@ -675,8 +678,8 @@
     </p>
     <div class="hero-install">
       <span class="install-prefix">$</span>
-      <span class="install-cmd" id="hero-cmd">supergraph</span>
-      <button class="copy-btn" data-copy="supergraph" onclick="copyText(this, 'supergraph')">copy</button>
+      <span class="install-cmd" id="hero-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/bin/supergraph -o /usr/local/bin/supergraph && chmod +x /usr/local/bin/supergraph</span>
+      <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/bin/supergraph -o /usr/local/bin/supergraph && chmod +x /usr/local/bin/supergraph')">copy</button>
     </div>
   </div>
 </section>

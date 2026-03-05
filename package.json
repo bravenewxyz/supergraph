@@ -7,7 +7,7 @@
     "supergraph": "src/index.ts"
   },
   "scripts": {
-    "start": "bun src/index.ts",
+    "start": "bun serve.ts",
     "build": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile bin/supergraph"
   },
   "devDependencies": {
