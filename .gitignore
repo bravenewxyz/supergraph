@@ -1,6 +1,8 @@
 node_modules/
 bin/
 lib/
+dist/
 audit/
 *.bun
 src/*.node
+/supergraph

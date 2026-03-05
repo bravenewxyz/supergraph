@@ -16,7 +16,7 @@
   "scripts": {
     "start": "bun serve.ts",
     "build": "bun run scripts/build.ts",
-    "release": "npm version patch --no-git-tag-version && git add package.json && git commit -m \"release: v$(jq -r .version package.json)\" && git push",
+    "release": "bun run scripts/release.ts",
     "test": "bun test --recursive",
     "typecheck": "bun run --filter='*' typecheck",
     "audit-prep": "bun scripts/audit-prep.ts",

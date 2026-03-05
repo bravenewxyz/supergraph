@@ -731,8 +731,4 @@ async function main() {
   await runPkgGraph({ root: ROOT, outPath });
 }
 
-// Only auto-run when executed directly (not when imported by audit.ts)
-const isDirectRun = process.argv[1] === import.meta.filename ||
-  process.argv[1]?.endsWith("/pkg-graph.ts") ||
-  process.argv[1]?.endsWith("/pkg-graph.js");
-if (isDirectRun) main();
+// No auto-run — use `supergraph pkg-graph` or the exported runPkgGraph function

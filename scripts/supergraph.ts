@@ -1340,24 +1340,4 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   );
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  if (args.includes("--help") || args.includes("-h")) {
-    console.log("Usage: bun supergraph.ts [--out <path>]");
-    console.log(
-      "  Generates audit/supergraph.html from all existing audit/packages/*/json/map.json files.",
-    );
-    console.log(
-      "  Run pnpm audit-prep first to generate per-package audit data.",
-    );
-    process.exit(0);
-  }
-
-  await runAggregate({ root: ROOT });
-}
-
-// Only auto-run when executed directly (not when imported by audit.ts)
-const isDirectRun = process.argv[1] === import.meta.filename ||
-  process.argv[1]?.endsWith("/supergraph.ts") ||
-  process.argv[1]?.endsWith("/supergraph.js");
-if (isDirectRun) main();
+// No auto-run — use `supergraph aggregate` or `bun scripts/supergraph.ts` via index.ts
