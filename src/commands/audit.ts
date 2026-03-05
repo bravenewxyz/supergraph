@@ -625,11 +625,36 @@ Usage:
   }
 
   // -----------------------------------------------------------------------
-  // Start animation with real package names
+  // Start animation with real package names + dependency edges
   // -----------------------------------------------------------------------
-  const allPkgNames = [...tsTargets, ...goTargets].map((t) => t.pkgName);
+  const allTargets = [...tsTargets, ...goTargets];
+  const allPkgNames = allTargets.map((t) => t.pkgName);
+
+  // Build real dependency edges by reading package.json files
+  const pkgEdges: [number, number][] = [];
+  const pkgNameToIdx = new Map(allPkgNames.map((n, i) => [n, i]));
+  for (let i = 0; i < allTargets.length; i++) {
+    const t = allTargets[i]!;
+    // srcDir is like /path/packages/foo/src — go up one to get package root
+    const pkgJsonPath = join(t.srcDir, "..", "package.json");
+    try {
+      const pkg = JSON.parse(await readFile(pkgJsonPath, "utf-8"));
+      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+      for (const depName of Object.keys(allDeps)) {
+        // Match dep name to our package names (e.g., "@scope/core" → "core")
+        const shortName = depName.split("/").pop()!;
+        const targetIdx = pkgNameToIdx.get(shortName);
+        if (targetIdx !== undefined && targetIdx !== i) {
+          pkgEdges.push([i, targetIdx]);
+        }
+      }
+    } catch {
+      // No package.json or not parseable — skip
+    }
+  }
+
   const isTTY = process.stdout.isTTY && !args.includes("--no-anim");
-  const anim = isTTY ? startAnimation({ packages: allPkgNames }) : undefined;
+  const anim = isTTY ? startAnimation({ packages: allPkgNames, edges: pkgEdges }) : undefined;
 
   let totalFailures = 0;
 

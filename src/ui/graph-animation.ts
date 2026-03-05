@@ -6,8 +6,6 @@
  * Run standalone:  bun src/ui/graph-animation.ts
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join, basename } from "node:path";
 import {
   type Vec3, type Camera, type Projected,
   v3, rgb, DIM, RESET, BOLD,
@@ -59,66 +57,22 @@ const DEFAULT_PKG_NAMES = [
   "cli", "events", "schema", "utils", "bridge",
 ];
 
-const MODULE_NAMES = [
-  "index", "types", "store", "actors", "events",
-  "schema", "nodes", "edges", "config", "utils",
-  "router", "ctrl", "model", "hooks", "guard",
-  "bridge", "adapter", "mapper", "queue", "cache",
-  "parser", "render", "state", "effect", "query",
-];
 
-/** Try to read real module names from audit/packages/<pkg>/json/map.json */
-function loadRealModules(pkgName: string): string[] {
-  const mapPath = join("audit", "packages", pkgName, "json", "map.json");
-  try {
-    if (!existsSync(mapPath)) return [];
-    const raw = JSON.parse(readFileSync(mapPath, "utf-8"));
-    if (!raw?.modules) return [];
-    return (raw.modules as { path: string }[])
-      .map(m => {
-        // path like "src/actors/index.ts" → "actors/index"
-        const p = m.path.replace(/^src\//, "").replace(/\.(ts|tsx|js|jsx)$/, "");
-        return p;
-      })
-      .filter(p => p.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function createGraph(nodeCount: number, packageNames?: string[]) {
+function createGraph(packageNames?: string[], realEdges?: [number, number][]) {
   const PKG_NAMES = packageNames && packageNames.length > 0 ? packageNames : DEFAULT_PKG_NAMES;
 
-  // Try to load real module names per package
-  const pkgModules: Map<number, string[]> = new Map();
-  for (let i = 0; i < PKG_NAMES.length; i++) {
-    const mods = loadRealModules(PKG_NAMES[i]!);
-    if (mods.length > 0) pkgModules.set(i, mods);
-  }
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
 
-  for (let i = 0; i < nodeCount; i++) {
-    const pkg = Math.floor(Math.random() * PKG_NAMES.length);
-    const clusterAngle = (pkg / PKG_NAMES.length) * Math.PI * 2;
-    const clusterR = 1.8 + Math.random() * 0.6;
+  // One node per package
+  for (let i = 0; i < PKG_NAMES.length; i++) {
+    const angle = (i / PKG_NAMES.length) * Math.PI * 2;
+    const r = 2.0 + (Math.random() - 0.5) * 0.4;
 
-    // Use real module name if available, otherwise pick from defaults
-    const realMods = pkgModules.get(pkg);
-    const mod = realMods && realMods.length > 0
-      ? realMods[Math.floor(Math.random() * realMods.length)]!
-      : MODULE_NAMES[Math.floor(Math.random() * MODULE_NAMES.length)]!;
-
-    // Label: "pkgname/module" — truncate module to keep it readable
-    const pkgLabel = PKG_NAMES[pkg]!;
-    const modLabel = mod.length > 18 ? mod.slice(mod.lastIndexOf("/") + 1) : mod;
-    const label = `${pkgLabel}/${modLabel}`;
-
-    // Nodes start at origin and spring toward their target
     const targetPos = v3.create(
-      Math.cos(clusterAngle) * clusterR + (Math.random() - 0.5) * 0.8,
-      (Math.random() - 0.5) * 2.5,
-      Math.sin(clusterAngle) * clusterR + (Math.random() - 0.5) * 0.8,
+      Math.cos(angle) * r,
+      (Math.random() - 0.5) * 2.0,
+      Math.sin(angle) * r,
     );
 
     nodes.push({
@@ -129,35 +83,41 @@ function createGraph(nodeCount: number, packageNames?: string[]) {
       ),
       targetPos,
       vel: v3.create(0, 0, 0),
-      label,
-      pkg,
-      spawnT: i * 0.15 + Math.random() * 0.1,
+      label: PKG_NAMES[i]!,
+      pkg: i,
+      spawnT: i * 0.2 + Math.random() * 0.1,
       glowT: -10,
     });
   }
 
-  // Intra-package edges
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[i]!.pkg === nodes[j]!.pkg && Math.random() < 0.45) {
+  if (realEdges && realEdges.length > 0) {
+    // Use real dependency edges
+    for (const [from, to] of realEdges) {
+      if (from < nodes.length && to < nodes.length) {
         edges.push({
-          from: i, to: j,
-          spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.15,
-          cross: false,
+          from, to,
+          spawnT: Math.max(nodes[from]!.spawnT, nodes[to]!.spawnT) + 0.3,
+          cross: true,
         });
       }
     }
-  }
-
-  // Cross-package edges
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[i]!.pkg !== nodes[j]!.pkg && Math.random() < 0.06) {
-        edges.push({
-          from: i, to: j,
-          spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.4,
-          cross: true,
-        });
+  } else {
+    // Fallback: ring + random edges
+    for (let i = 0; i < nodes.length; i++) {
+      const next = (i + 1) % nodes.length;
+      edges.push({
+        from: i, to: next,
+        spawnT: Math.max(nodes[i]!.spawnT, nodes[next]!.spawnT) + 0.2,
+        cross: true,
+      });
+      for (let j = i + 2; j < nodes.length; j++) {
+        if (Math.random() < 0.15) {
+          edges.push({
+            from: i, to: j,
+            spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.4,
+            cross: true,
+          });
+        }
       }
     }
   }
@@ -316,9 +276,7 @@ export type AnimationHandle = {
  * Start animation in a subprocess so it gets its own event loop and
  * isn't starved by CPU-intensive audit tools on the main thread.
  */
-export function startAnimation(opts?: { packages?: string[] }): AnimationHandle {
-  // Resolve the script path — in dev mode use the .ts file, in compiled binary
-  // we need to find the animation entry point
+export function startAnimation(opts?: { packages?: string[]; edges?: [number, number][] }): AnimationHandle {
   const isCompiled = !process.execPath.includes("bun");
 
   // Spawn animation as subprocess so it gets its own event loop
@@ -327,6 +285,9 @@ export function startAnimation(opts?: { packages?: string[] }): AnimationHandle 
     : ["bun", import.meta.filename, "--subprocess"];
   if (opts?.packages?.length) {
     args.push("--packages", opts.packages.join(","));
+  }
+  if (opts?.edges?.length) {
+    args.push("--edges", opts.edges.map(([a, b]) => `${a}-${b}`).join(","));
   }
 
   const proc = Bun.spawn(args, {
@@ -352,10 +313,9 @@ export function startAnimation(opts?: { packages?: string[] }): AnimationHandle 
   };
 }
 
-function startAnimationInProcess(opts?: { packages?: string[] }): AnimationHandle {
+function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, number][] }): AnimationHandle {
   const pkgNames = opts?.packages;
-  const nodeCount = pkgNames ? Math.min(60, Math.max(30, pkgNames.length * 4)) : 40;
-  const { nodes, edges } = createGraph(nodeCount, pkgNames);
+  const { nodes, edges } = createGraph(pkgNames, opts?.edges);
   const particles = new ParticleSystem();
 
   const camera = createCamera({
@@ -463,9 +423,20 @@ function startAnimationInProcess(opts?: { packages?: string[] }): AnimationHandl
 // ── Subprocess mode — reads status updates from stdin ──────────────────────
 
 if (process.argv.includes("--subprocess")) {
-  const pkgArg = process.argv[process.argv.indexOf("--packages") + 1];
+  const pkgIdx = process.argv.indexOf("--packages");
+  const pkgArg = pkgIdx >= 0 ? process.argv[pkgIdx + 1] : undefined;
   const packages = pkgArg ? pkgArg.split(",") : undefined;
-  const anim = startAnimationInProcess({ packages });
+
+  const edgeIdx = process.argv.indexOf("--edges");
+  const edgeArg = edgeIdx >= 0 ? process.argv[edgeIdx + 1] : undefined;
+  const parsedEdges: [number, number][] | undefined = edgeArg
+    ? edgeArg.split(",").map(e => {
+        const [a, b] = e.split("-").map(Number);
+        return [a!, b!] as [number, number];
+      })
+    : undefined;
+
+  const anim = startAnimationInProcess({ packages, edges: parsedEdges });
 
   const decoder = new TextDecoder();
   let buffer = "";
