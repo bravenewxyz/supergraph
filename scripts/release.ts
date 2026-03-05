@@ -35,17 +35,27 @@ function sha256File(path: string): string {
 }
 
 async function main() {
-  // 1. Bump version
-  console.log("\n1. Bumping version...");
-  run("npm version patch --no-git-tag-version");
-  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
-  const version = pkg.version;
-  console.log(`   v${version}`);
+  // 1. Bump version (unless --no-bump passed, for re-runs)
+  const noBump = process.argv.includes("--no-bump");
+  let pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
 
-  // 2. Commit + push
+  if (noBump) {
+    console.log(`\n1. Using current version v${pkg.version}`);
+  } else {
+    console.log("\n1. Bumping version...");
+    run("npm version patch --no-git-tag-version");
+    pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
+    console.log(`   v${pkg.version}`);
+  }
+  const version = pkg.version;
+
+  // 2. Commit + push (skip if nothing to commit)
   console.log("\n2. Committing and pushing...");
-  run("git add -A");
-  run(`git commit -m "release: v${version}"`);
+  const dirty = run("git status --porcelain");
+  if (dirty) {
+    run("git add -A");
+    run(`git commit -m "release: v${version}"`);
+  }
   run("git push");
 
   // 3. Build for all targets
@@ -57,7 +67,12 @@ async function main() {
 
   for (const target of TARGETS) {
     console.log(`\n   Building ${target}...`);
-    run(`bun run scripts/build.ts --target ${target}`, { stdio: "inherit" });
+    try {
+      run(`bun run scripts/build.ts --target ${target}`, { stdio: "inherit" });
+    } catch (err) {
+      console.log(`   Skipping ${target} (native deps not available locally)`);
+      continue;
+    }
 
     // Package into tarball
     const tarName = `supergraph-${target}.tar.gz`;
@@ -70,6 +85,10 @@ async function main() {
     // Write sha256 file
     writeFileSync(`${tarPath}.sha256`, `${hash}  ${tarName}\n`);
     console.log(`   ${tarName}: ${hash}`);
+  }
+
+  if (tarballs.length === 0) {
+    throw new Error("No targets built successfully");
   }
 
   // 4. Create GitHub release
@@ -103,25 +122,28 @@ async function main() {
     // Update version
     formula = formula.replace(/version ".*"/, `version "${version}"`);
 
-    // Update SHA256 for each target
+    // Update SHA256 for each built target
     const shaMap: Record<string, string> = {};
     for (const t of tarballs) shaMap[t.target] = t.sha256;
 
-    // darwin-arm64
-    formula = formula.replace(
-      /(on_arm do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
-      `$1${shaMap["darwin-arm64"]}$3`,
-    );
-    // darwin-x64
-    formula = formula.replace(
-      /(on_intel do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
-      `$1${shaMap["darwin-x64"]}$3`,
-    );
-    // linux-x64
-    formula = formula.replace(
-      /(on_linux do\s+on_intel do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
-      `$1${shaMap["linux-x64"]}$3`,
-    );
+    if (shaMap["darwin-arm64"]) {
+      formula = formula.replace(
+        /(on_arm do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
+        `$1${shaMap["darwin-arm64"]}$3`,
+      );
+    }
+    if (shaMap["darwin-x64"]) {
+      formula = formula.replace(
+        /(on_intel do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
+        `$1${shaMap["darwin-x64"]}$3`,
+      );
+    }
+    if (shaMap["linux-x64"]) {
+      formula = formula.replace(
+        /(on_linux do\s+on_intel do\s+url ".*?"\s+sha256 ")([a-f0-9]+)(")/s,
+        `$1${shaMap["linux-x64"]}$3`,
+      );
+    }
 
     writeFileSync(formulaPath, formula);
 
