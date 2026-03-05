@@ -36,7 +36,20 @@ rm -f "${BIN_DIR}/supergraph"
 echo "  [1/4] Downloading supergraph binary (${TARGET})..."
 mkdir -p "${BIN_DIR}"
 TMP="$(mktemp -d)"
-curl -fsSL "${RELEASE_URL}" | tar xz -C "${TMP}"
+TARBALL="${TMP}/supergraph.tar.gz"
+
+# Download to file first (with progress bar) then extract.
+# Piping curl | tar with GitHub's /latest redirect can stall silently.
+if [ -t 1 ]; then
+  # Interactive terminal: show progress bar
+  curl -fSL --progress-bar --retry 3 --retry-delay 2 "${RELEASE_URL}" -o "${TARBALL}"
+else
+  # Non-interactive (CI, piped): stay silent
+  curl -fsSL --retry 3 --retry-delay 2 "${RELEASE_URL}" -o "${TARBALL}"
+fi
+
+tar xzf "${TARBALL}" -C "${TMP}"
+rm -f "${TARBALL}"
 mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
 chmod +x "${BIN_DIR}/supergraph"
 echo "        -> ${BIN_DIR}/supergraph"
