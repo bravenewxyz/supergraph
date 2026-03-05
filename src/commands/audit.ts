@@ -936,16 +936,8 @@ Usage:
     })(),
   ]);
 
-  anim?.update("done.");
-
-  // Brief pause so "done." is visible before clearing
-  if (anim) await new Promise((r) => setTimeout(r, 800));
-
-  // Stop animation before printing summary
-  anim?.stop();
-
   // -----------------------------------------------------------------------
-  // Summary
+  // Tally failures (while animation still runs)
   // -----------------------------------------------------------------------
   const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge"];
   const crossFailures: string[] = [];
@@ -967,48 +959,86 @@ Usage:
     }
   }
 
-  console.log(`\n${"═".repeat(60)}`);
+  const totalProblems = totalFailures + crossFailures.length + superhighFailures.length;
+  const supergraphHtml = resolve(ROOT, "audit/supergraph.html");
+  const htmlExists = await stat(supergraphHtml).then(() => true).catch(() => false);
 
-  // Per-package failure details
+  // -----------------------------------------------------------------------
+  // Interactive wait — animation keeps running, user can press o or enter
+  // -----------------------------------------------------------------------
+  if (anim) {
+    if (totalProblems === 0 && htmlExists) {
+      anim.update("done — press o to open supergraph.html · enter to exit");
+    } else if (totalProblems === 0) {
+      anim.update("done — press enter to exit");
+    } else {
+      anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — press enter to exit`);
+    }
+
+    const key = await anim.waitForKey();
+
+    if ((key === "o" || key === "O") && htmlExists) {
+      // Open in browser — platform-aware
+      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+      try {
+        Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
+      } catch {}
+      // Brief pause so browser has time to receive the file before we exit
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    anim.stop();
+  }
+
+  // -----------------------------------------------------------------------
+  // Summary (printed after animation clears)
+  // -----------------------------------------------------------------------
   const pkgsWithFailures = allResults.filter((p) => p.results.some((r) => !r.ok));
-  if (pkgsWithFailures.length > 0) {
-    console.log(`\nTool failures by package:\n`);
-    for (const pkg of pkgsWithFailures) {
-      const failed = pkg.results.filter((r) => !r.ok);
-      console.log(`  ${pkg.pkgName} (${failed.length} failed):`);
-      for (const r of failed) {
-        const kind = r.tool.json ? " (json)" : "";
-        console.log(`    ✗  Phase ${r.tool.phase}  ${r.tool.label}${kind}`);
-        if (r.error) {
-          const lines = r.error.split("\n").slice(0, 3);
-          for (const line of lines) {
-            console.log(`       ${line}`);
+
+  if (totalProblems === 0) {
+    console.log(`\n${"═".repeat(60)}`);
+    console.log("All package(s) audited successfully.");
+    if (htmlExists) {
+      console.log(`\n  open audit/supergraph.html`);
+    }
+    console.log(`${"═".repeat(60)}`);
+  } else {
+    console.log(`\n${"═".repeat(60)}`);
+
+    if (pkgsWithFailures.length > 0) {
+      console.log(`\nTool failures by package:\n`);
+      for (const pkg of pkgsWithFailures) {
+        const failed = pkg.results.filter((r) => !r.ok);
+        console.log(`  ${pkg.pkgName} (${failed.length} failed):`);
+        for (const r of failed) {
+          const kind = r.tool.json ? " (json)" : "";
+          console.log(`    ✗  Phase ${r.tool.phase}  ${r.tool.label}${kind}`);
+          if (r.error) {
+            const lines = r.error.split("\n").slice(0, 3);
+            for (const line of lines) {
+              console.log(`       ${line}`);
+            }
           }
         }
       }
     }
-  }
 
-  // Cross-package failures
-  if (crossFailures.length > 0) {
-    console.log(`\nCross-package failures:\n`);
-    for (const f of crossFailures) console.error(f);
-  }
+    if (crossFailures.length > 0) {
+      console.log(`\nCross-package failures:\n`);
+      for (const f of crossFailures) console.error(f);
+    }
 
-  // Superhigh failures
-  if (superhighFailures.length > 0) {
-    console.log(`\nSuperhigh failures:\n`);
-    for (const f of superhighFailures) console.error(f);
-  }
+    if (superhighFailures.length > 0) {
+      console.log(`\nSuperhigh failures:\n`);
+      for (const f of superhighFailures) console.error(f);
+    }
 
-  const totalProblems = totalFailures + crossFailures.length + superhighFailures.length;
-  console.log(`\n${"═".repeat(60)}`);
-  if (totalProblems === 0) {
-    console.log("All package(s) audited successfully.");
-  } else {
-    console.log(`${totalFailures} tool failure(s) across ${pkgsWithFailures.length} package(s), ${crossFailures.length} cross-package failure(s), ${superhighFailures.length} superhigh failure(s).`);
-  }
-  console.log(`${"═".repeat(60)}`);
+    console.log(`\n${totalFailures} tool failure(s) across ${pkgsWithFailures.length} package(s), ${crossFailures.length} cross-package failure(s), ${superhighFailures.length} superhigh failure(s).`);
+    if (htmlExists) {
+      console.log(`\n  open audit/supergraph.html`);
+    }
+    console.log(`${"═".repeat(60)}`);
 
-  if (totalProblems > 0) process.exit(1);
+    process.exit(1);
+  }
 }

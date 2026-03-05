@@ -271,6 +271,8 @@ export type AnimationHandle = {
   update: (status: string) => void;
   log: (line: string) => void;
   stop: () => void;
+  /** Show a prompt and wait for a keypress. Resolves with the key character. Animation keeps running. */
+  waitForKey: () => Promise<string>;
 };
 
 /**
@@ -319,6 +321,30 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         // Subprocess may already be dead — restore terminal from parent
         process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
       }
+    },
+    waitForKey(): Promise<string> {
+      return new Promise((resolve) => {
+        // Read keypresses from the real TTY while animation keeps rendering
+        if (process.stdin.isTTY && typeof process.stdin.setRawMode === "function") {
+          process.stdin.setRawMode(true);
+          process.stdin.resume();
+          const onData = (key: Buffer) => {
+            process.stdin.removeListener("data", onData);
+            process.stdin.setRawMode(false);
+            process.stdin.pause();
+            // Ctrl+C
+            if (key[0] === 0x03) {
+              resolve("q");
+              return;
+            }
+            resolve(String.fromCharCode(key[0]!));
+          };
+          process.stdin.on("data", onData);
+        } else {
+          // Non-TTY: resolve immediately
+          resolve("\n");
+        }
+      });
     },
   };
 }
