@@ -312,7 +312,47 @@ export type AnimationHandle = {
   stop: () => void;
 };
 
+/**
+ * Start animation in a subprocess so it gets its own event loop and
+ * isn't starved by CPU-intensive audit tools on the main thread.
+ */
 export function startAnimation(opts?: { packages?: string[] }): AnimationHandle {
+  // Resolve the script path — in dev mode use the .ts file, in compiled binary
+  // we need to find the animation entry point
+  const isCompiled = !process.execPath.includes("bun");
+
+  // Spawn animation as subprocess so it gets its own event loop
+  const args = isCompiled
+    ? [process.execPath, "__anim__", "--subprocess"]
+    : ["bun", import.meta.filename, "--subprocess"];
+  if (opts?.packages?.length) {
+    args.push("--packages", opts.packages.join(","));
+  }
+
+  const proc = Bun.spawn(args, {
+    stdin: "pipe",
+    stdout: "inherit",
+    stderr: "pipe",
+  });
+
+  return {
+    update(status: string) {
+      try {
+        proc.stdin.write(status + "\n");
+        proc.stdin.flush();
+      } catch {}
+    },
+    stop() {
+      try {
+        proc.stdin.write("__STOP__\n");
+        proc.stdin.flush();
+        proc.stdin.end();
+      } catch {}
+    },
+  };
+}
+
+function startAnimationInProcess(opts?: { packages?: string[] }): AnimationHandle {
   const pkgNames = opts?.packages;
   const nodeCount = pkgNames ? Math.min(60, Math.max(30, pkgNames.length * 4)) : 40;
   const { nodes, edges } = createGraph(nodeCount, pkgNames);
@@ -420,10 +460,44 @@ export function startAnimation(opts?: { packages?: string[] }): AnimationHandle 
   };
 }
 
-// ── Standalone demo ─────────────────────────────────────────────────────────
+// ── Subprocess mode — reads status updates from stdin ──────────────────────
 
-if (import.meta.main) {
-  const anim = startAnimation();
+if (process.argv.includes("--subprocess")) {
+  const pkgArg = process.argv[process.argv.indexOf("--packages") + 1];
+  const packages = pkgArg ? pkgArg.split(",") : undefined;
+  const anim = startAnimationInProcess({ packages });
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  process.stdin.resume();
+  process.stdin.on("data", (chunk: Buffer) => {
+    buffer += decoder.decode(chunk, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (line === "__STOP__") {
+        anim.stop();
+        process.exit(0);
+      }
+      anim.update(line);
+    }
+  });
+
+  process.stdin.on("end", () => {
+    anim.stop();
+    process.exit(0);
+  });
+
+  process.on("SIGINT", () => {
+    anim.stop();
+    process.exit(0);
+  });
+}
+
+// ── Standalone demo ─────────────────────────────────────────────────────────
+else if (import.meta.main) {
+  const anim = startAnimationInProcess();
 
   const phases = [
     [1.0, "scanning packages..."],

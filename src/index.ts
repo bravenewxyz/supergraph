@@ -170,6 +170,11 @@ Global options:
       await import("../scripts/superschema.js");
       break;
     }
+    case "__anim__": {
+      // Internal: animation subprocess for compiled binary
+      await import("./ui/graph-animation.js");
+      break;
+    }
     default: {
       // No subcommand → run full pipeline
       const { runAuditPipeline } = await import("./commands/audit.js");
