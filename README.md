@@ -6,12 +6,16 @@ supergraph analyzes your monorepo and generates a compact, structured text map o
 
 ## Install
 
-```bash
-# curl (also installs /deep-audit for Claude Code)
-curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash
+**Homebrew:**
 
-# or homebrew
-brew install bravenewxyz/supergraph
+```bash
+brew install bravenewxyz/supergraph/supergraph
+```
+
+**Shell script** (also installs `/deep-audit` for Claude Code):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash
 ```
 
 Binaries are available for macOS (ARM64, x64) and Linux (x64).

@@ -1,12 +1,12 @@
 Perform a systematic, multi-pass audit of a TypeScript package. Finds duplicate code, overengineering, inconsistencies, dead code, unfinished features, bugs, logical errors, and half-baked solutions. Writes all results to disk as actionable, self-contained plans.
 
-**Argument**: `$ARGUMENTS` — path to the package's `src/` directory (e.g. `packages/orchestrator/src`). Required.
+**Argument**: `$ARGUMENTS` — optional. Path to one or more package `src/` directories (e.g. `packages/orchestrator/src`). If none specified, audit all packages.
 
 ---
 
 ## Output directory
 
-All artifacts go under `audit/<package-name>/` (derived from argument path, e.g. `packages/orchestrator/src` → `orchestrator`). Create the directory structure if it doesn't exist.
+**ALL output goes under `audit/<package-name>/`.** Never write findings, plans, or any artifacts inside the source tree (e.g. never inside `packages/`). The package name is derived from the argument path (e.g. `packages/orchestrator/src` → `orchestrator`). Create the directory structure if it doesn't exist.
 
 ```
 audit/<package-name>/
@@ -21,7 +21,7 @@ audit/<package-name>/
   logic-audit.txt       # logic analysis: decision tables, guards, schema mismatches (Phase 6)
   invariants/           # invariant verification (Phase 7)
     discovery.txt  invariants.json  tests/  README.md
-  plans/
+  plans/                # all plans go here, never alongside source code
     README.md  001-*.md  002-*.md  ...
 ```
 
@@ -45,9 +45,15 @@ These four files must be read **in their entirety** (never skim, chunk, or parti
 
 ## Phase 0: Generate all artifacts
 
+**Always run the full supergraph stack on the entire monorepo first:**
+
 ```bash
-bun scripts/audit-prep.ts $ARGUMENTS
+supergraph
 ```
+
+This discovers all packages, runs every analysis tool in parallel, and generates artifacts for every package under `audit/packages/<name>/`. If `supergraph` is not installed, install it first: `brew install bravenewxyz/supergraph/supergraph`.
+
+**Then focus the deep audit (Phases 1–10) on the requested packages.** If the user specified one or more packages, audit those. If none specified, audit all discovered packages. For multi-package audits, run each package through Phases 1–8 independently, then present all plans together in Phase 9.
 
 All tools run in parallel; failures are non-fatal. If any tool fails, note it and continue.
 
@@ -234,7 +240,7 @@ Append to `findings.md` under `## Phase 7: Invariant verification`. Likely bugs 
 
 Group findings into **1–12 plans** representing coherent dev work sessions (not one plan per issue). Group by: same files/subsystem, shared root cause, natural refactoring absorption, issue category (security, races, dead code, etc.). Include findings from all phases.
 
-Name: `001-security-hardening.md`, `002-critical-correctness.md`, etc. Prefix IS execution order.
+Write all plans to `audit/<package-name>/plans/`. Name: `001-security-hardening.md`, `002-critical-correctness.md`, etc. Prefix IS execution order.
 
 ### 8c. Execution ordering
 
