@@ -24,9 +24,9 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import { Lang, parse } from "../flow/node_modules/@ast-grep/napi/index.js";
 import type { SgNode } from "../flow/node_modules/@ast-grep/napi/index.js";
 import { loadConfig } from "../flow/src/cli/config.js";
-import { findFiles, readFile } from "./utils.js";
+import { findFiles, parseRootArg, readFile } from "./utils.js";
 
-const ROOT = resolve(import.meta.dir, "../..");
+const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION 1 — ZOD SCHEMAS

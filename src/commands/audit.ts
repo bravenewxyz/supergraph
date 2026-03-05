@@ -475,6 +475,7 @@ Usage:
   supergraph <dir> [...]                Audit specific package(s) (auto-detects language)
   supergraph --no-go                    Skip Go packages
   supergraph --go-only                  Only audit Go packages
+  supergraph --no-anim                  Disable terminal animation
   supergraph --root <path>              Target repo root (default: cwd)
   supergraph --help                     Show this help`);
     process.exit(0);

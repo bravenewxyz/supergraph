@@ -187,11 +187,22 @@ const outPath =
 
 async function runForJson(scriptPath: string): Promise<string> {
   // scriptPath may be "devtools/scripts/foo.ts" (legacy relative-to-ROOT) or
-  // just a basename.  Always resolve against the devtools scripts dir so it
-  // works when ROOT points to a different repo.
-  const scriptAbs = resolve(import.meta.dir, scriptPath.split("/").pop()!);
-  console.log(`  Running ${scriptPath}…`);
-  const proc = Bun.spawn(["bun", scriptAbs, "--json", "--root", ROOT], {
+  // just a basename.  Derive the subcommand name (e.g. "superflow") for
+  // compiled binary self-invocation, or the full path for bun dev mode.
+  const scriptName = scriptPath.split("/").pop()!.replace(/\.[jt]s$/, "");
+  const isCompiledBinary = !process.execPath.includes("bun");
+
+  let cmd: string[];
+  if (isCompiledBinary) {
+    // Compiled binary: invoke self with subcommand
+    cmd = [process.execPath, scriptName, "--json", "--root", ROOT];
+  } else {
+    const scriptAbs = resolve(import.meta.dir, `${scriptName}.ts`);
+    cmd = ["bun", scriptAbs, "--json", "--root", ROOT];
+  }
+
+  console.log(`  Running ${scriptName}…`);
+  const proc = Bun.spawn(cmd, {
     cwd: ROOT,
     stdout: "pipe",
     stderr: "inherit",

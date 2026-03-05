@@ -6,11 +6,18 @@ import { resolve } from "node:path";
  * Prefers --root <path> from argv; falls back to `defaultRoot` (typically
  * `resolve(import.meta.dir, "../..")` which points at the guild-v3 root when
  * the devtools live inside that repo, but can be any monorepo).
+ *
+ * In compiled binaries, import.meta.dir resolves to /$bunfs/root/ which is
+ * read-only, so we fall back to process.cwd() instead.
  */
 export function parseRootArg(defaultRoot: string): string {
   const idx = process.argv.indexOf("--root");
   if (idx >= 0 && process.argv[idx + 1]) {
     return resolve(process.argv[idx + 1]!);
+  }
+  // Compiled Bun binaries embed files under /$bunfs/ — detect and use cwd instead
+  if (defaultRoot.startsWith("/$bunfs/")) {
+    return process.cwd();
   }
   return defaultRoot;
 }

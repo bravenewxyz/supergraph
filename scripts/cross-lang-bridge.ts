@@ -558,4 +558,8 @@ async function main() {
   await runCrossLangBridge({ root: ROOT, outDir });
 }
 
-main();
+// Only auto-run when executed directly (not when imported by audit.ts)
+const isDirectRun = process.argv[1] === import.meta.filename ||
+  process.argv[1]?.endsWith("/cross-lang-bridge.ts") ||
+  process.argv[1]?.endsWith("/cross-lang-bridge.js");
+if (isDirectRun) main();

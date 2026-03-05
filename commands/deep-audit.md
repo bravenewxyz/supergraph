@@ -49,10 +49,10 @@ These four files must be read **in their entirety** (never skim, chunk, or parti
 **Always run the full supergraph stack on the entire monorepo first:**
 
 ```bash
-supergraph
+supergraph --no-anim
 ```
 
-This discovers all packages, runs every analysis tool in parallel, and generates artifacts for every package under `audit/packages/<name>/`. It also generates `audit/superhigh.txt` and `audit/superhigh-shortcut.txt` — unified maps combining module graphs, schemas, flows, and cross-package edges. If `supergraph` is not installed, install it first: `brew install bravenewxyz/supergraph/supergraph`.
+This discovers all packages, runs every analysis tool in parallel, and generates artifacts for every package under `audit/packages/<name>/`. It also generates `audit/superhigh.txt` and `audit/superhigh-shortcut.txt` — unified maps combining module graphs, schemas, flows, and cross-package edges. The `--no-anim` flag disables the terminal animation (meant for human use only). If `supergraph` is not installed, install it first: `brew install bravenewxyz/supergraph/supergraph`.
 
 **Then focus the deep audit (Phases 1–10) on the requested packages.** If the user specified one or more packages, audit those. If none specified, audit all discovered packages. For multi-package audits, run each package through Phases 1–8 independently, then present all plans together in Phase 9.
 

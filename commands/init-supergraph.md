@@ -7,8 +7,10 @@ Bootstrap the supergraph audit on this repository.
 ## Phase 1: Run zero-config analysis
 
 ```bash
-supergraph
+supergraph --no-anim
 ```
+
+The `--no-anim` flag disables the terminal animation (meant for human use only).
 
 If `supergraph` is not installed, install it first:
 ```bash

@@ -100,6 +100,7 @@ The full pipeline also generates:
 
 Global options:
   --root <path>           Target repo root (default: cwd)
+  --no-anim               Disable terminal animation
   --help, -h              Show help`);
       process.exit(0);
     }
@@ -159,6 +160,14 @@ Global options:
     case "superhigh": {
       // Re-export superhigh as a subcommand so compiled binary can call itself
       await import("../scripts/superhigh.js");
+      break;
+    }
+    case "superflow": {
+      await import("../scripts/superflow.js");
+      break;
+    }
+    case "superschema": {
+      await import("../scripts/superschema.js");
       break;
     }
     default: {

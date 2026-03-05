@@ -1356,4 +1356,8 @@ async function main() {
   await runAggregate({ root: ROOT });
 }
 
-main();
+// Only auto-run when executed directly (not when imported by audit.ts)
+const isDirectRun = process.argv[1] === import.meta.filename ||
+  process.argv[1]?.endsWith("/supergraph.ts") ||
+  process.argv[1]?.endsWith("/supergraph.js");
+if (isDirectRun) main();
