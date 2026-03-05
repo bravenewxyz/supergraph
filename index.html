@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>supergraph — One file. Every module. The whole monorepo.</title>
+  <title>supergraph — Your entire monorepo in one file.</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap" rel="stylesheet" />
@@ -184,6 +184,7 @@
       letter-spacing: 0.05em;
       text-transform: uppercase;
       transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
     }
 
     .hero-install .copy-btn:hover {
@@ -192,6 +193,16 @@
     }
 
     .hero-install .copy-btn.copied {
+      color: var(--accent);
+    }
+
+    .hero-install-note {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .hero-install-note .accent {
       color: var(--accent);
     }
 
@@ -245,41 +256,6 @@
       line-height: 1.8;
     }
 
-    /* ─── Feature grid ────────────────────────────────────── */
-    .features-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1px;
-      background: var(--border);
-      border: 1px solid var(--border);
-    }
-
-    .feature-item {
-      background: var(--bg);
-      padding: 36px 32px;
-    }
-
-    .feature-icon {
-      font-size: 20px;
-      margin-bottom: 16px;
-      color: var(--accent);
-      font-weight: 700;
-    }
-
-    .feature-title {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 10px;
-      letter-spacing: -0.01em;
-    }
-
-    .feature-desc {
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-
     /* ─── Code blocks ─────────────────────────────────────── */
     .code-block {
       background: var(--surface);
@@ -320,6 +296,9 @@
     .tok-flag    { color: #7eb8f0; }
     .tok-string  { color: #f0b87e; }
     .tok-punct   { color: var(--muted); }
+    .tok-pkg     { color: #c47ef0; }
+    .tok-sym     { color: #7ef0d0; }
+    .tok-num     { color: #f0b87e; }
 
     .copy-btn-small {
       background: transparent;
@@ -344,101 +323,152 @@
       border-color: var(--accent);
     }
 
-    /* ─── Steps ───────────────────────────────────────────── */
-    .steps {
+    /* ─── Supergraph output preview ──────────────────────── */
+    .output-preview {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 28px 24px;
+      font-size: 12px;
+      line-height: 1.7;
+      overflow-x: auto;
+      white-space: pre;
+      max-height: 520px;
+      overflow-y: auto;
+      margin-bottom: 24px;
+    }
+
+    .output-preview .line-muted { color: var(--muted); }
+    .output-preview .line-accent { color: var(--accent); }
+    .output-preview .line-pkg { color: #c47ef0; }
+    .output-preview .line-sym { color: #7ef0d0; }
+    .output-preview .line-num { color: #f0b87e; }
+    .output-preview .line-edge { color: #7eb8f0; }
+
+    /* ─── Feature grid ────────────────────────────────────── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+    }
+
+    .feature-item {
+      background: var(--bg);
+      padding: 36px 32px;
+    }
+
+    .feature-icon {
+      font-size: 20px;
+      margin-bottom: 16px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .feature-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+      letter-spacing: -0.01em;
+    }
+
+    .feature-desc {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    /* ─── Stat row ────────────────────────────────────────── */
+    .stat-row {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      margin-bottom: 56px;
+    }
+
+    .stat {
+      flex: 1;
+      padding: 32px;
+      border-right: 1px solid var(--border);
+    }
+
+    .stat:last-child {
+      border-right: none;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* ─── Phase list ─────────────────────────────────────── */
+    .phase-list {
       display: flex;
       flex-direction: column;
       gap: 0;
       border: 1px solid var(--border);
     }
 
-    .step {
+    .phase-item {
       display: grid;
-      grid-template-columns: 72px 1fr;
+      grid-template-columns: 56px 1fr;
       border-bottom: 1px solid var(--border);
     }
 
-    .step:last-child {
+    .phase-item:last-child {
       border-bottom: none;
     }
 
-    .step-num {
+    .phase-num {
       display: flex;
       align-items: flex-start;
       justify-content: center;
-      padding: 28px 0;
-      font-size: 22px;
+      padding: 20px 0;
+      font-size: 13px;
       font-weight: 800;
       color: var(--accent);
       border-right: 1px solid var(--border);
     }
 
-    .step-body {
-      padding: 28px 32px;
+    .phase-body {
+      padding: 20px 24px;
     }
 
-    .step-title {
-      font-size: 14px;
+    .phase-title {
+      font-size: 13px;
       font-weight: 700;
       color: var(--text);
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
 
-    .step-desc {
-      font-size: 13px;
+    .phase-desc {
+      font-size: 12px;
       color: var(--muted);
-      margin-bottom: 16px;
-    }
-
-    .step-body .code-block {
-      margin-bottom: 0;
+      line-height: 1.6;
     }
 
     /* ─── Agent section ───────────────────────────────────── */
-    .agent-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1px;
-      background: var(--border);
-      border: 1px solid var(--border);
-      margin-bottom: 40px;
-    }
-
-    .agent-item {
-      background: var(--bg);
-      padding: 32px;
-    }
-
-    .agent-label {
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      color: var(--accent);
-      text-transform: uppercase;
-      margin-bottom: 12px;
-    }
-
-    .agent-title {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 10px;
-    }
-
-    .agent-desc {
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.7;
-    }
-
     .agent-highlight {
       border: 1px solid var(--accent);
       background: var(--surface);
       padding: 32px;
       position: relative;
+      margin-top: 40px;
     }
 
     .agent-highlight::before {
-      content: '// AI AGENTS';
+      content: attr(data-label);
       position: absolute;
       top: -10px;
       left: 24px;
@@ -462,6 +492,30 @@
 
     .agent-highlight p .accent {
       color: var(--accent);
+    }
+
+    /* ─── Inline code ─────────────────────────────────────── */
+    code.inline {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--accent);
+      padding: 1px 7px;
+      font-size: 12px;
+    }
+
+    /* ─── Callout ─────────────────────────────────────────── */
+    .callout {
+      border-left: 3px solid var(--accent);
+      background: var(--surface);
+      padding: 20px 24px;
+      margin-top: 24px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.8;
+    }
+
+    .callout strong {
+      color: var(--text);
     }
 
     /* ─── Shortcuts ───────────────────────────────────────── */
@@ -513,39 +567,6 @@
       color: var(--muted);
     }
 
-    /* ─── Stat row ────────────────────────────────────────── */
-    .stat-row {
-      display: flex;
-      gap: 0;
-      border: 1px solid var(--border);
-      margin-bottom: 56px;
-    }
-
-    .stat {
-      flex: 1;
-      padding: 32px;
-      border-right: 1px solid var(--border);
-    }
-
-    .stat:last-child {
-      border-right: none;
-    }
-
-    .stat-value {
-      font-size: 36px;
-      font-weight: 800;
-      color: var(--accent);
-      letter-spacing: -0.03em;
-      line-height: 1;
-      margin-bottom: 8px;
-    }
-
-    .stat-label {
-      font-size: 12px;
-      color: var(--muted);
-      letter-spacing: 0.05em;
-    }
-
     /* ─── Footer ──────────────────────────────────────────── */
     footer {
       border-top: 1px solid var(--border);
@@ -565,30 +586,6 @@
     .footer-note {
       font-size: 12px;
       color: var(--muted);
-    }
-
-    /* ─── Inline code ─────────────────────────────────────── */
-    code.inline {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      color: var(--accent);
-      padding: 1px 7px;
-      font-size: 12px;
-    }
-
-    /* ─── Callout ─────────────────────────────────────────── */
-    .callout {
-      border-left: 3px solid var(--accent);
-      background: var(--surface);
-      padding: 20px 24px;
-      margin-top: 24px;
-      font-size: 13px;
-      color: var(--muted);
-      line-height: 1.8;
-    }
-
-    .callout strong {
-      color: var(--text);
     }
 
     /* ─── Responsive ──────────────────────────────────────── */
@@ -622,10 +619,6 @@
         grid-template-columns: 1fr;
       }
 
-      .agent-grid {
-        grid-template-columns: 1fr;
-      }
-
       .stat-row {
         flex-direction: column;
       }
@@ -639,8 +632,8 @@
         border-bottom: none;
       }
 
-      .step {
-        grid-template-columns: 48px 1fr;
+      .phase-item {
+        grid-template-columns: 40px 1fr;
       }
 
       footer {
@@ -658,11 +651,10 @@
 <nav>
   <a href="#hero" class="nav-logo">supergraph</a>
   <ul class="nav-links">
-    <li><a href="#what-it-generates">what it generates</a></li>
-    <li><a href="#installation">install</a></li>
-    <li><a href="#usage">usage</a></li>
+    <li><a href="#the-output">the output</a></li>
+    <li><a href="#deep-audit">deep-audit</a></li>
     <li><a href="#for-ai-agents">for AI agents</a></li>
-    <li><a href="#shortcuts">shortcuts</a></li>
+    <li><a href="#visualization">visualization</a></li>
   </ul>
 </nav>
 
@@ -670,236 +662,212 @@
 <section id="hero">
   <canvas id="hero-canvas"></canvas>
   <div class="hero-content">
-    <div class="hero-label">CLI tool for monorepo intelligence</div>
+    <div class="hero-label">Monorepo intelligence for humans and AI agents</div>
     <h1><span class="accent">super</span>graph</h1>
-    <p class="hero-tagline">One file. Every module. The whole monorepo.</p>
+    <p class="hero-tagline">Your entire monorepo in one file.</p>
     <p class="hero-desc">
-      supergraph analyzes your monorepo's audit data and generates a single interactive HTML file — a physics-simulated graph of every module, every import, and every cross-package edge. Drop it into any AI context window and the agent instantly understands your entire codebase.
+      supergraph analyzes your monorepo and generates a compact, structured text map of every module, every symbol, every cross-package edge, and every issue. One file an AI agent can read to understand your entire codebase. One file a human can grep to answer any structural question.
     </p>
     <div class="hero-install">
       <span class="install-prefix">$</span>
-      <span class="install-cmd" id="hero-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/bin/supergraph -o /usr/local/bin/supergraph && chmod +x /usr/local/bin/supergraph</span>
-      <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/bin/supergraph -o /usr/local/bin/supergraph && chmod +x /usr/local/bin/supergraph')">copy</button>
+      <span class="install-cmd" id="hero-cmd">curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/install.sh | bash</span>
+      <button class="copy-btn" onclick="copyText(this, 'curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/main/install.sh | bash')">copy</button>
     </div>
+    <p class="hero-install-note">Installs the <span class="accent">supergraph</span> binary + the <span class="accent">/deep-audit</span> command for Claude Code.</p>
   </div>
 </section>
 
 <hr class="section-divider" />
 
-<!-- ─── What it generates ─────────────────────────────────────── -->
-<section id="what-it-generates">
+<!-- ─── The Output ────────────────────────────────────────────── -->
+<section id="the-output">
   <div class="section-header">
-    <div class="section-num">what it generates</div>
-    <h2>An interactive dependency graph,<br /><span class="accent">in a single HTML file.</span></h2>
+    <div class="section-num">the output</div>
+    <h2>365 modules. 852 edges.<br /><span class="accent">One text file.</span></h2>
     <p class="section-sub">
-      Running <code class="inline">supergraph</code> in your monorepo outputs <code class="inline">audit/supergraph.html</code> — a fully self-contained, no-dependencies visualization of your entire module graph.
+      Running <code class="inline">supergraph</code> in your monorepo generates <code class="inline">audit/supergraph.txt</code> — a structured, compressed map of your entire module graph. Every package, every exported symbol, every dependency edge, every issue.
     </p>
   </div>
 
   <div class="stat-row">
     <div class="stat">
       <div class="stat-value">1</div>
-      <div class="stat-label">file generated</div>
+      <div class="stat-label">text file</div>
     </div>
     <div class="stat">
-      <div class="stat-value">∞</div>
-      <div class="stat-label">modules supported</div>
+      <div class="stat-value">~500</div>
+      <div class="stat-label">lines for a full monorepo</div>
     </div>
     <div class="stat">
       <div class="stat-value">0</div>
-      <div class="stat-label">runtime dependencies</div>
+      <div class="stat-label">files the agent needs to read</div>
     </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">audit/supergraph.txt — real output from a 21-package monorepo</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-cmd">GNOMEFORTRESS-V2 SUPERGRAPH</span> <span class="tok-punct">|</span> <span class="tok-string">2026-03-05</span>
+<span class="tok-num">365</span>m <span class="tok-punct">·</span> <span class="tok-num">852</span>ie <span class="tok-punct">·</span> <span class="tok-num">209</span>xe
+
+<span class="tok-comment"># PACKAGES  (short=npm,modules)</span>
+<span class="tok-pkg">agent</span>=@gnomefortress/agent,7m  <span class="tok-pkg">cli</span>=@gnomefortress/cli,13m
+<span class="tok-pkg">core</span>=@gnomefortress/core,14m  <span class="tok-pkg">fortress</span>=@gnomefortress/fortress,85m
+<span class="tok-pkg">graph</span>=@gnomefortress/graph,37m  <span class="tok-pkg">flow</span>=@gnomefortress/flow,35m  ...
+
+<span class="tok-comment"># MODULES</span>
+<span class="tok-comment"># path [exp(/total)]&lt;-importers symbols | ext-deps</span>
+
+<span class="tok-pkg">[fortress]</span>
+<span class="tok-sym">actors/orchestrator</span> [<span class="tok-num">68/93</span>]<span class="tok-punct">&lt;-</span>2 OrchestratorActorContext,OrchestratorActorInput,actor,+63
+    <span class="tok-punct">|</span> @gnomefortress/constants,@gnomefortress/graph,xstate
+<span class="tok-sym">events</span> [<span class="tok-num">119/120</span>]<span class="tok-punct">&lt;-</span>16 AbortEvent,ActorErrorLog,AnomalyDetectedEvent,+111
+    <span class="tok-punct">|</span> @gnomefortress/graph,xstate
+<span class="tok-sym">types</span> [<span class="tok-num">69/71</span>]<span class="tok-punct">&lt;-</span>47 AnomalyDetectorState,Checkpoint,ComposeResult,+61
+    <span class="tok-punct">|</span> @gnomefortress/core,@gnomefortress/graph
+
+<span class="tok-pkg">[graph]</span>
+<span class="tok-sym">store/graph-store</span> [<span class="tok-num">2/4</span>]<span class="tok-punct">&lt;-</span>9 SerializedGraph,GraphStore <span class="tok-punct">|</span> graphology
+<span class="tok-sym">schema/nodes</span> [4]<span class="tok-punct">&lt;-</span>11 SymbolNode,SymbolKind,createSymbolNode,KIND_PRIORITY
+<span class="tok-sym">schema/edges</span> [3]<span class="tok-punct">&lt;-</span>10 SymbolEdge,EdgeKind,createSymbolEdge
+
+<span class="tok-comment"># CROSS-PACKAGE DEPENDENCIES</span>
+<span class="tok-edge">fortress/actors/orchestrator</span> <span class="tok-punct">-></span> constants/idx graph/idx graph-bridge/idx utils/idx xstate/idx
+<span class="tok-edge">fortress/events</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx xstate/idx
+<span class="tok-edge">fortress/types</span> <span class="tok-punct">-></span> graph/idx graph-bridge/idx core/idx</code></pre>
   </div>
 
   <div class="features-grid">
     <div class="feature-item">
-      <div class="feature-icon">⬡</div>
-      <div class="feature-title">Physics simulation</div>
-      <div class="feature-desc">Force-directed graph layout with live physics. Nodes repel, edges pull. Toggle physics on and off with <code class="inline">p</code>.</div>
+      <div class="feature-icon">[exp/total]</div>
+      <div class="feature-title">Symbol counts</div>
+      <div class="feature-desc">Every module shows exported vs total symbols, so you instantly see API surface vs internal complexity.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">⊕</div>
-      <div class="feature-title">Zoom & pan</div>
-      <div class="feature-desc">Scroll to zoom, drag to pan. Navigate graphs with hundreds of nodes across dozens of packages with no performance drop.</div>
+      <div class="feature-icon">&lt;-N</div>
+      <div class="feature-title">Importer count</div>
+      <div class="feature-desc">How many modules import this one. High fan-in = critical shared infrastructure. Zero = potential dead code.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">◈</div>
-      <div class="feature-title">Package legend</div>
-      <div class="feature-desc">Every package gets a distinct color. The legend is always visible. Click a package to isolate it and its cross-package edges.</div>
+      <div class="feature-icon">sym,sym,+N</div>
+      <div class="feature-title">Exported symbols</div>
+      <div class="feature-desc">Functions, types, constants, classes — listed inline. Budget scales with importance: more importers = more symbols shown.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">⚠</div>
-      <div class="feature-title">Issue overlays</div>
-      <div class="feature-desc">Circular dependencies, missing exports, and unresolved imports are overlaid directly on affected nodes with explanatory tooltips.</div>
+      <div class="feature-icon">| ext</div>
+      <div class="feature-title">External dependencies</div>
+      <div class="feature-desc">npm packages each module depends on, listed after the pipe. Configurable aliases compress long package names.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">⌕</div>
-      <div class="feature-title">Search</div>
-      <div class="feature-desc">Fuzzy search across all module paths. Matching nodes are highlighted and the viewport snaps to the result cluster.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">⌗</div>
-      <div class="feature-title">Label toggle</div>
-      <div class="feature-desc">Module path labels clutter large graphs. Toggle them with <code class="inline">l</code> — labels appear on hover when hidden.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">✦</div>
-      <div class="feature-title">Symbol annotations</div>
-      <div class="feature-desc">Each node panel shows every exported symbol — functions, types, constants, classes — sourced directly from the audit data.</div>
-    </div>
-    <div class="feature-item">
-      <div class="feature-icon">→</div>
+      <div class="feature-icon">-></div>
       <div class="feature-title">Cross-package edges</div>
-      <div class="feature-desc">Internal imports are rendered in muted colors. Cross-package imports are highlighted — the most important edges in any monorepo.</div>
+      <div class="feature-desc">Every inter-package import is listed explicitly. The most important relationships in any monorepo, made first-class.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">~500 lines</div>
+      <div class="feature-title">Fits in any context</div>
+      <div class="feature-desc">A 365-module, 21-package monorepo compresses to ~500 lines. Dead modules are omitted. Paths are shortened. No noise.</div>
     </div>
   </div>
 </section>
 
 <hr class="section-divider" />
 
-<!-- ─── Installation ──────────────────────────────────────────── -->
-<section id="installation">
+<!-- ─── Deep Audit ─────────────────────────────────────────────── -->
+<section id="deep-audit">
   <div class="section-header">
-    <div class="section-num">installation</div>
-    <h2>Compile once.<br /><span class="accent">Run anywhere.</span></h2>
+    <div class="section-num">deep-audit</div>
+    <h2>10-phase code audit.<br /><span class="accent">One slash command.</span></h2>
     <p class="section-sub">
-      supergraph compiles to a single native binary via Bun. No Node.js, no npm, no runtime. Copy it to your PATH and it's ready.
+      The install script adds <code class="inline">/deep-audit</code> as a Claude Code slash command. Point it at any package and it performs a systematic, multi-pass audit — finding bugs, dead code, overengineering, race conditions, and logical errors. All results written to disk as actionable plans.
     </p>
   </div>
 
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">01</div>
-      <div class="step-body">
-        <div class="step-title">Clone the repo</div>
-        <div class="step-desc">Get the source code.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">git</span> clone https://github.com/bravenewxyz/supergraph
-<span class="tok-cmd">cd</span> supergraph</code></pre>
-        </div>
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">Claude Code</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-cmd">/deep-audit</span> <span class="tok-string">packages/orchestrator/src</span></code></pre>
+  </div>
+
+  <div class="phase-list">
+    <div class="phase-item">
+      <div class="phase-num">0</div>
+      <div class="phase-body">
+        <div class="phase-title">Generate artifacts</div>
+        <div class="phase-desc">Runs audit-prep to generate map.txt, deps.txt, imports.txt, complexity.txt, dead.txt, schema-match.txt, trace-boundaries.txt, logic-audit.txt.</div>
       </div>
     </div>
-
-    <div class="step">
-      <div class="step-num">02</div>
-      <div class="step-body">
-        <div class="step-title">Compile the binary</div>
-        <div class="step-desc">Bun compiles the TypeScript source to a self-contained native executable. Target arm64 macOS or adjust for your platform.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell — macOS arm64</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">bun</span> build <span class="tok-flag">--compile</span> <span class="tok-flag">--target</span><span class="tok-punct">=</span><span class="tok-string">bun-darwin-arm64</span> src/index.ts <span class="tok-flag">--outfile</span> bin/supergraph</code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell — macOS x64</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">bun</span> build <span class="tok-flag">--compile</span> <span class="tok-flag">--target</span><span class="tok-punct">=</span><span class="tok-string">bun-darwin-x64</span> src/index.ts <span class="tok-flag">--outfile</span> bin/supergraph</code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell — Linux x64</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">bun</span> build <span class="tok-flag">--compile</span> <span class="tok-flag">--target</span><span class="tok-punct">=</span><span class="tok-string">bun-linux-x64</span> src/index.ts <span class="tok-flag">--outfile</span> bin/supergraph</code></pre>
-        </div>
+    <div class="phase-item">
+      <div class="phase-num">1</div>
+      <div class="phase-body">
+        <div class="phase-title">Read the map</div>
+        <div class="phase-desc">Reads all generated artifacts in full. Every subsequent phase depends on this complete context.</div>
       </div>
     </div>
-
-    <div class="step">
-      <div class="step-num">03</div>
-      <div class="step-body">
-        <div class="step-title">Add to PATH</div>
-        <div class="step-desc">Copy the compiled binary to a directory on your PATH so you can run it from any project.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">cp</span> bin/supergraph ~/.local/bin/supergraph</code></pre>
-        </div>
-        <div class="callout">
-          <strong>Note:</strong> make sure <code class="inline">~/.local/bin</code> is on your <code class="inline">$PATH</code>. Add <code class="inline">export PATH="$HOME/.local/bin:$PATH"</code> to your shell profile if needed.
-        </div>
+    <div class="phase-item">
+      <div class="phase-num">2</div>
+      <div class="phase-body">
+        <div class="phase-title">Structural audit</div>
+        <div class="phase-desc">Dead exports, circular dependencies, complexity hotspots, type-safety escape hatches, oversized modules, dependency fan-out/fan-in.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">3</div>
+      <div class="phase-body">
+        <div class="phase-title">Deep audit</div>
+        <div class="phase-desc">Reads source files prioritized by risk. Checks for duplicates, overengineering, inconsistencies, dead code, unfinished features, bugs, error handling gaps.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">4</div>
+      <div class="phase-body">
+        <div class="phase-title">Cross-cutting analysis</div>
+        <div class="phase-desc">Architectural coherence, abstraction level consistency, single responsibility violations, structural impedance (pure adapters, data clumps, type overlaps).</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">5</div>
+      <div class="phase-body">
+        <div class="phase-title">Data flow trace</div>
+        <div class="phase-desc">Schema-type mismatches, error path analysis, unsafe type assertions, JSON roundtrip losses, missing post-deserialization validation.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">6</div>
+      <div class="phase-body">
+        <div class="phase-title">Logic analysis</div>
+        <div class="phase-desc">Decision table gap detection, guard consistency, cross-representation mismatches (Zod vs TS types), temporal ordering bugs, enforcement gaps.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">7</div>
+      <div class="phase-body">
+        <div class="phase-title">Invariant verification</div>
+        <div class="phase-desc">Discovers pure functions, generates postcondition invariants, runs property-based tests, analyzes failures to distinguish real bugs from wrong invariants.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">8</div>
+      <div class="phase-body">
+        <div class="phase-title">Write plans</div>
+        <div class="phase-desc">Groups all findings into 1-12 actionable plans ordered by severity. Each plan: scope, effort, file-level changes, checklist. Every issue cites file + line range.</div>
+      </div>
+    </div>
+    <div class="phase-item">
+      <div class="phase-num">9-10</div>
+      <div class="phase-body">
+        <div class="phase-title">Present and execute</div>
+        <div class="phase-desc">Shows the plan table. Say "do all" and it dispatches plans in parallel waves via subagents, verifying each wave before continuing.</div>
       </div>
     </div>
   </div>
-</section>
 
-<hr class="section-divider" />
-
-<!-- ─── Usage ─────────────────────────────────────────────────── -->
-<section id="usage">
-  <div class="section-header">
-    <div class="section-num">usage</div>
-    <h2>Run it.<br /><span class="accent">Open the file.</span></h2>
-    <p class="section-sub">
-      supergraph reads the <code class="inline">audit/</code> directory generated by your devtools pipeline and produces <code class="inline">audit/supergraph.html</code>. The audit data must already exist.
-    </p>
-  </div>
-
-  <div class="steps">
-    <div class="step">
-      <div class="step-num">01</div>
-      <div class="step-body">
-        <div class="step-title">Navigate to your monorepo</div>
-        <div class="step-desc">supergraph looks for an <code class="inline">audit/</code> directory in the current working directory.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">cd</span> your-monorepo</code></pre>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-num">02</div>
-      <div class="step-body">
-        <div class="step-title">Run supergraph</div>
-        <div class="step-desc">Generates <code class="inline">audit/supergraph.html</code> from the audit JSON data. Takes a few seconds for large monorepos.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">supergraph</span></code></pre>
-        </div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell — custom root path</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">supergraph</span> <span class="tok-flag">--root</span> ./path/to/repo</code></pre>
-        </div>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-num">03</div>
-      <div class="step-body">
-        <div class="step-title">Open the output</div>
-        <div class="step-desc">The graph is a fully self-contained HTML file. Open it in any browser. No server, no build step, no internet required.</div>
-        <div class="code-block">
-          <div class="code-block-header">
-            <span class="code-block-label">shell</span>
-            <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
-          </div>
-          <pre><code><span class="tok-cmd">open</span> audit/supergraph.html</code></pre>
-        </div>
-        <div class="callout">
-          <strong>Prerequisite:</strong> the <code class="inline">audit/</code> directory must already exist with JSON maps of your packages. supergraph is part of a devtools pipeline — it reads pre-generated data, it does not analyze source files itself.
-        </div>
-      </div>
-    </div>
+  <div class="callout" style="margin-top: 24px;">
+    <strong>Output:</strong> all findings go to <code class="inline">audit/&lt;package&gt;/findings.md</code> and <code class="inline">audit/&lt;package&gt;/plans/</code>. The deep-audit reads code itself — no subagent delegation during analysis phases — so it maintains full cross-file context.
   </div>
 </section>
 
@@ -911,39 +879,38 @@
     <div class="section-num">for AI agents</div>
     <h2>One file is all<br /><span class="accent">an agent needs.</span></h2>
     <p class="section-sub">
-      The original motivation for supergraph: give any AI coding agent complete, structured knowledge of a large monorepo in a single context attachment.
+      Large monorepos exceed the context window of any AI model when loaded naively. supergraph.txt solves this: a pre-analyzed, structured map of every relationship in the codebase.
     </p>
   </div>
 
-  <div class="agent-grid">
-    <div class="agent-item">
-      <div class="agent-label">01 — single-file context</div>
-      <div class="agent-title">One attachment, full picture</div>
-      <div class="agent-desc">The generated HTML encodes the entire module graph as structured data. Paste it into an agent's context — or reference it directly — and the agent has a complete map of every module path, every export, every import edge.</div>
+  <div class="features-grid">
+    <div class="feature-item">
+      <div class="feature-icon">&lt;500 lines</div>
+      <div class="feature-title">Fits in any context window</div>
+      <div class="feature-desc">A 365-module monorepo compresses to ~500 lines. Attach it to any agent's context and it has a complete map — module paths, exports, imports, cross-package edges.</div>
     </div>
-    <div class="agent-item">
-      <div class="agent-label">02 — full symbol graph</div>
-      <div class="agent-title">Every exported symbol, annotated</div>
-      <div class="agent-desc">Each node includes all exported functions, types, constants, and classes from that module. An agent can answer "where is X defined?" or "what does package Y export?" without reading a single source file.</div>
+    <div class="feature-item">
+      <div class="feature-icon">grep</div>
+      <div class="feature-title">Structured for search</div>
+      <div class="feature-desc">Consistent format means agents can grep for any symbol, any package, any edge. "Where is X defined?" "What does Y export?" "Who imports Z?" — answered without reading source.</div>
     </div>
-    <div class="agent-item">
-      <div class="agent-label">03 — cross-package edges</div>
-      <div class="agent-title">Dependency relationships made explicit</div>
-      <div class="agent-desc">Cross-package imports are the hardest relationships to infer from raw source. supergraph makes them first-class: every inter-package edge is labeled, directional, and queryable. Agents stop confusing internal and external dependencies.</div>
+    <div class="feature-item">
+      <div class="feature-icon">-></div>
+      <div class="feature-title">Cross-package edges explicit</div>
+      <div class="feature-desc">The hardest relationships to infer from raw source are spelled out. Every inter-package import: labeled, directional, queryable. Agents stop confusing internal and external deps.</div>
     </div>
-    <div class="agent-item">
-      <div class="agent-label">04 — issue annotations</div>
-      <div class="agent-title">Problems surface automatically</div>
-      <div class="agent-desc">Circular dependencies, missing re-exports, and broken import paths are annotated directly on affected nodes. An agent reading the graph immediately knows where the codebase has structural debt — no grep required.</div>
+    <div class="feature-item">
+      <div class="feature-icon">/deep-audit</div>
+      <div class="feature-title">Agent-native workflow</div>
+      <div class="feature-desc">The deep-audit command is designed for AI agents from the ground up. 10 phases of systematic analysis, all written to disk, executable via subagent dispatch.</div>
     </div>
   </div>
 
-  <div class="agent-highlight">
+  <div class="agent-highlight" data-label="// WHY TEXT, NOT HTML">
     <p>
-      Large monorepos routinely exceed the context window of any AI model when loaded naively.
-      <strong>supergraph is the answer to that problem.</strong>
-      Instead of hoping the agent can infer structure from a handful of files,
-      you give it a <span class="accent">pre-analyzed, structured, machine-readable map</span> of every relationship in the codebase.
+      The HTML visualization is useful for humans exploring the graph interactively.
+      But for AI agents, <strong>plain text is the native format.</strong>
+      <span class="accent">supergraph.txt</span> is grep-able, diff-able, and small enough to fit in a single context window.
       The agent knows the architecture before writing a single line of code.
     </p>
   </div>
@@ -951,49 +918,76 @@
 
 <hr class="section-divider" />
 
-<!-- ─── Keyboard shortcuts ─────────────────────────────────────── -->
-<section id="shortcuts">
+<!-- ─── Visualization ──────────────────────────────────────────── -->
+<section id="visualization">
   <div class="section-header">
-    <div class="section-num">keyboard shortcuts</div>
-    <h2>Navigate<br /><span class="accent">without a mouse.</span></h2>
+    <div class="section-num">visualization</div>
+    <h2>Interactive graph.<br /><span class="accent">For humans.</span></h2>
     <p class="section-sub">
-      The generated graph supports keyboard shortcuts for the most common interactions. Works when the canvas has focus.
+      supergraph also generates <code class="inline">audit/supergraph.html</code> — a fully self-contained, zero-dependency interactive visualization of the module graph. Physics simulation, search, package filtering, issue overlays.
     </p>
   </div>
 
-  <table class="shortcuts-table">
+  <div class="features-grid">
+    <div class="feature-item">
+      <div class="feature-icon">&#x2B21;</div>
+      <div class="feature-title">Physics simulation</div>
+      <div class="feature-desc">Force-directed layout with live physics. Nodes repel, edges pull. Toggle with <code class="inline">p</code>.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">&#x2295;</div>
+      <div class="feature-title">Zoom & pan</div>
+      <div class="feature-desc">Scroll to zoom, drag to pan. Handles hundreds of nodes across dozens of packages.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">&#x25C8;</div>
+      <div class="feature-title">Package legend</div>
+      <div class="feature-desc">Every package gets a distinct color. Click a package to isolate it and its cross-package edges.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">&#x26A0;</div>
+      <div class="feature-title">Issue overlays</div>
+      <div class="feature-desc">Circular dependencies, missing exports, unresolved imports — overlaid directly on affected nodes.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">&#x2315;</div>
+      <div class="feature-title">Search</div>
+      <div class="feature-desc">Fuzzy search across all module paths. Matching nodes highlight and the viewport snaps to the result cluster.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">&#x2726;</div>
+      <div class="feature-title">Symbol annotations</div>
+      <div class="feature-desc">Click any node to see every exported symbol — functions, types, constants, classes — with full detail panel.</div>
+    </div>
+  </div>
+
+  <table class="shortcuts-table" style="margin-top: 40px;">
     <thead>
       <tr>
         <th>key</th>
         <th>action</th>
-        <th>notes</th>
       </tr>
     </thead>
     <tbody>
       <tr>
         <td><kbd class="kbd">p</kbd></td>
         <td>Toggle physics simulation</td>
-        <td class="shortcut-desc">Pause or resume the force-directed layout. Useful when nodes have settled and you want to lock positions.</td>
       </tr>
       <tr>
         <td><kbd class="kbd">l</kbd></td>
         <td>Toggle module labels</td>
-        <td class="shortcut-desc">Show or hide path labels on all nodes. Labels still appear on hover when hidden. Helps with dense graphs.</td>
       </tr>
       <tr>
         <td><kbd class="kbd">Escape</kbd></td>
         <td>Close detail panel</td>
-        <td class="shortcut-desc">Dismisses the node detail panel showing module info, exports, and import edges.</td>
       </tr>
       <tr>
         <td><kbd class="kbd">scroll</kbd></td>
         <td>Zoom in / out</td>
-        <td class="shortcut-desc">Mouse wheel or trackpad scroll zooms the canvas around the cursor position.</td>
       </tr>
       <tr>
         <td><kbd class="kbd">drag</kbd></td>
-        <td>Pan canvas</td>
-        <td class="shortcut-desc">Click and drag on the background to pan the view. Drag a node to pin its position.</td>
+        <td>Pan canvas / pin nodes</td>
       </tr>
     </tbody>
   </table>
@@ -1014,7 +1008,6 @@
     const canvas = document.getElementById('hero-canvas');
     const ctx = canvas.getContext('2d');
 
-    const ACCENT = '#c9f06b';
     const NODE_COUNT = 28;
     const MAX_DIST = 180;
 
@@ -1051,7 +1044,6 @@
     function draw() {
       ctx.clearRect(0, 0, W, H);
 
-      // edges
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           const a = nodes[i];
@@ -1074,13 +1066,11 @@
         }
       }
 
-      // nodes
       for (const n of nodes) {
         n.pulse += n.pulseSpeed;
         const glow = 0.7 + 0.3 * Math.sin(n.pulse);
         const r = n.r * glow;
 
-        // glow
         const grad = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 4);
         grad.addColorStop(0, n.color + '55');
         grad.addColorStop(1, n.color + '00');
@@ -1089,7 +1079,6 @@
         ctx.fillStyle = grad;
         ctx.fill();
 
-        // core
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx.fillStyle = n.color;
@@ -1114,10 +1103,7 @@
       requestAnimationFrame(loop);
     }
 
-    window.addEventListener('resize', () => {
-      resize();
-    });
-
+    window.addEventListener('resize', resize);
     init();
     loop();
   })();
@@ -1126,7 +1112,7 @@
   function copyText(btn, text) {
     navigator.clipboard.writeText(text).then(() => {
       const orig = btn.textContent;
-      btn.textContent = '✓';
+      btn.textContent = '\u2713';
       btn.classList.add('copied');
       setTimeout(() => {
         btn.textContent = orig;
@@ -1140,7 +1126,7 @@
     const text = pre.innerText || pre.textContent;
     navigator.clipboard.writeText(text.trim()).then(() => {
       const orig = btn.textContent;
-      btn.textContent = '✓ copied';
+      btn.textContent = '\u2713 copied';
       btn.classList.add('copied');
       setTimeout(() => {
         btn.textContent = orig;
