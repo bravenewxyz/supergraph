@@ -12,6 +12,7 @@ export interface DiscoverOptions {
 
 type PurityFlag =
   | "await"
+  | "await-pure"
   | "fs-import"
   | "mutation"
   | "this"
@@ -21,11 +22,12 @@ type PurityFlag =
   | "global-write";
 
 const PURITY_PENALTIES: Record<PurityFlag, number> = {
-  "await": 0.3,
+  "await": 0.15,
+  "await-pure": 0.1,
   "fs-import": 0.3,
   "mutation": 0.2,
   "this": 0.2,
-  "console": 0.1,
+  "console": 0.05,
   "process": 0.1,
   "random": 0.1,
   "global-write": 0.2,
@@ -43,6 +45,13 @@ const IMPURE_MODULES = new Set([
   "node:http",
   "http",
 ]);
+
+function IMPURE_MODULES_OVERLAP(fileImports: Set<string>): boolean {
+  for (const mod of fileImports) {
+    if (IMPURE_MODULES.has(mod)) return true;
+  }
+  return false;
+}
 
 const MUTATING_METHODS = new Set(["push", "set", "delete", "splice", "pop", "shift", "unshift"]);
 
@@ -66,6 +75,12 @@ export async function discoverFunctions(
 
     ts.forEachChild(sourceFile, (node) => {
       const extracted = tryExtractFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
+      if (extracted) discovered.push(extracted);
+    });
+
+    // Second pass: discover non-exported but interesting (pure helper) functions
+    ts.forEachChild(sourceFile, (node) => {
+      const extracted = tryExtractInternalFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
       if (extracted) discovered.push(extracted);
     });
   }
@@ -147,13 +162,74 @@ function tryExtractFunction(
   return null;
 }
 
+const MIN_INTERNAL_LINES = 5;
+
+function tryExtractInternalFunction(
+  node: ts.Node,
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  fileImports: Set<string>,
+  moduleLevelNames: Set<string>,
+): DiscoveredFunction | null {
+  // Skip exported functions — those are handled by tryExtractFunction
+  if (hasExportModifier(node)) return null;
+
+  let name: string | undefined;
+  let funcNode: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | undefined;
+  let parameters: ts.NodeArray<ts.ParameterDeclaration> | undefined;
+
+  if (ts.isFunctionDeclaration(node) && node.name) {
+    name = node.name.text;
+    funcNode = node;
+    parameters = node.parameters;
+  } else if (ts.isVariableStatement(node)) {
+    for (const decl of node.declarationList.declarations) {
+      if (!ts.isIdentifier(decl.name)) continue;
+      if (!decl.initializer) continue;
+      const init = unwrapParenthesized(decl.initializer);
+      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+        name = decl.name.text;
+        funcNode = init;
+        parameters = init.parameters;
+        break;
+      }
+    }
+  }
+
+  if (!name || !funcNode || !parameters) return null;
+
+  // Check minimum line count
+  const text = funcNode.getText(sourceFile);
+  const lineCount = text.split("\n").length;
+  if (lineCount < MIN_INTERNAL_LINES) return null;
+
+  // Build the function to check purity — only include if truly pure (no side effects)
+  const built = buildDiscoveredFunction(
+    name,
+    funcNode,
+    parameters,
+    sourceFile,
+    checker,
+    "internal",
+    fileImports,
+    moduleLevelNames,
+  );
+
+  // Only include internal functions that have no side-effect flags
+  const sideEffectFlags: PurityFlag[] = ["fs-import", "mutation", "this", "process", "random", "global-write"];
+  const hasSideEffects = built.purityFlags.some((f) => sideEffectFlags.includes(f as PurityFlag));
+  if (hasSideEffects) return null;
+
+  return built;
+}
+
 function buildDiscoveredFunction(
   name: string,
   node: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression,
   parameters: ts.NodeArray<ts.ParameterDeclaration>,
   sourceFile: ts.SourceFile,
   checker: ts.TypeChecker,
-  exportKind: "named" | "default",
+  exportKind: "named" | "default" | "internal",
   fileImports: Set<string>,
   moduleLevelNames: Set<string>,
 ): DiscoveredFunction {
@@ -218,7 +294,14 @@ function computePurityFlags(
   const flags: PurityFlag[] = [];
 
   if (/\bawait\b/.test(sourceText) || returnType.kind === "promise") {
-    flags.push("await");
+    const hasImpureAwait =
+      IMPURE_MODULES_OVERLAP(fileImports) ||
+      /\bfetch\s*\(/.test(sourceText) ||
+      /\bprocess\s*\./.test(sourceText) ||
+      /\bBun\s*\.\s*spawn\b/.test(sourceText) ||
+      /\bexec\s*\(/.test(sourceText) ||
+      /\bexecSync\s*\(/.test(sourceText);
+    flags.push(hasImpureAwait ? "await" : "await-pure");
   }
 
   for (const mod of fileImports) {

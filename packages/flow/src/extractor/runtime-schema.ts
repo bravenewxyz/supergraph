@@ -1,5 +1,9 @@
 import type { ShapeType } from "../schema/shapes.js";
 import { ZodExtractor } from "./zod.js";
+import { ValibotExtractor } from "./valibot.js";
+import { TypeBoxExtractor } from "./typebox.js";
+import { ArkTypeExtractor } from "./arktype.js";
+import { YupExtractor } from "./yup.js";
 
 export interface RuntimeSchemaInfo {
   name: string;
@@ -53,5 +57,9 @@ export class ExtractorRegistry {
 export function createDefaultRegistry(): ExtractorRegistry {
   const registry = new ExtractorRegistry();
   registry.register(new ZodExtractor());
+  registry.register(new ValibotExtractor());
+  registry.register(new TypeBoxExtractor());
+  registry.register(new ArkTypeExtractor());
+  registry.register(new YupExtractor());
   return registry;
 }

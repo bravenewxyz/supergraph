@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve, relative } from "node:path";
 import { Glob } from "bun";
 
@@ -55,6 +55,23 @@ type PkgTarget = {
   jsonDir: string;
   driver: LanguageDriver;
 };
+
+// ---------------------------------------------------------------------------
+// Gitignore helper
+// ---------------------------------------------------------------------------
+
+async function ensureGitignore(root: string): Promise<void> {
+  const gitignorePath = join(root, ".gitignore");
+  try {
+    const content = await readFile(gitignorePath, "utf-8");
+    const lines = content.split("\n");
+    if (lines.some(l => l.trim() === "audit/" || l.trim() === "audit")) return;
+    await appendFile(gitignorePath, `${content.endsWith("\n") ? "" : "\n"}audit/\n`);
+  } catch {
+    // No .gitignore exists — create one
+    await writeFile(gitignorePath, "audit/\n");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Name derivation
@@ -465,6 +482,29 @@ function muteConsole(): () => void {
   };
 }
 
+/** Read a single keypress from the TTY. Returns the key character. */
+function waitForKeypress(): Promise<string> {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
+      // Non-interactive — don't block
+      resolve("\n");
+      return;
+    }
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.ref();
+    const onData = (key: Buffer) => {
+      process.stdin.removeListener("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdin.unref();
+      if (key[0] === 0x03) { resolve("q"); return; } // Ctrl+C
+      resolve(String.fromCharCode(key[0]!));
+    };
+    process.stdin.on("data", onData);
+  });
+}
+
 async function fileSizeKB(path: string): Promise<string> {
   try {
     const s = await stat(path);
@@ -707,6 +747,9 @@ Usage:
       : process.cwd();
 
   const devtoolsRoot = resolve(import.meta.dir, "../..");
+
+  // Ensure audit/ is in .gitignore
+  await ensureGitignore(ROOT);
 
   // Filter out flags and their values to get explicit dirs
   const explicitDirs = args.filter((a, i) => {
@@ -967,23 +1010,24 @@ Usage:
   // Interactive wait — animation keeps running, user can press o or enter
   // -----------------------------------------------------------------------
   if (anim) {
-    if (totalProblems === 0 && htmlExists) {
-      anim.update("done — press o to open supergraph.html · enter to exit");
-    } else if (totalProblems === 0) {
-      anim.update("done — press enter to exit");
+    const promptParts: string[] = [];
+    if (htmlExists) promptParts.push("press o to open supergraph.html");
+    promptParts.push("enter to exit");
+    const promptSuffix = promptParts.join(" · ");
+
+    if (totalProblems === 0) {
+      anim.update(`done — ${promptSuffix}`);
     } else {
-      anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — press enter to exit`);
+      anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — ${promptSuffix}`);
     }
 
-    const key = await anim.waitForKey();
+    const key = await waitForKeypress();
 
     if ((key === "o" || key === "O") && htmlExists) {
-      // Open in browser — platform-aware
       const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
       try {
         Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
       } catch {}
-      // Brief pause so browser has time to receive the file before we exit
       await new Promise((r) => setTimeout(r, 500));
     }
 

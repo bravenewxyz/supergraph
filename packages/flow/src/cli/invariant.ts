@@ -549,6 +549,18 @@ function formatCompact(functions: DiscoveredFunction[]): string {
   }
   lines.push("");
 
+  // Async-pure functions
+  const asyncPureFns = functions.filter(
+    (f) => f.purityScore >= 0.5 && f.purityScore < 0.7 && f.purityFlags.includes("await-pure"),
+  );
+  lines.push(`## Async-Pure Functions (${asyncPureFns.length})`);
+  lines.push("Async functions with high effective purity — good candidates for integration-level invariant testing.");
+  lines.push("");
+  for (const fn of asyncPureFns) {
+    lines.push(`  ${fn.name}  ${shortPath(fn.filePath)}:${fn.line}  purity=${fn.purityScore.toFixed(2)}  flags=[${fn.purityFlags.join(", ")}]  → ${shapeToString(fn.returnType)}`);
+  }
+  lines.push("");
+
   // Complexity hotspots
   lines.push(`## Complexity Hotspots (${complexFns.length})`);
   lines.push("Functions with high branch count — review for predicate correctness and temporal ordering.");
@@ -563,7 +575,7 @@ function formatCompact(functions: DiscoveredFunction[]): string {
   lines.push("");
 
   lines.push("━━━ Summary ━━━");
-  lines.push(`Status functions: ${statusFns.length}  Dispatch functions: ${dispatchFns.length}  Pure: ${pure.length}  Complex: ${complexFns.length}`);
+  lines.push(`Status functions: ${statusFns.length}  Dispatch functions: ${dispatchFns.length}  Pure: ${pure.length}  Async-pure: ${asyncPureFns.length}  Complex: ${complexFns.length}`);
 
   return lines.join("\n");
 }

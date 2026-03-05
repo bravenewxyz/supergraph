@@ -24,7 +24,7 @@ export interface DiscoveredFunction {
   name: string;
   filePath: string;
   line: number;
-  exportKind: "named" | "default";
+  exportKind: "named" | "default" | "internal";
   params: FunctionParam[];
   returnType: ShapeType;
   purityScore: number;          // 0-1, higher = more likely pure

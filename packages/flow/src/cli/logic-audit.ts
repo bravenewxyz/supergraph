@@ -14,7 +14,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve, relative } from "node:path";
 import { collectSourceFiles, createProgram, resolveType } from "../extractor/typescript.js";
-import { getArg, shortPath, countBranches, STATUS_KEYWORDS, STATUS_VALUES } from "./util.js";
+import { getArg, shortPath, countBranches, STATUS_KEYWORDS, STATUS_VALUES, BOOL_PREDICATE_NAME } from "./util.js";
 import { ExtractorRegistry } from "../extractor/runtime-schema.js";
 import type { RuntimeSchemaInfo } from "../extractor/runtime-schema.js";
 import { ZodExtractor } from "../extractor/zod.js";
@@ -93,11 +93,24 @@ interface DecisionTable {
   suspiciousCells: SuspiciousCell[];
 }
 
+interface ExhaustivenessGap {
+  filePath: string;
+  line: number;
+  switchExpression: string;
+  knownMembers: string[];
+  handledMembers: string[];
+  missingMembers: string[];
+  hasDefault: boolean;
+  message: string;
+}
+
 interface LogicAuditResult {
   crossRep: CrossRepMismatch[];
   guards: GuardInconsistency[];
+  broadGuards: GuardInconsistency[];
   statusFunctions: StatusFunction[];
   decisionTables: DecisionTable[];
+  exhaustivenessGaps: ExhaustivenessGap[];
 }
 
 // ── 1. Cross-representation scan (schema vs type) ──────────────────
@@ -337,6 +350,401 @@ function scoreGuardConfidence(
   return "low";
 }
 
+// ── 2b. Broad guard consistency scan ────────────────────────────────
+
+function scanBroadGuardConsistency(
+  source: string,
+  filePath: string,
+): GuardInconsistency[] {
+  const lines = source.split("\n");
+  const results: GuardInconsistency[] = [];
+
+  // Pattern 1: forEach/map with conditional operations
+  scanForEachMapGuards(lines, filePath, results);
+
+  // Pattern 2: Switch statements with missing cases (no default)
+  scanSwitchMissingCases(lines, filePath, results);
+
+  // Pattern 3: Parallel conditional assignments
+  scanConditionalAssignments(lines, filePath, results);
+
+  // Pattern 4: Promise.all with mixed error handling
+  scanPromiseAllMixedCatch(lines, filePath, results);
+
+  return results;
+}
+
+/**
+ * Pattern 1: array.forEach / array.map with mixed guarded/unguarded operations
+ * Detects: arr.forEach(item => { if (cond) doA(item); doB(item); })
+ */
+function scanForEachMapGuards(
+  lines: string[],
+  filePath: string,
+  results: GuardInconsistency[],
+): void {
+  const forEachPattern = /(\w+(?:\.\w+)*)\s*\.\s*(forEach|map)\s*\(\s*(?:\(?\s*(\w+))/;
+  const callPattern = /(\w+(?:\.\w+)*)\s*\(/;
+  const ifPattern = /^\s*if\s*\(/;
+
+  let inCallback = false;
+  let callbackStart = -1;
+  let callbackVar = "";
+  let braceDepth = 0;
+  let callbackDepth = 0;
+
+  interface OpSite {
+    op: string;
+    line: number;
+    guard: string | null;
+  }
+
+  let opSites: OpSite[] = [];
+  let currentIfGuard: string | null = null;
+  let ifDepth = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+
+    const feMatch = line.match(forEachPattern);
+    if (feMatch && !inCallback) {
+      callbackStart = i;
+      callbackVar = feMatch[3] ?? "";
+      inCallback = true;
+      callbackDepth = braceDepth;
+      opSites = [];
+      currentIfGuard = null;
+    }
+
+    for (const ch of line) {
+      if (ch === "{") braceDepth++;
+      if (ch === "}") {
+        braceDepth--;
+        if (inCallback && braceDepth <= callbackDepth) {
+          analyzeOpSites(opSites, callbackVar, filePath, callbackStart, results);
+          inCallback = false;
+          opSites = [];
+        }
+        if (ifDepth > 0 && braceDepth < ifDepth) {
+          currentIfGuard = null;
+          ifDepth = 0;
+        }
+      }
+    }
+
+    if (inCallback) {
+      const ifMatch = line.match(ifPattern);
+      if (ifMatch) {
+        const guardText = line.replace(/^\s*if\s*\(/, "").replace(/\)\s*\{?\s*$/, "").trim();
+        currentIfGuard = guardText;
+        ifDepth = braceDepth;
+      }
+
+      // Look for function calls (but skip the forEach/map itself and control-flow keywords)
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("if") && !trimmed.startsWith("for") && !trimmed.startsWith("while") &&
+          !trimmed.startsWith("//") && !trimmed.startsWith("}") && !trimmed.startsWith("{")) {
+        const cm = trimmed.match(callPattern);
+        if (cm && !cm[1]!.match(/\b(forEach|map|filter|reduce|console|if|for|while|switch)\b/)) {
+          opSites.push({
+            op: cm[1]!,
+            line: i + 1,
+            guard: currentIfGuard,
+          });
+        }
+      }
+    }
+  }
+}
+
+function analyzeOpSites(
+  opSites: { op: string; line: number; guard: string | null }[],
+  callbackVar: string,
+  filePath: string,
+  callbackStart: number,
+  results: GuardInconsistency[],
+): void {
+  if (opSites.length < 2) return;
+
+  const guarded = opSites.filter((p) => p.guard !== null);
+  const unguarded = opSites.filter((p) => p.guard === null);
+
+  if (guarded.length > 0 && unguarded.length > 0) {
+    for (const g of guarded) {
+      for (const u of unguarded) {
+        if (g.op === u.op) continue;
+        results.push({
+          filePath,
+          line: callbackStart + 1,
+          loopVariable: callbackVar,
+          guardedPush: {
+            collection: g.op,
+            guard: g.guard!,
+            line: g.line,
+          },
+          unguardedPush: {
+            collection: u.op,
+            line: u.line,
+          },
+          message: `"${u.op}()" at line ${u.line} has no guard, but "${g.op}()" at line ${g.line} is guarded by "${g.guard}" inside forEach/map callback. Possible missing check.`,
+          confidence: "med",
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Pattern 2: Switch statements with missing cases
+ * Detects switch on union/enum values without covering all cases and no default
+ */
+function scanSwitchMissingCases(
+  lines: string[],
+  filePath: string,
+  results: GuardInconsistency[],
+): void {
+  const switchPattern = /^\s*switch\s*\(\s*(\w+(?:\.\w+)*)\s*\)/;
+  const casePattern = /^\s*case\s+["'](\w+)["']\s*:/;
+  const defaultPattern = /^\s*default\s*:/;
+
+  let inSwitch = false;
+  let switchLine = -1;
+  let switchVar = "";
+  let braceDepth = 0;
+  let switchDepth = 0;
+  let cases: string[] = [];
+  let hasDefault = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+
+    const sm = line.match(switchPattern);
+    if (sm && !inSwitch) {
+      switchLine = i;
+      switchVar = sm[1]!;
+      inSwitch = true;
+      switchDepth = braceDepth;
+      cases = [];
+      hasDefault = false;
+    }
+
+    for (const ch of line) {
+      if (ch === "{") braceDepth++;
+      if (ch === "}") {
+        braceDepth--;
+        if (inSwitch && braceDepth <= switchDepth) {
+          // Switch ended — if we have cases but no default and few cases, flag it
+          if (cases.length >= 2 && !hasDefault) {
+            results.push({
+              filePath,
+              line: switchLine + 1,
+              loopVariable: switchVar,
+              guardedPush: {
+                collection: `case "${cases[0]}"`,
+                guard: `switch(${switchVar})`,
+                line: switchLine + 1,
+              },
+              unguardedPush: {
+                collection: "default",
+                line: switchLine + 1,
+              },
+              message: `switch(${switchVar}) at line ${switchLine + 1} handles ${cases.length} cases [${cases.join(", ")}] but has no default. Possible missing case.`,
+              confidence: "low",
+            });
+          }
+          inSwitch = false;
+        }
+      }
+    }
+
+    if (inSwitch) {
+      const cm = line.match(casePattern);
+      if (cm) cases.push(cm[1]!);
+      if (defaultPattern.test(line)) hasDefault = true;
+    }
+  }
+}
+
+/**
+ * Pattern 3: Parallel conditional assignments
+ * Detects: if (cond) { a = x; } b = y; — where some assignments are guarded, others aren't
+ */
+function scanConditionalAssignments(
+  lines: string[],
+  filePath: string,
+  results: GuardInconsistency[],
+): void {
+  const assignPattern = /^\s*(\w+)\s*=\s*.+;/;
+  const ifPattern = /^\s*if\s*\(/;
+
+  interface AssignSite {
+    varName: string;
+    line: number;
+    guard: string | null;
+  }
+
+  // Scan blocks of closely-spaced assignments
+  const assignSites: AssignSite[] = [];
+  let currentGuard: string | null = null;
+  let guardBraceDepth = 0;
+  let braceDepth = 0;
+  let inIfBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+
+    const ifMatch = line.match(ifPattern);
+    if (ifMatch) {
+      const guardText = line.replace(/^\s*if\s*\(/, "").replace(/\)\s*\{?\s*$/, "").trim();
+      currentGuard = guardText;
+      inIfBlock = true;
+      guardBraceDepth = braceDepth;
+    }
+
+    for (const ch of line) {
+      if (ch === "{") braceDepth++;
+      if (ch === "}") {
+        braceDepth--;
+        if (inIfBlock && braceDepth <= guardBraceDepth) {
+          currentGuard = null;
+          inIfBlock = false;
+        }
+      }
+    }
+
+    const am = line.match(assignPattern);
+    if (am && !line.trim().startsWith("//") && !line.trim().startsWith("const ") &&
+        !line.trim().startsWith("let ") && !line.trim().startsWith("var ")) {
+      assignSites.push({
+        varName: am[1]!,
+        line: i + 1,
+        guard: currentGuard,
+      });
+    }
+  }
+
+  // Look for groups of assignments to related variables where some are guarded and some aren't
+  // Group by proximity (within 5 lines of each other)
+  for (let i = 0; i < assignSites.length; i++) {
+    for (let j = i + 1; j < assignSites.length; j++) {
+      const a = assignSites[i]!;
+      const b = assignSites[j]!;
+      if (Math.abs(a.line - b.line) > 5) continue;
+      if (a.varName === b.varName) continue;
+
+      if (a.guard !== null && b.guard === null) {
+        results.push({
+          filePath,
+          line: a.line,
+          loopVariable: "",
+          guardedPush: {
+            collection: `${a.varName} =`,
+            guard: a.guard,
+            line: a.line,
+          },
+          unguardedPush: {
+            collection: `${b.varName} =`,
+            line: b.line,
+          },
+          message: `Assignment to "${b.varName}" at line ${b.line} is unguarded, but assignment to "${a.varName}" at line ${a.line} is guarded by "${a.guard}". Possible missing check for parallel assignment.`,
+          confidence: "low",
+        });
+      } else if (b.guard !== null && a.guard === null) {
+        results.push({
+          filePath,
+          line: b.line,
+          loopVariable: "",
+          guardedPush: {
+            collection: `${b.varName} =`,
+            guard: b.guard,
+            line: b.line,
+          },
+          unguardedPush: {
+            collection: `${a.varName} =`,
+            line: a.line,
+          },
+          message: `Assignment to "${a.varName}" at line ${a.line} is unguarded, but assignment to "${b.varName}" at line ${b.line} is guarded by "${b.guard}". Possible missing check for parallel assignment.`,
+          confidence: "low",
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Pattern 4: Promise.all with mixed error handling
+ * Detects: Promise.all([a.catch(...), b, c.catch(...)]) where some have .catch and some don't
+ */
+function scanPromiseAllMixedCatch(
+  lines: string[],
+  filePath: string,
+  results: GuardInconsistency[],
+): void {
+  const source = lines.join("\n");
+  // Match Promise.all([ ... ]) spans — simple heuristic on single or multi-line
+  const promiseAllRe = /Promise\.all\s*\(\s*\[([^\]]*)\]\s*\)/gs;
+  let match: RegExpExecArray | null;
+
+  while ((match = promiseAllRe.exec(source)) !== null) {
+    const inner = match[1]!;
+    const lineOffset = source.slice(0, match.index).split("\n").length;
+    const args = splitTopLevelComma(inner);
+
+    const withCatch: string[] = [];
+    const withoutCatch: string[] = [];
+
+    for (const arg of args) {
+      const trimmed = arg.trim();
+      if (!trimmed) continue;
+      if (/\.catch\s*\(/.test(trimmed)) {
+        withCatch.push(trimmed);
+      } else {
+        withoutCatch.push(trimmed);
+      }
+    }
+
+    if (withCatch.length > 0 && withoutCatch.length > 0) {
+      const firstWithCatch = withCatch[0]!.slice(0, 40);
+      const firstWithout = withoutCatch[0]!.slice(0, 40);
+      results.push({
+        filePath,
+        line: lineOffset,
+        loopVariable: "",
+        guardedPush: {
+          collection: firstWithCatch,
+          guard: ".catch()",
+          line: lineOffset,
+        },
+        unguardedPush: {
+          collection: firstWithout,
+          line: lineOffset,
+        },
+        message: `Promise.all at line ${lineOffset}: ${withCatch.length} promise(s) have .catch() but ${withoutCatch.length} don't. Mixed error handling may cause unhandled rejections.`,
+        confidence: "med",
+      });
+    }
+  }
+}
+
+/** Split a string by commas at the top level (not inside parens/brackets) */
+function splitTopLevelComma(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of s) {
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    if (ch === ")" || ch === "]" || ch === "}") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
 // ── 3. Status determination scan ────────────────────────────────────
 
 function scanStatusFunctions(
@@ -398,6 +806,17 @@ function tryExtractStatusFunction(
   const retShape = resolveType(checker, retType);
   const retStr = shapeToString(retShape);
 
+  // Check for boolean return with complex decision logic
+  const isBoolReturn = retStr === "boolean" || retStr === "Boolean";
+  const isBoolPredicateName = BOOL_PREDICATE_NAME.test(name);
+
+  // Check for { success: boolean, ... } or { ok: boolean, ... } return pattern
+  const isResultObject = retShape.kind === "object" &&
+    retShape.fields.some((f) =>
+      (f.name === "success" || f.name === "ok") &&
+      (f.type.kind === "primitive" && f.type.value === "boolean"),
+    );
+
   const isStatus =
     STATUS_VALUES.test(retStr) ||
     STATUS_KEYWORDS.test(name) ||
@@ -406,14 +825,19 @@ function tryExtractStatusFunction(
         (m) => m.kind === "literal" && typeof m.value === "string" && STATUS_VALUES.test(m.value),
       )) ||
     (retShape.kind === "object" &&
-      retShape.fields.some((f) => STATUS_KEYWORDS.test(f.name)));
+      retShape.fields.some((f) => STATUS_KEYWORDS.test(f.name))) ||
+    isResultObject ||
+    isBoolPredicateName;
 
-  if (!isStatus) return null;
-
+  // For boolean returns, require at least 3 branches to be interesting
   const sourceText = funcNode.getText(sourceFile);
+  const branchCount = countBranches(sourceText);
+
+  if (!isStatus && !(isBoolReturn && branchCount >= 3)) return null;
+  if (isBoolReturn && !isBoolPredicateName && !isStatus && branchCount < 3) return null;
+
   const line = sourceFile.getLineAndCharacterOfPosition(funcNode.getStart(sourceFile)).line + 1;
   const lineCount = sourceText.split("\n").length;
-  const branchCount = countBranches(sourceText);
 
   return { name, line, returnType: retStr, branchCount, lineCount };
 }
@@ -838,6 +1262,115 @@ function detectSuspiciousCells(
   return suspicious;
 }
 
+// ── 6. Enum/union exhaustiveness gap scan ───────────────────────────
+
+function scanExhaustivenessGaps(
+  program: ts.Program,
+  checker: ts.TypeChecker,
+  nonTestFiles: string[],
+  resolvedDir: string,
+): ExhaustivenessGap[] {
+  const results: ExhaustivenessGap[] = [];
+
+  for (const sourceFile of program.getSourceFiles()) {
+    if (sourceFile.isDeclarationFile) continue;
+    if (!nonTestFiles.includes(sourceFile.fileName)) continue;
+    const relPath = relative(resolvedDir, sourceFile.fileName);
+
+    function visit(node: ts.Node) {
+      if (ts.isSwitchStatement(node)) {
+        const gap = analyzeSwitchExhaustiveness(node, sourceFile, checker, relPath);
+        if (gap) results.push(gap);
+      }
+      ts.forEachChild(node, visit);
+    }
+    ts.forEachChild(sourceFile, visit);
+  }
+
+  return results;
+}
+
+function analyzeSwitchExhaustiveness(
+  node: ts.SwitchStatement,
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+  filePath: string,
+): ExhaustivenessGap | null {
+  const exprType = checker.getTypeAtLocation(node.expression);
+  if (!exprType) return null;
+
+  // Get the union members or enum members
+  const knownMembers: string[] = [];
+
+  if (exprType.isUnion()) {
+    for (const member of exprType.types) {
+      if (member.isStringLiteral()) {
+        knownMembers.push(member.value);
+      } else if (member.isNumberLiteral()) {
+        knownMembers.push(String(member.value));
+      }
+    }
+  }
+
+  // Also check if it's an enum type by looking at the symbol
+  if (knownMembers.length === 0) {
+    const symbol = exprType.getSymbol?.();
+    if (symbol && symbol.flags & ts.SymbolFlags.Enum) {
+      const enumDecl = symbol.declarations?.[0];
+      if (enumDecl && ts.isEnumDeclaration(enumDecl)) {
+        for (const member of enumDecl.members) {
+          if (ts.isIdentifier(member.name)) {
+            knownMembers.push(member.name.text);
+          }
+        }
+      }
+    }
+  }
+
+  // Need at least 2 known members to be meaningful
+  if (knownMembers.length < 2) return null;
+
+  // Collect handled cases
+  const handledMembers: string[] = [];
+  let hasDefault = false;
+
+  for (const clause of node.caseBlock.clauses) {
+    if (ts.isDefaultClause(clause)) {
+      hasDefault = true;
+    } else if (ts.isCaseClause(clause) && clause.expression) {
+      if (ts.isStringLiteral(clause.expression)) {
+        handledMembers.push(clause.expression.text);
+      } else if (ts.isNumericLiteral(clause.expression)) {
+        handledMembers.push(clause.expression.text);
+      } else if (ts.isPropertyAccessExpression(clause.expression)) {
+        // EnumType.Member
+        handledMembers.push(clause.expression.name.text);
+      }
+    }
+  }
+
+  // If there's a default clause, all cases are technically handled
+  if (hasDefault) return null;
+
+  const missingMembers = knownMembers.filter(m => !handledMembers.includes(m));
+
+  if (missingMembers.length === 0) return null;
+
+  const switchExpr = node.expression.getText(sourceFile);
+  const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+
+  return {
+    filePath,
+    line,
+    switchExpression: switchExpr,
+    knownMembers,
+    handledMembers,
+    missingMembers,
+    hasDefault,
+    message: `switch(${switchExpr}) at line ${line} handles ${handledMembers.length}/${knownMembers.length} cases. Missing: ${missingMembers.join(", ")}. No default clause.`,
+  };
+}
+
 // ── formatting ──────────────────────────────────────────────────────
 
 function formatText(result: LogicAuditResult, resolvedDir: string, minConfidence: "high" | "med" | "low"): string {
@@ -893,6 +1426,22 @@ function formatText(result: LogicAuditResult, resolvedDir: string, minConfidence
     o.push(`${marker} ${sp(g.filePath)}:${g.line} loop(${g.loopVariable}) ${g.unguardedPush.collection}.push unguarded, ${g.guardedPush.collection}.push guarded(${g.guardedPush.guard})`);
   }
 
+  // Broad guard consistency
+  const broadFiltered = result.broadGuards.filter(g => confOrder[g.confidence] <= confThreshold);
+  const broadHighCount = result.broadGuards.filter(g => g.confidence === "high").length;
+  o.push(`## Broad Guard Consistency (${broadFiltered.length} warnings, ${broadHighCount} high)`);
+  const broadSorted = [...broadFiltered].sort((a, b) => confOrder[a.confidence] - confOrder[b.confidence]);
+  for (const g of broadSorted) {
+    const marker = g.confidence === "high" ? "⚠high" : ` ${g.confidence} `;
+    o.push(`${marker} ${sp(g.filePath)}:${g.line} ${g.message}`);
+  }
+
+  // Exhaustiveness gaps
+  o.push(`## Exhaustiveness Gaps (${result.exhaustivenessGaps.length})`);
+  for (const gap of result.exhaustivenessGaps) {
+    o.push(`${sp(gap.filePath)}:${gap.line} switch(${gap.switchExpression}) missing: ${gap.missingMembers.join(", ")} (handled ${gap.handledMembers.length}/${gap.knownMembers.length})`);
+  }
+
   // Status functions — 1 line each, return type truncated
   o.push(`## Status Functions (${result.statusFunctions.length})`);
   for (const fn of result.statusFunctions) {
@@ -901,8 +1450,8 @@ function formatText(result: LogicAuditResult, resolvedDir: string, minConfidence
   }
 
   // Summary line
-  const total = result.crossRep.length + filtered.length + suspectCount;
-  o.push(`## Summary: crossRep=${result.crossRep.length} guards=${filtered.length} statusFn=${result.statusFunctions.length} decisionTables=${result.decisionTables.length} suspect=${suspectCount} total=${total}`);
+  const total = result.crossRep.length + filtered.length + broadFiltered.length + suspectCount + result.exhaustivenessGaps.length;
+  o.push(`## Summary: crossRep=${result.crossRep.length} guards=${filtered.length} broadGuards=${broadFiltered.length} statusFn=${result.statusFunctions.length} decisionTables=${result.decisionTables.length} suspect=${suspectCount} exhaustiveness=${result.exhaustivenessGaps.length} total=${total}`);
 
   return o.join("\n");
 }
@@ -929,9 +1478,11 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
   const crossRep = await crossRepScan(files, resolvedDir);
 
   const guards: GuardInconsistency[] = [];
+  const broadGuards: GuardInconsistency[] = [];
   for (const filePath of files) {
     const source = await readFile(filePath, "utf-8");
     guards.push(...scanGuardConsistency(source, filePath));
+    broadGuards.push(...scanBroadGuardConsistency(source, filePath));
   }
 
   const nonTestFiles = files.filter(
@@ -944,11 +1495,15 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
 
   const decisionTables = scanDecisionTables(program, nonTestFiles, resolvedDir, statusFunctions);
 
+  const exhaustivenessGaps = scanExhaustivenessGaps(program, checker, nonTestFiles, resolvedDir);
+
   const result: LogicAuditResult = {
     crossRep,
     guards,
+    broadGuards,
     statusFunctions,
     decisionTables,
+    exhaustivenessGaps,
   };
 
   const output = format === "json" ? formatJson(result) : formatText(result, resolvedDir, minConfidence);

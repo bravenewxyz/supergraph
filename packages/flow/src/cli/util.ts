@@ -46,5 +46,8 @@ export function countBranches(source: string): number {
   return count;
 }
 
-export const STATUS_KEYWORDS = /\b(status|result|outcome|verdict|state)\b/i;
-export const STATUS_VALUES = /\b(complete|completed|failed|partial|success|error|cancelled|pending|assigned|running|merged|conflict|skipped)\b/;
+export const STATUS_KEYWORDS = /\b(status|result|outcome|verdict|state|phase|step|stage|mode|condition|health|progress)\b/i;
+export const STATUS_VALUES = /\b(complete|completed|failed|partial|success|error|cancelled|pending|assigned|running|merged|conflict|skipped|done|ready|idle|loading|active|inactive|enabled|disabled|valid|invalid|approved|rejected|open|closed|resolved|unresolved|blocked|queued|processing|timeout|expired|retry|aborted|initialized|terminated|paused|resumed|connected|disconnected)\b/;
+
+/** Pattern matching boolean predicate function names */
+export const BOOL_PREDICATE_NAME = /^(is|has|can|should|check|validate|verify)\w+/;
