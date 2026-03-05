@@ -274,6 +274,25 @@ function buildTools(t: PkgTarget): ToolRun[] {
 // Runner + reporting
 // ---------------------------------------------------------------------------
 
+/** Suppress all console/stderr output from tools while animation is active */
+function muteConsole(): () => void {
+  const origLog = console.log;
+  const origError = console.error;
+  const origWarn = console.warn;
+  const origStderrWrite = process.stderr.write;
+  const noop = () => {};
+  console.log = noop;
+  console.error = noop;
+  console.warn = noop;
+  process.stderr.write = () => true;
+  return () => {
+    console.log = origLog;
+    console.error = origError;
+    console.warn = origWarn;
+    process.stderr.write = origStderrWrite;
+  };
+}
+
 async function fileSizeKB(path: string): Promise<string> {
   try {
     const s = await stat(path);
@@ -283,21 +302,26 @@ async function fileSizeKB(path: string): Promise<string> {
   }
 }
 
-async function runTools(tools: ToolRun[]): Promise<RunResult[]> {
-  return Promise.all(
-    tools.map(async (tool): Promise<RunResult> => {
-      const t0 = Date.now();
-      try {
-        await tool.run();
-        const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
-        const size = await fileSizeKB(tool.checkFile);
-        return { tool, ok: true, elapsed, size };
-      } catch (err) {
-        const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
-        return { tool, ok: false, elapsed, error: String(err) };
-      }
-    }),
-  );
+async function runTools(tools: ToolRun[], muted: boolean): Promise<RunResult[]> {
+  const unmute = muted ? muteConsole() : undefined;
+  try {
+    return await Promise.all(
+      tools.map(async (tool): Promise<RunResult> => {
+        const t0 = Date.now();
+        try {
+          await tool.run();
+          const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+          const size = await fileSizeKB(tool.checkFile);
+          return { tool, ok: true, elapsed, size };
+        } catch (err) {
+          const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
+          return { tool, ok: false, elapsed, error: String(err) };
+        }
+      }),
+    );
+  } finally {
+    unmute?.();
+  }
 }
 
 function reportResults(results: RunResult[], anim?: AnimationHandle): number {
@@ -439,7 +463,7 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   } else {
     console.log(`  Running ${tools.length} tools in parallel...\n`);
   }
-  const results = await runTools(tools);
+  const results = await runTools(tools, !!anim);
   const failures = reportResults(results, anim);
 
   // Dashboards only for TS packages (they use flow-tool JSON)
@@ -643,11 +667,13 @@ Usage:
   // -----------------------------------------------------------------------
   anim?.update("cross-package analysis...");
 
+  const unmuteCross = anim ? muteConsole() : undefined;
   const crossResults = await Promise.allSettled([
     runPkgGraph({ root: ROOT }),
     runAggregate({ root: ROOT }),
     runCrossLangBridge({ root: ROOT }),
   ]);
+  unmuteCross?.();
 
   // Generate superhigh outputs (full + shortcut)
   anim?.update("generating superhigh...");
