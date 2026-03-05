@@ -49,8 +49,9 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-arm64
-          - os: macos-13
+          - os: macos-latest
             target: darwin-x64
+            cross: true
           - os: ubuntu-latest
             target: linux-x64
 
@@ -66,7 +67,12 @@ jobs:
       - run: bun install --frozen-lockfile
 
       - name: Build binary
-        run: bun build --compile --minify src/index.ts --outfile supergraph
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            bun build --compile --minify --target=bun-${{ matrix.target }} src/index.ts --outfile supergraph
+          else
+            bun build --compile --minify src/index.ts --outfile supergraph
+          fi
 
       - name: Package
         run: |
