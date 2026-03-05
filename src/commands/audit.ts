@@ -17,6 +17,10 @@ import { runAggregate } from "../../scripts/supergraph.js";
 import { runPkgGraph } from "../../scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../scripts/cross-lang-bridge.js";
 
+// UI
+import { startAnimation } from "../ui/graph-animation.js";
+import type { AnimationHandle } from "../ui/graph-animation.js";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -292,25 +296,36 @@ async function runTools(tools: ToolRun[]): Promise<RunResult[]> {
   );
 }
 
-function reportResults(results: RunResult[]): number {
+function reportResults(results: RunResult[], anim?: AnimationHandle): number {
   let failures = 0;
   for (const r of results) {
-    const kind = r.tool.json ? " (json)" : "       ";
     if (r.ok) {
-      const extras = r.tool.extraFiles?.map((f) => basename(f)).join(", ");
-      const note = extras ? `  → also ${extras}` : "";
-      console.log(
-        `  ✓  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  ${(r.size ?? "").padStart(7)}  (${r.elapsed})${note}`,
-      );
+      // silent when animated — results shown after animation stops
     } else {
-      console.error(
-        `  ✗  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  FAILED  (${r.elapsed})`,
-      );
-      if (r.error) {
-        const preview = r.error.split("\n").slice(0, 3).join("\n         ");
-        console.error(`         ${preview}`);
-      }
       failures++;
+    }
+  }
+  if (anim) {
+    const ok = results.filter((r) => r.ok).length;
+    anim.update(`${ok}/${results.length} tools completed${failures > 0 ? `, ${failures} failed` : ""}`);
+  } else {
+    for (const r of results) {
+      const kind = r.tool.json ? " (json)" : "       ";
+      if (r.ok) {
+        const extras = r.tool.extraFiles?.map((f) => basename(f)).join(", ");
+        const note = extras ? `  → also ${extras}` : "";
+        console.log(
+          `  ✓  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  ${(r.size ?? "").padStart(7)}  (${r.elapsed})${note}`,
+        );
+      } else {
+        console.error(
+          `  ✗  Phase ${r.tool.phase}${kind}  ${r.tool.label.padEnd(30)}  FAILED  (${r.elapsed})`,
+        );
+        if (r.error) {
+          const preview = r.error.split("\n").slice(0, 3).join("\n         ");
+          console.error(`         ${preview}`);
+        }
+      }
     }
   }
   return failures;
@@ -399,35 +414,46 @@ function checkCollisions(targets: PkgTarget[]): void {
 // Per-package audit (unified)
 // ---------------------------------------------------------------------------
 
-async function auditPackage(devtoolsRoot: string, t: PkgTarget): Promise<number> {
+async function auditPackage(devtoolsRoot: string, t: PkgTarget, anim?: AnimationHandle): Promise<number> {
   const langLabel = t.driver.id === "typescript" ? "" : `  (${t.driver.name})`;
-  console.log(`\n${"━".repeat(60)}`);
-  console.log(`  ${t.pkgName}  ←  ${t.srcDir}${langLabel}`);
-  console.log(`${"━".repeat(60)}`);
+  if (anim) {
+    anim.update(`auditing ${t.pkgName}...`);
+  } else {
+    console.log(`\n${"━".repeat(60)}`);
+    console.log(`  ${t.pkgName}  ←  ${t.srcDir}${langLabel}`);
+    console.log(`${"━".repeat(60)}`);
+  }
 
   await mkdir(t.outDir, { recursive: true });
   await mkdir(t.invDir, { recursive: true });
   await mkdir(t.jsonDir, { recursive: true });
 
   const tools = buildTools(t);
-  console.log(`  Running ${tools.length} tools in parallel...\n`);
+  if (anim) {
+    anim.update(`${t.pkgName}: ${tools.length} tools running...`);
+  } else {
+    console.log(`  Running ${tools.length} tools in parallel...\n`);
+  }
   const results = await runTools(tools);
-  const failures = reportResults(results);
+  const failures = reportResults(results, anim);
 
   // Dashboards only for TS packages (they use flow-tool JSON)
   if (t.driver.id === "typescript") {
+    anim?.update(`${t.pkgName}: building dashboards...`);
     const { dash, graph } = await buildDashboards(devtoolsRoot, t);
-    console.log("");
-    console.log(`  Text:  ${t.outDir}/`);
-    console.log(`  JSON:  ${t.jsonDir}/`);
-    if (dash) console.log(`  Dash:  ${t.outDir}/dashboard.html`);
-    if (graph) console.log(`  Graph: ${t.outDir}/graph.html`);
-  } else {
+    if (!anim) {
+      console.log("");
+      console.log(`  Text:  ${t.outDir}/`);
+      console.log(`  JSON:  ${t.jsonDir}/`);
+      if (dash) console.log(`  Dash:  ${t.outDir}/dashboard.html`);
+      if (graph) console.log(`  Graph: ${t.outDir}/graph.html`);
+    }
+  } else if (!anim) {
     console.log("");
     console.log(`  Text:  ${t.outDir}/`);
     console.log(`  JSON:  ${t.jsonDir}/`);
   }
-  if (failures > 0) console.log(`  ⚠  ${failures} tool(s) failed`);
+  if (failures > 0 && !anim) console.log(`  ⚠  ${failures} tool(s) failed`);
 
   return failures;
 }
@@ -488,6 +514,10 @@ Usage:
   const { goDriver } = await import("../../graph/src/cli/lang/go-driver.js");
   const { tsDriver } = await import("../../graph/src/cli/lang/ts-driver.js");
 
+  // Start animation if interactive terminal
+  const isTTY = process.stdout.isTTY && !args.includes("--no-anim");
+  const anim = isTTY ? startAnimation() : undefined;
+
   let totalFailures = 0;
 
   // -----------------------------------------------------------------------
@@ -531,13 +561,16 @@ Usage:
       });
 
       checkCollisions(targets);
-      console.log(`TS audit targets (${targets.length}):`);
-      for (const t of targets) {
-        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+      anim?.update(`scanning ${targets.length} TS packages...`);
+      if (!anim) {
+        console.log(`TS audit targets (${targets.length}):`);
+        for (const t of targets) {
+          console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+        }
       }
 
       for (const t of targets) {
-        totalFailures += await auditPackage(devtoolsRoot, t);
+        totalFailures += await auditPackage(devtoolsRoot, t, anim);
       }
     }
   }
@@ -571,19 +604,63 @@ Usage:
           driver: goDriver,
         };
       });
-      console.log(`\nGo audit targets (${goTargets.length}):`);
-      for (const t of goTargets) {
-        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+      anim?.update(`scanning ${goTargets.length} Go packages...`);
+      if (!anim) {
+        console.log(`\nGo audit targets (${goTargets.length}):`);
+        for (const t of goTargets) {
+          console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+        }
       }
 
       for (const t of goTargets) {
-        totalFailures += await auditPackage(devtoolsRoot, t);
+        totalFailures += await auditPackage(devtoolsRoot, t, anim);
       }
     }
   }
 
   // -----------------------------------------------------------------------
-  // Summary + cross-package views
+  // Cross-package views
+  // -----------------------------------------------------------------------
+  anim?.update("cross-package analysis...");
+
+  const crossResults = await Promise.allSettled([
+    runPkgGraph({ root: ROOT }),
+    runAggregate({ root: ROOT }),
+    runCrossLangBridge({ root: ROOT }),
+  ]);
+
+  // Generate superhigh outputs (full + shortcut)
+  anim?.update("generating superhigh...");
+  if (!anim) console.log("\nGenerating superhigh...");
+  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
+  const spawnIO = anim ? "pipe" as const : "inherit" as const;
+  const superhighResults = await Promise.allSettled([
+    (async () => {
+      const proc = Bun.spawn(["bun", superhighScript, "--full", "--root", ROOT], {
+        cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
+      });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`superhigh --full exited with ${code}`);
+    })(),
+    (async () => {
+      const proc = Bun.spawn(["bun", superhighScript, "--root", ROOT], {
+        cwd: ROOT, stdout: spawnIO, stderr: spawnIO,
+      });
+      const code = await proc.exited;
+      if (code !== 0) throw new Error(`superhigh shortcut exited with ${code}`);
+    })(),
+  ]);
+
+  anim?.update("done.");
+
+  // Brief pause so "done." is visible before clearing
+  if (anim) await new Promise((r) => setTimeout(r, 800));
+
+  // Stop animation before printing summary
+  anim?.stop();
+
+  // -----------------------------------------------------------------------
+  // Summary
   // -----------------------------------------------------------------------
   console.log(`\n${"═".repeat(60)}`);
   if (totalFailures === 0) {
@@ -593,38 +670,11 @@ Usage:
   }
   console.log(`${"═".repeat(60)}`);
 
-  // Run cross-package tools in parallel (direct function calls)
-  const crossResults = await Promise.allSettled([
-    runPkgGraph({ root: ROOT }),
-    runAggregate({ root: ROOT }),
-    runCrossLangBridge({ root: ROOT }),
-  ]);
-
   for (const r of crossResults) {
     if (r.status === "rejected") {
       console.error(`  ✗  Cross-package tool failed: ${r.reason}`);
     }
   }
-
-  // Generate superhigh outputs (full + shortcut)
-  const superhighScript = resolve(devtoolsRoot, "scripts", "superhigh.ts");
-  console.log("\nGenerating superhigh...");
-  const superhighResults = await Promise.allSettled([
-    (async () => {
-      const proc = Bun.spawn(["bun", superhighScript, "--full", "--root", ROOT], {
-        cwd: ROOT, stdout: "inherit", stderr: "inherit",
-      });
-      const code = await proc.exited;
-      if (code !== 0) throw new Error(`superhigh --full exited with ${code}`);
-    })(),
-    (async () => {
-      const proc = Bun.spawn(["bun", superhighScript, "--root", ROOT], {
-        cwd: ROOT, stdout: "inherit", stderr: "inherit",
-      });
-      const code = await proc.exited;
-      if (code !== 0) throw new Error(`superhigh shortcut exited with ${code}`);
-    })(),
-  ]);
 
   for (const r of superhighResults) {
     if (r.status === "rejected") {

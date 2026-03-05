@@ -780,7 +780,8 @@ function renderTypeName(shape: SS, depth = 0): string {
 
 // ── Path shortener ────────────────────────────────────────────────────────────
 
-const PATH_SEGS: [string, string][] = [
+// Default path abbreviations — overridden by config.supergraph.pathSegments if present
+const DEFAULT_PATH_SEGS: [string, string][] = [
   ["packages/common/auth/schemas/", "$C/auth/s/"],
   ["packages/common/auth/", "$C/auth/"],
   ["packages/common/schemas/analytics/", "$C/sch/an/"],
@@ -829,6 +830,9 @@ const PATH_SEGS: [string, string][] = [
   ["packages/frontend/superadmin/src/", "$ADM/"],
   ["packages/frontend/ui-kit/src/", "$UI/"],
 ];
+
+// Effective path segs — set from config if available, else defaults
+let PATH_SEGS: [string, string][] = DEFAULT_PATH_SEGS;
 
 function shortenPath(fp: string): string {
   const p = fp.replace(/\.ts$/, "");
@@ -2334,6 +2338,11 @@ const outPath =
     : resolve(ROOT, "audit/superschema.txt");
 
 const cfg = await loadConfig(ROOT);
+
+// Use config path segments if provided, otherwise keep defaults
+if (cfg.supergraph.pathSegments?.length) {
+  PATH_SEGS = cfg.supergraph.pathSegments as [string, string][];
+}
 
 // Resolve paths from config (fall back to legacy schemas.commonDir for zodDirs)
 const zodDirs = (

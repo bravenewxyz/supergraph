@@ -48,6 +48,16 @@ export type AuditConfig = {
      *  Applied in order via substring replacement after stripping the `src/` prefix. */
     pathSegments?: [string, string][];
   };
+  superhigh?: {
+    /** Stem → domain name mapping. When absent, domains are auto-inferred from directory structure. */
+    domainMap?: Record<string, string>;
+    /** Custom domain sort order. When absent, domains are sorted by module count descending. */
+    domainOrder?: string[];
+  };
+  superflow?: {
+    /** Regex pattern for extracting integration events (e.g. "handleGuildIntegrationEvents\\s*\\([^,]+,\\s*[\"']([^\"']+)[\"']"). */
+    integrationPattern?: string;
+  };
 };
 
 const DEFAULTS: Required<AuditConfig> = {
@@ -90,6 +100,13 @@ const DEFAULTS: Required<AuditConfig> = {
     extAliases: [],
     pathSegments: [],
   },
+  superhigh: {
+    domainMap: undefined,
+    domainOrder: undefined,
+  },
+  superflow: {
+    integrationPattern: undefined,
+  },
 };
 
 export async function loadConfig(
@@ -112,5 +129,7 @@ export async function loadConfig(
     docs: { ...DEFAULTS.docs, ...raw.docs },
     superschema: { ...DEFAULTS.superschema, ...raw.superschema },
     supergraph: { ...DEFAULTS.supergraph, ...raw.supergraph },
+    superhigh: { ...DEFAULTS.superhigh, ...raw.superhigh },
+    superflow: { ...DEFAULTS.superflow, ...raw.superflow },
   };
 }

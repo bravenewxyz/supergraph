@@ -86,15 +86,19 @@ async function parseSwagger(swaggerPath: string): Promise<{
   endpoints: GoEndpoint[];
   definitions: string[];
 }> {
-  let raw: string;
-  try {
-    raw = await readFile(swaggerPath);
-  } catch {
+  const raw = await readFile(swaggerPath);
+  if (!raw) {
     console.warn(`⚠ Swagger spec not found: ${swaggerPath}`);
     return { endpoints: [], definitions: [] };
   }
 
-  const swagger = JSON.parse(raw) as Record<string, unknown>;
+  let swagger: Record<string, unknown>;
+  try {
+    swagger = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    console.warn(`⚠ Invalid JSON in swagger spec: ${swaggerPath}`);
+    return { endpoints: [], definitions: [] };
+  }
   const paths = (swagger.paths ?? {}) as Record<
     string,
     Record<string, unknown>
@@ -460,6 +464,12 @@ export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<
   const swaggerPath = resolve(opts.root, "go-packages/protocol/docs/swagger.json");
   const sdkPath = resolve(opts.root, "packages/internal/protocol/generated/api.ts");
   const modelsDir = resolve(opts.root, "packages/internal/protocol/generated/models");
+
+  // Skip entirely if none of the expected paths exist (not a Go ↔ TS bridge repo)
+  const { existsSync } = await import("node:fs");
+  if (!existsSync(swaggerPath) && !existsSync(sdkPath) && !existsSync(modelsDir)) {
+    return;
+  }
 
   console.log("Detecting Go ↔ TypeScript cross-language bridges...\n");
 

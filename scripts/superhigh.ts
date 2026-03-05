@@ -33,7 +33,7 @@
  */
 
 import { mkdir, readdir } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
 
@@ -163,10 +163,9 @@ if (args.includes("--help") || args.includes("-h")) {
 const FULL = args.includes("--full");
 
 const cfg = await loadConfig(ROOT);
-const shCfg =
-  ((cfg as Record<string, unknown>).superhigh as
-    | { output?: string }
-    | undefined) ?? {};
+const shCfg = cfg.superhigh ?? {};
+const CONFIGURED_DOMAIN_MAP: Record<string, string> | undefined = shCfg.domainMap;
+const CONFIGURED_DOMAIN_ORDER: string[] | undefined = shCfg.domainOrder;
 const EXT_ALIASES: [string, string][] = cfg.supergraph.extAliases as [
   string,
   string,
@@ -265,9 +264,15 @@ flows.meta ??= {
 const schemaData = JSON.parse(schemaRaw || "{}") as SchemaJson;
 
 const HAS_FLOWS = !!flows.endpoints?.length;
+const HAS_SCHEMA = !!(schemaData.zod?.length || schemaData.sql?.tables?.length || schemaData.redis?.keys?.length || schemaData.ts?.length);
 if (!HAS_FLOWS) {
   console.warn(
-    "  Note: no route/endpoint data found (superflows empty) — PART 1 domain blocks will be skipped.",
+    "  Note: no route/endpoint data found (superflows empty) — endpoint sections will be skipped.",
+  );
+}
+if (!HAS_SCHEMA) {
+  console.warn(
+    "  Note: no schema data found (superschema empty) — schema/table/redis/type sections will be skipped.",
   );
 }
 
@@ -309,11 +314,15 @@ function endpointFileToModuleKey(file: string): string | null {
   return null;
 }
 
+// Effective aliases — set by generateOutput() to include auto-generated ones
+let activePathSegs: [string, string][] = PATH_SEGS;
+let activeExtAliases: [string, string][] = EXT_ALIASES;
+
 function compressPath(rawPath: string): string {
   if (FULL) return rawPath.replace(/^src\//, "");
   let p = rawPath.replace(/^src\//, "").replace(/\/index$/, "");
   if (p === "index") p = "idx";
-  for (const [from, to] of PATH_SEGS) {
+  for (const [from, to] of activePathSegs) {
     const i = p.indexOf(from);
     if (i !== -1) p = p.slice(0, i) + to + p.slice(i + from.length);
   }
@@ -321,7 +330,7 @@ function compressPath(rawPath: string): string {
 }
 
 function compressExtDep(dep: string): string {
-  for (const [from, to] of EXT_ALIASES) {
+  for (const [from, to] of activeExtAliases) {
     if (dep === from) return to;
     const last = from[from.length - 1];
     if (last === "/" || last === ":" || last === "-") {
@@ -335,74 +344,39 @@ function compressExtDep(dep: string): string {
 
 // ─── Domain assignment ────────────────────────────────────────────────────────
 
-const STEM_TO_DOMAIN: Record<string, string> = {
-  guild: "guilds",
-  guilds: "guilds",
-  membership: "guilds",
-  memberships: "guilds",
-  guildMembership: "guilds",
-  guildmembership: "guilds",
-  role: "roles",
-  roles: "roles",
-  roleProgress: "roles",
-  roleprogress: "roles",
-  roleClaimProgress: "roles",
-  requirement: "requirements",
-  requirements: "requirements",
-  reward: "rewards",
-  rewards: "rewards",
-  userReward: "rewards",
-  userreward: "rewards",
-  userrewards: "rewards",
-  pointReward: "rewards",
-  pointreward: "rewards",
-  platform: "platforms",
-  platforms: "platforms",
-  page: "pages",
-  pages: "pages",
-  form: "forms",
-  forms: "forms",
-  formPage: "forms",
-  formpage: "forms",
-  formField: "forms",
-  formfield: "forms",
-  formSubmission: "forms",
-  formsubmission: "forms",
-  formAnswer: "forms",
-  formanswer: "forms",
-  user: "users",
-  users: "users",
-  identity: "users",
-  identities: "users",
-  access: "access",
-  crm: "crm",
-  profile: "profile",
-  analytics: "analytics",
-  billing: "billing",
-  pin: "pin",
-  integrations: "integrations",
-  upload: "upload",
-  chain: "chain",
-  status: "status",
-  "third-party": "third-party",
-  thirdParty: "third-party",
-};
+// Use configured domain map if present, otherwise auto-infer from directory structure
+const STEM_TO_DOMAIN: Record<string, string> | null = CONFIGURED_DOMAIN_MAP ?? null;
+const HAS_DOMAIN_MAP = !!STEM_TO_DOMAIN;
+
+/** Auto-infer domain from module path using first directory segment. */
+function inferDomainFromDir(modPath: string): string | null {
+  const p = modPath.replace(/^src\//, "");
+  const segments = p.split("/");
+  if (segments.length > 1) return segments[0]!;
+  return null; // root-level file — handled by caller
+}
 
 function inferDomainFromModPath(modPath: string): string | null {
-  const p = modPath.replace(/^src\//, "").replace(/\.(ts|tsx)$/, "");
-  const base = p.split("/").pop() ?? "";
-  const stem = base
-    .replace(/\.route$/, "")
-    .replace(/\.controller$/, "")
-    .replace(/\.model$/, "")
-    .replace(/\.connector$/, "")
-    .replace(/\.service$/, "")
-    .replace(/\.openapi$/, "")
-    .replace(/\.handler$/, "");
-  return STEM_TO_DOMAIN[stem] ?? STEM_TO_DOMAIN[stem.toLowerCase()] ?? null;
+  if (STEM_TO_DOMAIN) {
+    // Config-based: match filename stem against domain map
+    const p = modPath.replace(/^src\//, "").replace(/\.(ts|tsx)$/, "");
+    const base = p.split("/").pop() ?? "";
+    const stem = base
+      .replace(/\.route$/, "")
+      .replace(/\.controller$/, "")
+      .replace(/\.model$/, "")
+      .replace(/\.connector$/, "")
+      .replace(/\.service$/, "")
+      .replace(/\.openapi$/, "")
+      .replace(/\.handler$/, "");
+    return STEM_TO_DOMAIN[stem] ?? STEM_TO_DOMAIN[stem.toLowerCase()] ?? null;
+  }
+  // Auto-infer: use first directory segment
+  return inferDomainFromDir(modPath);
 }
 
 function inferDomainFromSchemaName(name: string): string | null {
+  if (!STEM_TO_DOMAIN) return null;
   const stem = name
     .replace(
       /^(Create|Update|Delete|Get|List|Search|Insert|Upsert|Bulk|Request|Response|Recent)/,
@@ -419,11 +393,13 @@ function inferDomainFromSchemaName(name: string): string | null {
 }
 
 function inferDomainFromTableName(name: string): string | null {
+  if (!STEM_TO_DOMAIN) return null;
   const first = name.split("_")[0] ?? name;
   return STEM_TO_DOMAIN[first] ?? STEM_TO_DOMAIN[name] ?? null;
 }
 
 function inferDomainFromRedisKey(pattern: string): string | null {
+  if (!STEM_TO_DOMAIN) return null;
   const parts = pattern
     .replace(/\{[^}]+\}/g, "")
     .split(":")
@@ -506,10 +482,16 @@ for (const ep of flows.endpoints) {
 
 // ─── Step 2: Assign remaining modules by name heuristic ───────────────────────
 
-for (const [key, { mod }] of moduleByKey) {
+for (const [key, { short, mod }] of moduleByKey) {
   if (assignedModules.has(key)) continue;
   const domain = inferDomainFromModPath(mod.path);
-  if (domain) assignModule(key, domain);
+  if (domain) {
+    assignModule(key, domain);
+  } else if (!HAS_DOMAIN_MAP) {
+    // Auto-infer: root-level files go to a domain named after the package
+    const pkgData = allMaps.get(short);
+    assignModule(key, pkgData?.map.package ?? short);
+  }
 }
 
 // ─── Step 3: Assign schemas, tables, Redis keys, TS types ────────────────────
@@ -851,6 +833,69 @@ function compressSdkTypes(types: TsType[]): string[] {
   return lines;
 }
 
+// ─── Auto-generate helpers ────────────────────────────────────────────────────
+
+/** Auto-generate path segment abbreviations from common module path prefixes. */
+function autoGeneratePathSegs(maps: Map<string, PkgData>): [string, string][] {
+  const prefixCount = new Map<string, number>();
+  for (const [, { map }] of maps) {
+    for (const mod of map.modules) {
+      const p = mod.path.replace(/^src\//, "");
+      const parts = p.split("/");
+      if (parts.length > 1) {
+        const prefix = parts.slice(0, -1).join("/") + "/";
+        prefixCount.set(prefix, (prefixCount.get(prefix) ?? 0) + 1);
+      }
+    }
+  }
+  // Only create abbreviations for prefixes used ≥4 times
+  const result: [string, string][] = [];
+  const sorted = [...prefixCount.entries()]
+    .filter(([, count]) => count >= 4)
+    .sort((a, b) => b[0].length - a[0].length); // longest first for greedy matching
+  const usedAbbrevs = new Set<string>();
+  for (const [prefix] of sorted) {
+    // Generate abbreviation from first letters of path segments
+    const segments = prefix.replace(/\/$/, "").split("/");
+    let abbr = segments.map((s) => s[0]?.toUpperCase() ?? "").join("");
+    if (!abbr || usedAbbrevs.has(abbr)) {
+      abbr = segments.map((s) => s.slice(0, 2)).join("").toUpperCase();
+    }
+    if (usedAbbrevs.has(abbr)) continue;
+    usedAbbrevs.add(abbr);
+    result.push([prefix, `${abbr}/`]);
+  }
+  return result;
+}
+
+/** Auto-generate external dependency aliases from npm scopes. */
+function autoGenerateExtAliases(maps: Map<string, PkgData>): [string, string][] {
+  const scopeCount = new Map<string, number>();
+  for (const [, { map }] of maps) {
+    for (const mod of map.modules) {
+      for (const dep of mod.externalDeps ?? []) {
+        if (dep.startsWith("@")) {
+          const scope = dep.split("/")[0]! + "/";
+          scopeCount.set(scope, (scopeCount.get(scope) ?? 0) + 1);
+        }
+      }
+    }
+  }
+  const result: [string, string][] = [];
+  const usedAbbrevs = new Set<string>();
+  for (const [scope, count] of [...scopeCount.entries()].sort((a, b) => b[1] - a[1])) {
+    if (count < 3) continue;
+    // @tanstack/ → T=, @hono/ → H=, etc.
+    const name = scope.slice(1, -1); // strip @ and /
+    let abbr = name[0]?.toUpperCase() ?? "";
+    if (usedAbbrevs.has(abbr)) abbr = name.slice(0, 2).toUpperCase();
+    if (usedAbbrevs.has(abbr)) continue;
+    usedAbbrevs.add(abbr);
+    result.push([scope, `${abbr}/`]);
+  }
+  return result;
+}
+
 // ─── Generate output ──────────────────────────────────────────────────────────
 
 function generateOutput(): string {
@@ -876,54 +921,83 @@ function generateOutput(): string {
     [...iFreq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
 
   // ── Header ────────────────────────────────────────────────────────────────
-  lines.push(`SUPERHIGH | ${schemaData.project ?? "guild-v3"} | ${date}`);
-  lines.push(
-    `${epCount}ep · ${schemaData.stats?.zod ?? 0}z · ${schemaData.stats?.sql ?? 0}tbl · ` +
-      `${schemaData.stats?.redis ?? 0}key · ${hkCount}hk · ${totalMods}mods · ${tsCount}ty`,
-  );
-  lines.push(
-    "R=Redis  Π=Protocol  P=Storage  E=Analytics  I=Integration  L=RateLimit",
-  );
+  const projectName = cfg.project || schemaData?.project || basename(ROOT);
+  lines.push(`SUPERHIGH | ${projectName} | ${date}`);
+  const statParts: string[] = [];
+  if (epCount) statParts.push(`${epCount}ep`);
+  const zodCount = schemaData.stats?.zod ?? 0;
+  if (zodCount) statParts.push(`${zodCount}z`);
+  const sqlCount = schemaData.stats?.sql ?? 0;
+  if (sqlCount) statParts.push(`${sqlCount}tbl`);
+  const redisCount = schemaData.stats?.redis ?? 0;
+  if (redisCount) statParts.push(`${redisCount}key`);
+  if (hkCount) statParts.push(`${hkCount}hk`);
+  statParts.push(`${totalMods}mods`);
+  if (tsCount) statParts.push(`${tsCount}ty`);
+  lines.push(statParts.join(" · "));
+  if (HAS_FLOWS) {
+    lines.push(
+      "R=Redis  Π=Protocol  P=Storage  E=Analytics  I=Integration  L=RateLimit",
+    );
+  }
   lines.push("");
 
-  if (FULL) {
-    lines.push(
-      "# EXT DEP ALIASES  (module paths are full/unabbreviated; [dir/] = auto-grouped prefix)",
-    );
-    lines.push(EXT_ALIASES.map(([f, t]) => `${t}=${f}`).join("  "));
-    lines.push("");
-  } else {
-    lines.push(
-      "# PATH SEGS  (applied to module paths in DOMAIN and PACKAGES sections)",
-    );
-    lines.push(PATH_SEGS.map(([f, t]) => `${t}=${f}`).join("  "));
-    lines.push("");
+  // Auto-generate path segments from module paths if none configured
+  const effectivePathSegs = PATH_SEGS.length ? PATH_SEGS : autoGeneratePathSegs(allMaps);
+  // Auto-generate ext dep aliases if none configured
+  const effectiveExtAliases = EXT_ALIASES.length ? EXT_ALIASES : autoGenerateExtAliases(allMaps);
+  // Set active aliases for compressPath/compressExtDep
+  activePathSegs = effectivePathSegs;
+  activeExtAliases = effectiveExtAliases;
 
-    lines.push("# EXT DEP ALIASES");
-    lines.push(EXT_ALIASES.map(([f, t]) => `${t}=${f}`).join("  "));
-    lines.push("");
+  if (FULL) {
+    if (effectiveExtAliases.length) {
+      lines.push(
+        "# EXT DEP ALIASES  (module paths are full/unabbreviated; [dir/] = auto-grouped prefix)",
+      );
+      lines.push(effectiveExtAliases.map(([f, t]) => `${t}=${f}`).join("  "));
+      lines.push("");
+    }
+  } else {
+    if (effectivePathSegs.length) {
+      lines.push(
+        "# PATH SEGS  (applied to module paths in DOMAIN and PACKAGES sections)",
+      );
+      lines.push(effectivePathSegs.map(([f, t]) => `${t}=${f}`).join("  "));
+      lines.push("");
+    }
+
+    if (effectiveExtAliases.length) {
+      lines.push("# EXT DEP ALIASES");
+      lines.push(effectiveExtAliases.map(([f, t]) => `${t}=${f}`).join("  "));
+      lines.push("");
+    }
   }
 
   lines.push("# BLOCK FORMAT");
-  lines.push("## domain  Nep Nmut Nmod Nsch Ntbl Nkey Nty");
-  lines.push(
-    "R  METHOD /path [auth] ctrl:fns [ops]  ←hookName·inv:queryKey  {svc-if-not-backend}",
-  );
-  lines.push(
-    "   ↳R:redis-ops  Π:proto  P:storage  E:events  I:integration-events",
-  );
+  lines.push("## domain  Nmod" + (HAS_FLOWS ? " Nep Nmut" : "") + (HAS_SCHEMA ? " Nsch Ntbl Nkey Nty" : ""));
+  if (HAS_FLOWS) {
+    lines.push(
+      "R  METHOD /path [auth] ctrl:fns [ops]  ←hookName·inv:queryKey  {svc-if-not-backend}",
+    );
+    lines.push(
+      "   ↳R:redis-ops  Π:proto  P:storage  E:events  I:integration-events",
+    );
+  }
   lines.push(
     "M  modPath[exp/tot]←importers  key=(route/ctrl/model)  other=(util/config/middleware)",
   );
-  lines.push(
-    "S  SchemaName(Ln)  field:type  opt?:type  =scalar  (full field definitions)",
-  );
-  lines.push("T  tableName PK(cols) FK(col→ref)  col:type! →fk  ·idx(col)");
-  lines.push("E  ENUM name  val1|val2|...");
-  lines.push("K  redis:{pattern}[ops]→schemaHint");
-  lines.push(
-    "Ty typeName(Ln)[type|iface]  fields or =body  (public controller/connector types)",
-  );
+  if (HAS_SCHEMA) {
+    lines.push(
+      "S  SchemaName(Ln)  field:type  opt?:type  =scalar  (full field definitions)",
+    );
+    lines.push("T  tableName PK(cols) FK(col→ref)  col:type! →fk  ·idx(col)");
+    lines.push("E  ENUM name  val1|val2|...");
+    lines.push("K  redis:{pattern}[ops]→schemaHint");
+    lines.push(
+      "Ty typeName(Ln)[type|iface]  fields or =body  (public controller/connector types)",
+    );
+  }
   lines.push("");
 
   // ── OP DEFAULTS legend (implied in ↳ lines — only deltas shown) ───────────
@@ -943,25 +1017,39 @@ function generateOutput(): string {
     }
   }
 
-  // ── Domain blocks (sorted by aggregate module import-count centrality) ────
-  const sortedNames = [...domains.keys()]
-    .sort((a, b) => {
-      const score = (name: string) =>
-        [...(domains.get(name)?.moduleKeys ?? [])].reduce(
-          (s, k) => s + (globalImportedBy.get(k) ?? 0), 0,
-        );
-      return score(b) - score(a) || a.localeCompare(b);
-    });
+  // ── Domain blocks ────────────────────────────────────────────────────────
+  const sortedNames = CONFIGURED_DOMAIN_ORDER
+    ? [...domains.keys()].sort((a, b) => {
+        const ai = CONFIGURED_DOMAIN_ORDER!.indexOf(a);
+        const bi = CONFIGURED_DOMAIN_ORDER!.indexOf(b);
+        return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+      })
+    : [...domains.keys()].sort((a, b) => {
+        // Sort by module count descending, then by aggregate import centrality
+        const countDiff = (domains.get(b)?.moduleKeys.size ?? 0) - (domains.get(a)?.moduleKeys.size ?? 0);
+        if (countDiff !== 0) return countDiff;
+        const score = (name: string) =>
+          [...(domains.get(name)?.moduleKeys ?? [])].reduce(
+            (s, k) => s + (globalImportedBy.get(k) ?? 0), 0,
+          );
+        return score(b) - score(a) || a.localeCompare(b);
+      });
 
   for (const domainName of sortedNames) {
     const d = domains.get(domainName)!;
-    if (
-      !d.endpoints.length &&
-      !d.schemas.length &&
-      !d.tables.length &&
-      !d.redisKeys.length
-    )
-      continue;
+    // When using configured domain map, skip empty domains (no endpoints/schemas/tables/redis)
+    // When auto-inferring, show domains that have modules
+    if (HAS_DOMAIN_MAP) {
+      if (
+        !d.endpoints.length &&
+        !d.schemas.length &&
+        !d.tables.length &&
+        !d.redisKeys.length
+      )
+        continue;
+    } else {
+      if (!d.moduleKeys.size) continue;
+    }
 
     const mut = d.endpoints.filter((e) => e.method !== "GET").length;
     const allDomainMods = [...d.moduleKeys];

@@ -31,12 +31,16 @@ type ConfigRouteSource = {
 };
 
 type Config = {
+  project?: string;
   supergraph?: { pathSegments?: [string, string][] };
   superflows?: {
     output?: string;
     services?: ConfigRouteSource[];
     hookDirs?: string[];
     controllerDirs?: string[];
+  };
+  superflow?: {
+    integrationPattern?: string;
   };
 };
 
@@ -258,11 +262,17 @@ function extractOps(body: string): Ops {
   for (const m of body.matchAll(/event_type:\s*["']([^"']+)["']/g))
     seen(analytics, m[1]);
 
-  // Integration events
-  for (const m of body.matchAll(
-    /handleGuildIntegrationEvents\s*\([^,]+,\s*["']([^"']+)["']/g,
-  ))
-    seen(integration, `GUILD_${m[1]}`);
+  // Integration events (configurable pattern or default)
+  const integrationPattern = cfg.superflow?.integrationPattern;
+  if (integrationPattern) {
+    for (const m of body.matchAll(new RegExp(integrationPattern, "g")))
+      if (m[1]) seen(integration, m[1]);
+  } else {
+    for (const m of body.matchAll(
+      /handleGuildIntegrationEvents\s*\([^,]+,\s*["']([^"']+)["']/g,
+    ))
+      seen(integration, `GUILD_${m[1]}`);
+  }
 
   // Rate limits
   for (const m of body.matchAll(/new\s+RedisLimiter\s*\([^)]+\)/g))
@@ -1014,31 +1024,9 @@ function generateFlowsTxt(data: FlowData): string {
     byDomain.get(domain)!.push(ep);
   }
 
-  const DOMAIN_ORDER = [
-    "access",
-    "guilds",
-    "roles",
-    "requirements",
-    "rewards",
-    "platforms",
-    "pages",
-    "forms",
-    "users",
-    "crm",
-    "profile",
-    "analytics",
-    "billing",
-    "third-party",
-    "integrations",
-    "chain",
-    "upload",
-    "status",
-    "pin",
-  ];
+  // Sort domains: by endpoint count descending (no hardcoded order)
   const sortedDomains = [...byDomain.keys()].sort((a, b) => {
-    const ai = DOMAIN_ORDER.indexOf(a);
-    const bi = DOMAIN_ORDER.indexOf(b);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    return (byDomain.get(b)?.length ?? 0) - (byDomain.get(a)?.length ?? 0) || a.localeCompare(b);
   });
 
   // ── Header ─────────────────────────────────────────────────────────────────
@@ -1059,8 +1047,9 @@ function generateFlowsTxt(data: FlowData): string {
   const unmatched = hooks.filter((h) => !isMatched(h));
   const covStr = `${hooks.length - unmatched.length}/${hooks.length}hk-matched`;
 
+  const projectName = (cfg.project || basename(ROOT)).toUpperCase();
   lines.push(
-    `GUILD SUPERFLOWS | ${data.generated.slice(0, 10)} | ${endpoints.length}ep · ${methodStat} · ${svcStat} · ${covStr}`,
+    `${projectName} SUPERFLOWS | ${data.generated.slice(0, 10)} | ${endpoints.length}ep · ${methodStat} · ${svcStat} · ${covStr}`,
   );
   lines.push("R=Redis  Π=Protocol  P=Storage  E=Event  I=Integration  L=Limit");
   lines.push(
@@ -1225,32 +1214,15 @@ function buildExportJSON(data: FlowData) {
       ),
   ).length;
 
-  const DOMAIN_ORDER_FOR_SORT = [
-    "access",
-    "guilds",
-    "roles",
-    "requirements",
-    "rewards",
-    "platforms",
-    "pages",
-    "forms",
-    "users",
-    "crm",
-    "profile",
-    "analytics",
-    "billing",
-    "third-party",
-    "integrations",
-    "chain",
-    "upload",
-    "status",
-    "pin",
-  ];
+  // Compute domain order from endpoint counts (descending)
+  const computedDomainOrder = Object.entries(byDomain)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([d]) => d);
 
   return {
     meta: {
       generated: data.generated,
-      project: (cfg as Record<string, unknown>).project ?? "unknown",
+      project: cfg.project ?? "unknown",
       totalEndpoints: endpoints.length,
       totalHooks: hooks.length,
       hookCoverage:
@@ -1258,7 +1230,7 @@ function buildExportJSON(data: FlowData) {
           ? Math.round(((hooks.length - unmatchedCount) / hooks.length) * 100)
           : 100,
       pathSegments: PATH_SEGMENTS,
-      domainOrder: DOMAIN_ORDER_FOR_SORT,
+      domainOrder: computedDomainOrder,
     },
     stats: { byMethod, byService, byDomain },
     endpoints: exported,
