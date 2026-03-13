@@ -270,6 +270,15 @@ function buildTools(t: PkgTarget): ToolRun[] {
 // Runner + reporting
 // ---------------------------------------------------------------------------
 
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${(ms / 1000).toFixed(0)}s`)), ms),
+    ),
+  ]);
+}
+
 /** Suppress all console/stderr output from tools while animation is active */
 function muteConsole(): () => void {
   const origLog = console.log;
@@ -332,8 +341,9 @@ async function runTools(tools: ToolRun[], muted: boolean, concurrency = 3): Prom
         const idx = nextIdx++;
         const tool = tools[idx]!;
         const t0 = Date.now();
+        const TOOL_TIMEOUT = 120_000;
         try {
-          await tool.run();
+          await withTimeout(tool.run(), TOOL_TIMEOUT, tool.label);
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
           const size = await fileSizeKB(tool.checkFile);
           results[idx] = { tool, ok: true, elapsed, size };
@@ -736,11 +746,12 @@ Usage:
   anim?.update("cross-package analysis...");
 
   const unmuteCross = anim ? muteConsole() : undefined;
+  const CROSS_TIMEOUT = 120_000;
   const crossResults = await Promise.allSettled([
-    runPkgGraph({ root: ROOT }),
-    runAggregate({ root: ROOT }),
-    runCrossLangBridge({ root: ROOT }),
-    runHypergraph({ root: ROOT }),
+    withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph"),
+    withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate"),
+    withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
+    withTimeout(runHypergraph({ root: ROOT }), CROSS_TIMEOUT, "hypergraph"),
   ]);
   unmuteCross?.();
 
@@ -756,12 +767,12 @@ Usage:
     ? [process.execPath, "superhigh"]  // compiled: call self with subcommand
     : ["bun", superhighScript];         // dev: run script directly
 
+  const SPAWN_TIMEOUT = 120_000;
   const superhighResults = await Promise.allSettled([
-    (async () => {
+    withTimeout((async () => {
       const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
-      // Consume stdout when piped to prevent buffer deadlock / memory buildup
       if (spawnIO === "pipe") {
         for await (const _ of proc.stdout) { /* drain */ }
       }
@@ -770,12 +781,11 @@ Usage:
         const stderr = await new Response(proc.stderr).text();
         throw new Error(`superhigh --full exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
       }
-    })(),
-    (async () => {
+    })(), SPAWN_TIMEOUT, "superhigh --full"),
+    withTimeout((async () => {
       const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
         cwd: ROOT, stdout: spawnIO, stderr: "pipe",
       });
-      // Consume stdout when piped to prevent buffer deadlock / memory buildup
       if (spawnIO === "pipe") {
         for await (const _ of proc.stdout) { /* drain */ }
       }
@@ -784,13 +794,13 @@ Usage:
         const stderr = await new Response(proc.stderr).text();
         throw new Error(`superhigh shortcut exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
       }
-    })(),
+    })(), SPAWN_TIMEOUT, "superhigh shortcut"),
   ]);
 
   // -----------------------------------------------------------------------
   // Tally failures (while animation still runs)
   // -----------------------------------------------------------------------
-  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge"];
+  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph"];
   const crossFailures: string[] = [];
   for (let i = 0; i < crossResults.length; i++) {
     const r = crossResults[i]!;
@@ -854,6 +864,7 @@ Usage:
       console.log(`\n  open audit/supergraph.html`);
     }
     console.log(`${"═".repeat(60)}`);
+    process.exit(0);
   } else {
     console.log(`\n${"═".repeat(60)}`);
 

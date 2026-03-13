@@ -319,6 +319,9 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         // Subprocess may already be dead — restore terminal from parent
         process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
       }
+      setTimeout(() => {
+        try { proc.kill(); } catch {}
+      }, 300);
     },
   };
 }
