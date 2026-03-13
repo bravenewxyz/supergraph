@@ -158,7 +158,8 @@ rm -f "${TARBALL}"
 mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
 chmod +x "${BIN_DIR}/supergraph"
 
-step_done "Binary installed"
+VERSION="$("${BIN_DIR}/supergraph" --version 2>/dev/null || echo "unknown")"
+step_done "Binary installed ${BOLD}${WHITE}${VERSION}${RESET}"
 step_detail "${BIN_DIR}/supergraph"
 
 # Install native libraries (for Go analysis)

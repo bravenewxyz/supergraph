@@ -2,6 +2,8 @@ import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/p
 import { basename, join, resolve, relative } from "node:path";
 import { Glob } from "bun";
 
+import { discoverPackages, findMonorepoRoot } from "../monorepo.js";
+
 // Embed dashboard templates so they're available in compiled binaries
 import DASHBOARD_INDEX_HTML from "../../packages/dashboard/index.html" with { type: "text" };
 import DASHBOARD_GRAPH_HTML from "../../packages/dashboard/graph.html" with { type: "text" };
@@ -21,6 +23,7 @@ import { runInvariantDiscover } from "../../packages/flow/src/cli/invariant.js";
 import { runAggregate } from "../../packages/scripts/supergraph.js";
 import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
+import { runHypergraph } from "../../packages/scripts/hypergraph.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -104,203 +107,7 @@ function derivePkgName(p: string, driver: LanguageDriver): string {
   return parent;
 }
 
-// ---------------------------------------------------------------------------
-// Package discovery — monorepo-aware
-// ---------------------------------------------------------------------------
-
-/** Read workspace glob patterns from all common monorepo config files. */
-async function readWorkspaceGlobs(root: string): Promise<string[]> {
-  const globs: string[] = [];
-
-  // 1. package.json workspaces (npm, bun, yarn, turborepo)
-  try {
-    const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf-8"));
-    const ws = pkg.workspaces;
-    if (Array.isArray(ws)) {
-      globs.push(...ws);
-    } else if (ws && Array.isArray(ws.packages)) {
-      // yarn classic: { packages: [...] }
-      globs.push(...ws.packages);
-    }
-  } catch {}
-
-  // 2. pnpm-workspace.yaml
-  if (globs.length === 0) {
-    try {
-      const yaml = await readFile(join(root, "pnpm-workspace.yaml"), "utf-8");
-      // Simple YAML array parser — handles "packages:\n  - 'packages/*'\n  - 'apps/*'"
-      const lines = yaml.split("\n");
-      let inPackages = false;
-      for (const line of lines) {
-        if (/^packages\s*:/.test(line)) {
-          inPackages = true;
-          continue;
-        }
-        if (inPackages) {
-          const m = line.match(/^\s+-\s+['"]?([^'"#]+?)['"]?\s*$/);
-          if (m) {
-            globs.push(m[1]!.trim());
-          } else if (/^\S/.test(line)) {
-            break; // next top-level key
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // 3. lerna.json
-  if (globs.length === 0) {
-    try {
-      const lerna = JSON.parse(await readFile(join(root, "lerna.json"), "utf-8"));
-      if (Array.isArray(lerna.packages)) {
-        globs.push(...lerna.packages);
-      }
-    } catch {}
-  }
-
-  // 4. rush.json
-  if (globs.length === 0) {
-    try {
-      const rush = JSON.parse(await readFile(join(root, "rush.json"), "utf-8"));
-      if (Array.isArray(rush.projects)) {
-        for (const p of rush.projects) {
-          if (p.projectFolder) globs.push(p.projectFolder);
-        }
-      }
-    } catch {}
-  }
-
-  return globs;
-}
-
-/** Resolve workspace globs to actual package directories that contain source code. */
-async function resolveWorkspaceDirs(root: string, patterns: string[]): Promise<string[]> {
-  const pkgDirs = new Set<string>();
-
-  for (let pattern of patterns) {
-    // Strip negation patterns (e.g. "!packages/internal")
-    if (pattern.startsWith("!")) continue;
-
-    // Normalize: "packages/*" → match directories at that level
-    // Ensure pattern matches directories (not deep files)
-    if (!pattern.includes("*")) {
-      // Exact path like "apps/web" — use directly
-      const abs = resolve(root, pattern);
-      try {
-        const s = await stat(abs);
-        if (s.isDirectory()) pkgDirs.add(abs);
-      } catch {}
-      continue;
-    }
-
-    // Use Bun's Glob to resolve patterns
-    const glob = new Glob(pattern);
-    for await (const match of glob.scan({ cwd: root, onlyFiles: false })) {
-      const abs = resolve(root, match);
-      try {
-        const s = await stat(abs);
-        if (!s.isDirectory()) continue;
-        // Skip node_modules matches
-        if (match.includes("node_modules")) continue;
-        // Verify it's a real package (has package.json)
-        try {
-          await stat(join(abs, "package.json"));
-          pkgDirs.add(abs);
-        } catch {}
-      } catch {}
-    }
-  }
-
-  return [...pkgDirs].sort();
-}
-
-/** Find src/ directories within resolved package dirs. */
-async function findSrcDirs(pkgDirs: string[]): Promise<string[]> {
-  const srcDirs: string[] = [];
-  for (const dir of pkgDirs) {
-    const srcDir = join(dir, "src");
-    try {
-      const s = await stat(srcDir);
-      if (s.isDirectory()) {
-        srcDirs.push(srcDir);
-        continue;
-      }
-    } catch {}
-    // No src/ — check if the package root itself has source files
-    try {
-      const entries = await readdir(dir);
-      const hasSource = entries.some(
-        (e) => e.endsWith(".ts") || e.endsWith(".tsx") || e.endsWith(".js") || e.endsWith(".jsx"),
-      );
-      if (hasSource) srcDirs.push(dir);
-    } catch {}
-  }
-  return srcDirs;
-}
-
-/** Legacy fallback: walk a directory looking for src/ subdirectories. */
-async function walkForSrcDirs(baseDir: string): Promise<string[]> {
-  const srcDirs: string[] = [];
-
-  async function walk(dir: string, depth: number) {
-    if (depth > 3) return;
-    const entries = await readdir(dir, { withFileTypes: true });
-    const hasSrc = entries.some((e) => e.isDirectory() && e.name === "src");
-    if (hasSrc) {
-      srcDirs.push(join(dir, "src"));
-      return;
-    }
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      if (e.name === "node_modules" || e.name === "dist" || e.name === ".next")
-        continue;
-      await walk(join(dir, e.name), depth + 1);
-    }
-  }
-
-  await walk(baseDir, 0);
-  return srcDirs.sort();
-}
-
-/**
- * Discover all TS package src dirs in a monorepo.
- *
- * Strategy (in order):
- *   1. Read workspace globs from package.json / pnpm-workspace.yaml / lerna.json / rush.json
- *   2. Resolve globs → package dirs → find src/ in each
- *   3. Fallback: if no config found, walk packages/ or src/ at root
- */
-async function discoverPackages(root: string): Promise<string[]> {
-  // 1. Try workspace config
-  const globs = await readWorkspaceGlobs(root);
-  if (globs.length > 0) {
-    const pkgDirs = await resolveWorkspaceDirs(root, globs);
-    if (pkgDirs.length > 0) {
-      const srcDirs = await findSrcDirs(pkgDirs);
-      if (srcDirs.length > 0) return srcDirs;
-    }
-  }
-
-  // 2. Fallback: check common monorepo directory conventions
-  const conventionDirs = ["packages", "apps", "libs", "modules", "services"];
-  for (const dir of conventionDirs) {
-    const abs = resolve(root, dir);
-    try {
-      await stat(abs);
-      const srcDirs = await walkForSrcDirs(abs);
-      if (srcDirs.length > 0) return srcDirs;
-    } catch {}
-  }
-
-  // 3. Single-package repo: root has src/
-  const rootSrc = resolve(root, "src");
-  try {
-    const s = await stat(rootSrc);
-    if (s.isDirectory()) return [rootSrc];
-  } catch {}
-
-  return [];
-}
+// Package discovery moved to ../monorepo.ts — see discoverPackages, findMonorepoRoot
 
 async function discoverGoPackages(goPackagesDir: string): Promise<string[]> {
   const goDirs: string[] = [];
@@ -739,12 +546,12 @@ Usage:
     process.exit(0);
   }
 
-  // Parse --root
+  // Parse --root (when omitted, walk up from cwd to find monorepo root)
   const rootIdx = args.indexOf("--root");
   const ROOT =
     rootIdx >= 0 && args[rootIdx + 1]
       ? resolve(args[rootIdx + 1]!)
-      : process.cwd();
+      : await findMonorepoRoot(process.cwd());
 
   const devtoolsRoot = resolve(import.meta.dir, "../..");
 
@@ -790,7 +597,7 @@ Usage:
       srcDirs = await discoverPackages(ROOT);
       if (srcDirs.length === 0) {
         console.error(
-          "No packages found. Checked workspace configs (package.json workspaces, pnpm-workspace.yaml, lerna.json, rush.json), common directories (packages/, apps/, libs/), and root src/.\nPass explicit src dirs or run from a monorepo root.",
+          "No packages found. Checked workspace configs (package.json workspaces, pnpm-workspace.yaml, lerna.json, rush.json, nx.json, turbo.json, .moon/workspace.yml), tsconfig.json project references, common directories (packages/, apps/, libs/, modules/, services/), and root src/.\nPass explicit src dirs or run from a monorepo root.",
         );
         process.exit(1);
       }
@@ -933,6 +740,7 @@ Usage:
     runPkgGraph({ root: ROOT }),
     runAggregate({ root: ROOT }),
     runCrossLangBridge({ root: ROOT }),
+    runHypergraph({ root: ROOT }),
   ]);
   unmuteCross?.();
 

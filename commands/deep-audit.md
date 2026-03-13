@@ -43,7 +43,7 @@ Read these files **in their entirety** (never skim or chunk). Pass full content 
 ## Execution discipline
 
 1. **No subagent delegation during Phases 1–8.** You must read and analyze the code yourself. Subagents lack accumulated cross-file context. Delegation is only appropriate in Phase 10.
-2. **Write findings to disk as you go.** After each analysis phase (2–7), append to `findings.md`. Format: `file:line-range severity one-line-description`.
+2. **Write findings to disk as you go.** After each analysis phase (2–7), append to `findings.md` under the appropriate phase heading. See Phase 8b for the final format.
 
 ---
 
@@ -166,18 +166,83 @@ Write `invariants/README.md` with counts and tables. Append likely bugs to `find
 
 Re-read exact file+line for each finding. Drop stale claims. Cross-check all `⚠` from Phase 6 tools.
 
-### 8b. Number every issue
+### 8b. Write the final findings.md
 
-Assign a sequential integer ID to every verified finding, starting at 1. This is the **master issue list**. Write it to `findings.md` as the final version, replacing any earlier content. Format:
+Replace `findings.md` with the final, verified version. This is the human-readable audit report. Use this exact structure:
 
+```markdown
+# Audit: <package-name>
+
+<file-count> files · <line-count> lines · <date>
+
+---
+
+## Summary
+
+<N> issues: <critical-count> critical, <high-count> high, <medium-count> medium, <low-count> low
+
+---
+
+## Issues
+
+### Critical
+
+**#1** · `pipeline.ts:42-55`
+Race condition in concurrent queue drain — `processQueue()` reads `queue.length`
+before acquiring the lock, so two concurrent calls can both enter the drain loop.
+
+**#2** · `auth.ts:80-92`
+Hardcoded JWT secret in fallback path — when `process.env.JWT_SECRET` is unset,
+falls back to `"development"` string even in production.
+
+### High
+
+**#3** · `parser.ts:120`
+Swallowed error in catch block — `parseConfig()` catches all errors and returns
+`{}`, silently hiding malformed config files.
+
+**#4** · `cache.ts:55-70`
+Missing TTL on session cache — entries are never evicted, causing unbounded
+memory growth under sustained load.
+
+### Medium
+
+**#5** · `utils.ts:12`
+Dead export: `unusedHelper` — exported but not imported anywhere in the codebase.
+
+**#6** · `types.ts:30-45`
+Type overlap: `UserResponse` and `UserData` share 8/10 fields — consolidate
+into a single type.
+
+### Low
+
+**#7** · `logger.ts:8`
+Inconsistent log level: uses `console.warn` here but `logger.warn` everywhere else.
+
+---
+
+## Phase notes
+
+Brief notes on what each phase found, for context. Not every phase needs notes —
+only include phases that produced findings or notable observations.
+
+### Phase 2: Structural audit
+- 2 circular dependencies detected (see #8, #9)
+- `orchestrator.ts` has 3× median symbol count — splitting candidate
+
+### Phase 5: Data flow trace
+- 3 JSON roundtrip losses in event serialization (#11, #12, #13)
+
+### Phase 6: Logic analysis
+- 1 decision table gap with confirmed VERDICT (#1)
 ```
-1. critical file.ts:42-55 — Race condition in concurrent queue drain
-2. high    file.ts:80     — Swallowed error in catch block
-3. medium  other.ts:12    — Dead export: unusedHelper
-...
-```
 
-Sort by severity (critical → high → medium → low), then by file path. The number is stable — it's how the user refers to issues from now on.
+Rules for this file:
+- Every issue gets a **#N** ID, sequential starting at 1
+- Sort by severity: critical → high → medium → low
+- Each issue: **bold number** · `file:lines` on first line, then 1–3 lines of plain English explanation — what's wrong and why it matters. No jargon-only descriptions.
+- The "Phase notes" section at the bottom provides context but is optional per phase
+- The number is stable — it's how the user refers to issues from now on
 
 ### 8c. Grouped plans
 

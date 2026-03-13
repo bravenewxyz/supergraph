@@ -63,6 +63,13 @@ if (!existsSync(setupDone)) {
 }
 
 const args = process.argv.slice(2);
+
+if (args.includes("--version") || args.includes("-V")) {
+  const pkg = await import("../package.json");
+  console.log(`supergraph v${pkg.version}`);
+  process.exit(0);
+}
+
 const subcommand = args[0] && !args[0].startsWith("--") ? args[0] : null;
 const restArgs = subcommand ? args.slice(1) : args;
 
