@@ -4,6 +4,18 @@ import { Glob } from "bun";
 
 import { discoverPackages, findMonorepoRoot } from "../monorepo.js";
 
+const C = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+  accent: "\x1b[38;2;201;240;107m",
+};
+
 // Embed dashboard templates so they're available in compiled binaries
 import DASHBOARD_INDEX_HTML from "../../packages/dashboard/index.html" with { type: "text" };
 import DASHBOARD_GRAPH_HTML from "../../packages/dashboard/graph.html" with { type: "text" };
@@ -368,39 +380,57 @@ const allResults: { pkgName: string; results: RunResult[] }[] = [];
 
 function reportResults(results: RunResult[], pkgName: string, anim?: AnimationHandle): number {
   let failures = 0;
-  for (const r of results) {
-    const kind = r.tool.json ? " (json)" : "";
-    if (r.ok) {
-      if (anim) {
+
+  if (anim) {
+    for (const r of results) {
+      const kind = r.tool.json ? " (json)" : "";
+      if (r.ok) {
         anim.log(`  ✓  ${pkgName}  ${r.tool.label}${kind}  ${r.size ?? ""}  (${r.elapsed})`);
       } else {
-        const kindPad = r.tool.json ? " (json)" : "       ";
-        const extras = r.tool.extraFiles?.map((f) => basename(f)).join(", ");
-        const note = extras ? `  → also ${extras}` : "";
-        console.log(
-          `  ✓  Phase ${r.tool.phase}${kindPad}  ${r.tool.label.padEnd(30)}  ${(r.size ?? "").padStart(7)}  (${r.elapsed})${note}`,
-        );
+        failures++;
+        anim.log(`  ✗  ${pkgName}  ${r.tool.label}${kind}  FAILED  (${r.elapsed})`);
       }
+    }
+    const ok = results.filter((r) => r.ok).length;
+    anim.update(`${pkgName}: ${ok}/${results.length} tools${failures > 0 ? `, ${failures} failed` : ""}`);
+    return failures;
+  }
+
+  // --no-anim: merge text+json results by label, colorize
+  const merged = new Map<string, { text?: RunResult; json?: RunResult }>();
+  for (const r of results) {
+    const key = r.tool.label;
+    const entry = merged.get(key) ?? {};
+    if (r.tool.json) entry.json = r; else entry.text = r;
+    merged.set(key, entry);
+  }
+
+  for (const [label, { text, json }] of merged) {
+    const primary = text ?? json!;
+    const ok = (text?.ok ?? true) && (json?.ok ?? true);
+    const time = text?.elapsed ?? json?.elapsed ?? "";
+    const extras = text?.tool.extraFiles?.map((f) => basename(f)).join(", ");
+
+    if (ok) {
+      let sizeStr = text?.size ?? "";
+      if (json?.size && json.size !== "0 KB") sizeStr += `${C.dim} + ${json.size} json${C.reset}`;
+      const note = extras ? `  ${C.dim}→ ${extras}${C.reset}` : "";
+      console.log(
+        `  ${C.green}✓${C.reset}  ${label.padEnd(28)} ${sizeStr.padStart(8)}  ${C.dim}${time}${C.reset}${note}`,
+      );
     } else {
       failures++;
-      if (anim) {
-        anim.log(`  ✗  ${pkgName}  ${r.tool.label}${kind}  FAILED  (${r.elapsed})`);
-      } else {
-        const kindPad = r.tool.json ? " (json)" : "       ";
-        console.error(
-          `  ✗  Phase ${r.tool.phase}${kindPad}  ${r.tool.label.padEnd(30)}  FAILED  (${r.elapsed})`,
-        );
-        if (r.error) {
-          const preview = r.error.split("\n").slice(0, 3).join("\n         ");
-          console.error(`         ${preview}`);
-        }
+      const failedPart = !text?.ok ? text : json;
+      console.log(
+        `  ${C.red}✗${C.reset}  ${label.padEnd(28)} ${C.red}FAILED${C.reset}  ${C.dim}${time}${C.reset}`,
+      );
+      if (failedPart?.error) {
+        const preview = failedPart.error.split("\n").slice(0, 2).join(`\n     `);
+        console.log(`     ${C.dim}${preview}${C.reset}`);
       }
     }
   }
-  if (anim) {
-    const ok = results.filter((r) => r.ok).length;
-    anim.update(`${pkgName}: ${ok}/${results.length} tools${failures > 0 ? `, ${failures} failed` : ""}`);
-  }
+
   return failures;
 }
 
@@ -493,9 +523,8 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   if (anim) {
     anim.update(`auditing ${t.pkgName}...`);
   } else {
-    console.log(`\n${"━".repeat(60)}`);
-    console.log(`  ${t.pkgName}  ←  ${t.srcDir}${langLabel}`);
-    console.log(`${"━".repeat(60)}`);
+    const bar = "━".repeat(56);
+    console.log(`\n${C.dim}━━${C.reset} ${C.bold}${t.pkgName}${C.reset}${langLabel} ${C.dim}${bar.slice(0, Math.max(1, 56 - t.pkgName.length))}${C.reset}`);
   }
 
   await mkdir(t.outDir, { recursive: true });
@@ -505,10 +534,8 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   const tools = buildTools(t);
   if (anim) {
     anim.update(`${t.pkgName}: ${tools.length} tools running...`);
-  } else {
-    console.log(`  Running ${tools.length} tools in parallel...\n`);
   }
-  const results = await runTools(tools, !!anim);
+  const results = await runTools(tools, true);
   allResults.push({ pkgName: t.pkgName, results });
   const failures = reportResults(results, t.pkgName, anim);
 
@@ -517,18 +544,15 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
     anim?.update(`${t.pkgName}: building dashboards...`);
     const { dash, graph } = await buildDashboards(t);
     if (!anim) {
-      console.log("");
-      console.log(`  Text:  ${t.outDir}/`);
-      console.log(`  JSON:  ${t.jsonDir}/`);
-      if (dash) console.log(`  Dash:  ${t.outDir}/dashboard.html`);
-      if (graph) console.log(`  Graph: ${t.outDir}/graph.html`);
+      const outputs = [`${C.dim}→ ${t.outDir}/${C.reset}`];
+      if (dash) outputs.push(`${C.cyan}dashboard.html${C.reset}`);
+      if (graph) outputs.push(`${C.cyan}graph.html${C.reset}`);
+      console.log(`  ${outputs.join("  ")}`);
     }
   } else if (!anim) {
-    console.log("");
-    console.log(`  Text:  ${t.outDir}/`);
-    console.log(`  JSON:  ${t.jsonDir}/`);
+    console.log(`  ${C.dim}→ ${t.outDir}/${C.reset}`);
   }
-  if (failures > 0 && !anim) console.log(`  ⚠  ${failures} tool(s) failed`);
+  if (failures > 0 && !anim) console.log(`  ${C.yellow}⚠  ${failures} tool(s) failed${C.reset}`);
 
   return failures;
 }
@@ -712,9 +736,9 @@ Usage:
   if (tsTargets.length > 0) {
     anim?.update(`scanning ${tsTargets.length} TS packages...`);
     if (!anim) {
-      console.log(`TS audit targets (${tsTargets.length}):`);
+      console.log(`\n${C.accent}supergraph${C.reset} ${C.dim}·${C.reset} ${tsTargets.length} package${tsTargets.length > 1 ? "s" : ""} found\n`);
       for (const t of tsTargets) {
-        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+        console.log(`  ${C.bold}${t.pkgName.padEnd(24)}${C.reset}  ${C.dim}${t.srcDir}${C.reset}`);
       }
     }
 
@@ -729,9 +753,9 @@ Usage:
   if (goTargets.length > 0) {
     anim?.update(`scanning ${goTargets.length} Go packages...`);
     if (!anim) {
-      console.log(`\nGo audit targets (${goTargets.length}):`);
+      console.log(`\n${C.accent}go packages${C.reset} ${C.dim}·${C.reset} ${goTargets.length} found\n`);
       for (const t of goTargets) {
-        console.log(`  ${t.pkgName.padEnd(30)}  ←  ${t.srcDir}`);
+        console.log(`  ${C.bold}${t.pkgName.padEnd(24)}${C.reset}  ${C.dim}${t.srcDir}${C.reset}`);
       }
     }
 
@@ -745,7 +769,7 @@ Usage:
   // -----------------------------------------------------------------------
   anim?.update("cross-package analysis...");
 
-  const unmuteCross = anim ? muteConsole() : undefined;
+  const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 120_000;
   const crossResults = await Promise.allSettled([
     withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph"),
@@ -753,12 +777,11 @@ Usage:
     withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
     withTimeout(runHypergraph({ root: ROOT }), CROSS_TIMEOUT, "hypergraph"),
   ]);
-  unmuteCross?.();
+  unmuteCross();
 
   // Generate superhigh outputs (full + shortcut)
   anim?.update("generating superhigh...");
-  if (!anim) console.log("\nGenerating superhigh...");
-  const spawnIO = anim ? "pipe" as const : "inherit" as const;
+  const spawnIO = "pipe" as const;
 
   // Use process.execPath for compiled binary support, fall back to bun for dev
   const superhighScript = resolve(devtoolsRoot, "packages", "scripts", "superhigh.ts");
@@ -824,6 +847,32 @@ Usage:
   const supergraphHtml = resolve(ROOT, "audit/supergraph.html");
   const htmlExists = await stat(supergraphHtml).then(() => true).catch(() => false);
 
+  if (!anim) {
+    console.log(`\n${C.dim}━━${C.reset} ${C.bold}cross-package${C.reset} ${C.dim}${"━".repeat(43)}${C.reset}`);
+    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "hypergraph"];
+    for (let i = 0; i < crossResults.length; i++) {
+      const r = crossResults[i]!;
+      const label = crossLabels[i]!;
+      if (r.status === "fulfilled") {
+        console.log(`  ${C.green}✓${C.reset}  ${label}`);
+      } else {
+        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
+      }
+    }
+    const shLabels = ["superhigh", "superhigh-shortcut"];
+    for (let i = 0; i < superhighResults.length; i++) {
+      const r = superhighResults[i]!;
+      if (r.status === "fulfilled") {
+        console.log(`  ${C.green}✓${C.reset}  ${shLabels[i]}`);
+      } else {
+        const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        console.log(`  ${C.red}✗${C.reset}  ${shLabels[i]}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
+      }
+    }
+    console.log(`  ${C.dim}→ audit/${C.reset}`);
+  }
+
   // -----------------------------------------------------------------------
   // Interactive wait — animation keeps running, user can press o or enter
   // -----------------------------------------------------------------------
@@ -857,50 +906,49 @@ Usage:
   // -----------------------------------------------------------------------
   const pkgsWithFailures = allResults.filter((p) => p.results.some((r) => !r.ok));
 
+  const totalPkgs = tsTargets.length + goTargets.length;
+
   if (totalProblems === 0) {
-    console.log(`\n${"═".repeat(60)}`);
-    console.log("All package(s) audited successfully.");
+    console.log(`\n${C.dim}${"═".repeat(60)}${C.reset}`);
+    console.log(`${C.green}${C.bold}All ${totalPkgs} package(s) audited successfully.${C.reset}`);
     if (htmlExists) {
-      console.log(`\n  open audit/supergraph.html`);
+      console.log(`\n  ${C.cyan}open audit/supergraph.html${C.reset}`);
     }
-    console.log(`${"═".repeat(60)}`);
+    console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
     process.exit(0);
   } else {
-    console.log(`\n${"═".repeat(60)}`);
+    console.log(`\n${C.dim}${"═".repeat(60)}${C.reset}`);
 
     if (pkgsWithFailures.length > 0) {
-      console.log(`\nTool failures by package:\n`);
+      console.log(`\n${C.red}${C.bold}Tool failures:${C.reset}\n`);
       for (const pkg of pkgsWithFailures) {
         const failed = pkg.results.filter((r) => !r.ok);
-        console.log(`  ${pkg.pkgName} (${failed.length} failed):`);
+        console.log(`  ${C.bold}${pkg.pkgName}${C.reset} ${C.dim}(${failed.length} failed)${C.reset}`);
         for (const r of failed) {
-          const kind = r.tool.json ? " (json)" : "";
-          console.log(`    ✗  Phase ${r.tool.phase}  ${r.tool.label}${kind}`);
+          console.log(`    ${C.red}✗${C.reset}  ${r.tool.label}`);
           if (r.error) {
-            const lines = r.error.split("\n").slice(0, 3);
-            for (const line of lines) {
-              console.log(`       ${line}`);
-            }
+            const preview = r.error.split("\n")[0];
+            console.log(`       ${C.dim}${preview}${C.reset}`);
           }
         }
       }
     }
 
     if (crossFailures.length > 0) {
-      console.log(`\nCross-package failures:\n`);
+      console.log(`\n${C.red}${C.bold}Cross-package failures:${C.reset}\n`);
       for (const f of crossFailures) console.error(f);
     }
 
     if (superhighFailures.length > 0) {
-      console.log(`\nSuperhigh failures:\n`);
+      console.log(`\n${C.red}${C.bold}Superhigh failures:${C.reset}\n`);
       for (const f of superhighFailures) console.error(f);
     }
 
-    console.log(`\n${totalFailures} tool failure(s) across ${pkgsWithFailures.length} package(s), ${crossFailures.length} cross-package failure(s), ${superhighFailures.length} superhigh failure(s).`);
+    console.log(`\n${C.yellow}${totalProblems} issue(s)${C.reset} across ${totalPkgs} package(s)`);
     if (htmlExists) {
-      console.log(`\n  open audit/supergraph.html`);
+      console.log(`\n  ${C.cyan}open audit/supergraph.html${C.reset}`);
     }
-    console.log(`${"═".repeat(60)}`);
+    console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
 
     process.exit(1);
   }
