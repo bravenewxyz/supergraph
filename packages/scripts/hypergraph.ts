@@ -281,7 +281,14 @@ function renderSymbolHeader(sym: RawSymbol, indent = 0): string {
     .join(" ");
   const modStr = mods ? `${mods} ` : "";
   const kind = KIND_SHORT[sym.kind] ?? sym.kind;
-  const sig = sym.signature ? sym.signature.replace(/\s*\n\s*/g, " ").trim() : sym.name;
+  let sig = sym.signature ? sym.signature.replace(/\s*\n\s*/g, " ").trim() : sym.name;
+  // Strip leading keyword from signature when it duplicates the kind label
+  // e.g. "interface Foo" → "Foo" when kind is already "interface"
+  const kindWords: Record<string, string> = {
+    interface: "interface ", "type-alias": "type ", enum: "enum ", class: "class ", namespace: "namespace ",
+  };
+  const prefix = kindWords[sym.kind];
+  if (prefix && sig.startsWith(prefix)) sig = sig.slice(prefix.length);
   return `${pad}${ex}${modStr}${kind} ${sig}${fmtLines(sym.lines)}`;
 }
 
