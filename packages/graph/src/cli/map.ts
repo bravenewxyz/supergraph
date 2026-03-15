@@ -904,13 +904,13 @@ export async function runMap(opts: MapOptions): Promise<MapResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// Main (language-agnostic via lang driver abstraction)
 // ---------------------------------------------------------------------------
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
-    console.error("Usage: bun map.ts <path-to-src-dir> [--format json|text] [--comments] [--out <file>]");
+    console.error("Usage: bun map.ts <path-to-src-dir> [--format json|text] [--comments] [--out <file>] [--lang typescript|go]");
     process.exit(1);
   }
   const srcRoot = resolve(args[0]!);
@@ -920,7 +920,29 @@ async function main() {
   const format = fmtIdx !== -1 && args[fmtIdx + 1] === "text" ? "text" as const : "json" as const;
   const comments = args.includes("--comments");
 
-  const { output } = await runMap({ srcRoot, format, comments, outPath });
+  const langIdx = args.indexOf("--lang");
+  const langArg = langIdx !== -1 ? args[langIdx + 1] : undefined;
+
+  // Import lang driver system
+  const { detectLanguage, getDriver } = await import("./lang/index.js");
+
+  let driver;
+  if (langArg) {
+    driver = getDriver(langArg as import("./lang/types.js").LanguageId);
+    if (!driver) {
+      console.error(`Unknown language: ${langArg}. Supported: typescript, go`);
+      process.exit(1);
+    }
+  } else {
+    driver = await detectLanguage(srcRoot);
+    if (!driver) {
+      console.error(`Could not detect language for ${srcRoot}. Use --lang to specify.`);
+      process.exit(1);
+    }
+  }
+
+  console.error(`Detected language: ${driver.name}`);
+  const { output } = await driver.map({ srcRoot, format, comments, outPath });
   if (!outPath) process.stdout.write(output);
 }
 

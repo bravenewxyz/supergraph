@@ -1,12 +1,8 @@
-import { parse, Lang } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
-import type {
-  RuntimeSchemaExtractor,
-  RuntimeSchemaInfo,
-} from "./runtime-schema.js";
 import type { ShapeType, ShapeField } from "../schema/shapes.js";
+import { BaseSchemaExtractor } from "./base-schema-extractor.js";
 
-export class ValibotExtractor implements RuntimeSchemaExtractor {
+export class ValibotExtractor extends BaseSchemaExtractor {
   readonly library = "valibot";
 
   readonly validationPatterns = [
@@ -16,68 +12,20 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
     "parse($SCHEMA, $DATA)",
   ];
 
+  /** Cached per-extract() call: whether source uses `v.` namespace prefix. */
+  private prefix = "";
+
   detect(source: string): boolean {
     return /from\s+["']valibot["']/.test(source) || /require\(["']valibot["']\)/.test(source);
   }
 
-  extract(source: string, filePath: string): RuntimeSchemaInfo[] {
-    const tree = parse(Lang.TypeScript, source);
-    const root = tree.root();
-    const schemas: RuntimeSchemaInfo[] = [];
-
-    // Detect import style: `import * as v from 'valibot'` or `import { object, string } from 'valibot'`
-    const usesNamespace = /import\s+\*\s+as\s+v\s+from\s+["']valibot["']/.test(source);
-    const prefix = usesNamespace ? "v" : "";
-
-    // Find v.object(...) or object(...) calls
-    const objectPattern = prefix
-      ? { rule: { kind: "call_expression", has: { kind: "member_expression", regex: `^${prefix}\\.object$` } } }
-      : { rule: { kind: "call_expression", has: { kind: "identifier", regex: "^object$" } } };
-
-    const objectCalls = root.findAll(objectPattern);
-
-    for (const call of objectCalls) {
-      // For non-namespace imports, verify we're calling the right `object`
-      if (!prefix) {
-        const callee = call.field("function");
-        if (!callee || callee.kind() !== "identifier" || callee.text() !== "object") continue;
-      }
-
-      const outermost = this.findOutermostChain(call);
-      const name = this.resolveSchemaName(outermost);
-      const shape = this.resolveValibotType(outermost, prefix);
-
-      schemas.push({
-        name: name ?? `anonymous_${call.range().start.line + 1}`,
-        library: "valibot",
-        filePath,
-        line: call.range().start.line + 1,
-        shape: shape.type,
-        raw: outermost.text(),
-      });
-    }
-
-    // Find standalone schemas (array, union, enum, etc.)
-    const standaloneSchemas = this.findStandaloneSchemas(root, prefix);
-    for (const { name, node } of standaloneSchemas) {
-      if (schemas.some((s) => s.name === name)) continue;
-      const { type } = this.resolveValibotType(node, prefix);
-      if (type.kind === "opaque") continue;
-
-      schemas.push({
-        name,
-        library: "valibot",
-        filePath,
-        line: node.range().start.line + 1,
-        shape: type,
-        raw: node.text(),
-      });
-    }
-
-    return schemas;
+  override extract(source: string, filePath: string) {
+    // Detect import style once before the base scaffold runs.
+    this.prefix = /import\s+\*\s+as\s+v\s+from\s+["']valibot["']/.test(source) ? "v" : "";
+    return super.extract(source, filePath);
   }
 
-  private findOutermostChain(node: SgNode): SgNode {
+  protected override findOutermostChain(node: SgNode): SgNode {
     let current = node;
     while (true) {
       const parent = current.parent();
@@ -94,7 +42,27 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
     return current;
   }
 
-  private findStandaloneSchemas(root: SgNode, prefix: string): Array<{ name: string; node: SgNode }> {
+  protected findObjectCalls(root: SgNode): SgNode[] {
+    const prefix = this.prefix;
+    const objectPattern = prefix
+      ? { rule: { kind: "call_expression", has: { kind: "member_expression", regex: `^${prefix}\\.object$` } } }
+      : { rule: { kind: "call_expression", has: { kind: "identifier", regex: "^object$" } } };
+
+    const calls = root.findAll(objectPattern);
+
+    if (!prefix) {
+      // For non-namespace imports, verify we're calling the right `object`
+      return calls.filter((call) => {
+        const callee = call.field("function");
+        return callee && callee.kind() === "identifier" && callee.text() === "object";
+      });
+    }
+
+    return calls;
+  }
+
+  protected findStandaloneSchemas(root: SgNode): Array<{ name: string; node: SgNode }> {
+    const prefix = this.prefix;
     const results: Array<{ name: string; node: SgNode }> = [];
     const varDecls = root.findAll({ rule: { kind: "variable_declarator" } });
     const methods = ["array", "union", "enum_", "enum", "record", "tuple", "string", "number", "boolean", "optional", "nullable"];
@@ -112,26 +80,13 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
     return results;
   }
 
-  private resolveSchemaName(node: SgNode): string | null {
-    let current = node.parent();
-    while (current) {
-      if (current.kind() === "variable_declarator") {
-        const nameNode = current.field("name");
-        if (nameNode) return nameNode.text();
-      }
-      if (current.kind() === "pair" || current.kind() === "property_assignment") {
-        const key = current.field("key");
-        if (key) return key.text();
-      }
-      current = current.parent();
-    }
-    return null;
+  resolveType(node: SgNode): { type: ShapeType; optional: boolean } {
+    return this.resolveValibotType(node, this.prefix);
   }
 
   resolveValibotType(node: SgNode, prefix: string): { type: ShapeType; optional: boolean } {
     const text = node.text();
 
-    // Check for wrapping calls like optional(), nullable()
     const callName = this.getCallName(node, prefix);
 
     if (callName === "optional" || callName === "nullish") {
@@ -159,7 +114,6 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
       }
     }
 
-    // Passthrough wrappers
     const passthrough = ["pipe", "transform", "brand", "readonly", "minLength", "maxLength", "minValue", "maxValue", "email", "url", "uuid", "regex", "trim", "toLowerCase", "toUpperCase", "nonEmpty"];
     if (callName && passthrough.includes(callName)) {
       const args = node.field("arguments");
@@ -194,16 +148,8 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
       if (args) {
         const arg = this.firstMeaningfulChild(args);
         if (arg) {
-          const argText = arg.text();
-          if (arg.kind() === "string" || arg.kind() === "template_string") {
-            return { type: { kind: "literal", value: argText.replace(/^["'`]|["'`]$/g, "") }, optional: false };
-          }
-          if (arg.kind() === "number") {
-            return { type: { kind: "literal", value: Number(argText) }, optional: false };
-          }
-          if (argText === "true" || argText === "false") {
-            return { type: { kind: "literal", value: argText === "true" }, optional: false };
-          }
+          const lit = this.resolveLiteralArg(arg);
+          if (lit) return lit;
         }
       }
     }
@@ -224,7 +170,7 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
       if (args) {
         const objLiteral = this.findFirstChild(args, "object");
         if (objLiteral) {
-          const fields = this.extractObjectFields(objLiteral, prefix);
+          const fields = this.extractValibotObjectFields(objLiteral, prefix);
           return { type: { kind: "object", fields }, optional: false };
         }
       }
@@ -317,7 +263,6 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
       return callee.text();
     }
 
-    // Handle nested calls like pipe(string(), ...)
     if (callee.kind() === "member_expression") {
       const prop = callee.field("property");
       if (prop) return prop.text();
@@ -326,7 +271,8 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
     return null;
   }
 
-  private extractObjectFields(objLiteral: SgNode, prefix: string): ShapeField[] {
+  /** Valibot-specific object field extraction (delegates to resolveValibotType). */
+  private extractValibotObjectFields(objLiteral: SgNode, prefix: string): ShapeField[] {
     const fields: ShapeField[] = [];
     for (const prop of objLiteral.children()) {
       if (prop.kind() !== "pair" && prop.kind() !== "property_assignment") continue;
@@ -337,27 +283,5 @@ export class ValibotExtractor implements RuntimeSchemaExtractor {
       fields.push({ name: key.text(), type, optional });
     }
     return fields;
-  }
-
-  private findFirstChild(node: SgNode, kind: string): SgNode | null {
-    for (const child of node.children()) {
-      if (child.kind() === kind) return child;
-      const found = this.findFirstChild(child, kind);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  private firstMeaningfulChild(node: SgNode): SgNode | null {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    for (const child of node.children()) {
-      if (!skip.has(child.kind() as string)) return child;
-    }
-    return null;
-  }
-
-  private meaningfulChildren(node: SgNode): SgNode[] {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    return node.children().filter((c) => !skip.has(c.kind() as string));
   }
 }

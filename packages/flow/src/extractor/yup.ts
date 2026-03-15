@@ -1,12 +1,8 @@
-import { parse, Lang } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
-import type {
-  RuntimeSchemaExtractor,
-  RuntimeSchemaInfo,
-} from "./runtime-schema.js";
 import type { ShapeType, ShapeField } from "../schema/shapes.js";
+import { BaseSchemaExtractor } from "./base-schema-extractor.js";
 
-export class YupExtractor implements RuntimeSchemaExtractor {
+export class YupExtractor extends BaseSchemaExtractor {
   readonly library = "yup";
 
   readonly validationPatterns = [
@@ -17,84 +13,38 @@ export class YupExtractor implements RuntimeSchemaExtractor {
     "$SCHEMA.cast($DATA)",
   ];
 
+  /** Cached per-extract() call: whether source uses `yup.` namespace prefix. */
+  private prefix = "";
+
   detect(source: string): boolean {
     return /from\s+["']yup["']/.test(source) || /require\(["']yup["']\)/.test(source);
   }
 
-  extract(source: string, filePath: string): RuntimeSchemaInfo[] {
-    const tree = parse(Lang.TypeScript, source);
-    const root = tree.root();
-    const schemas: RuntimeSchemaInfo[] = [];
+  override extract(source: string, filePath: string) {
+    this.prefix = /import\s+(\*\s+as\s+yup|yup)\s+from\s+["']yup["']/.test(source) ? "yup" : "";
+    return super.extract(source, filePath);
+  }
 
-    // Detect import style: `import * as yup from 'yup'` or `import yup from 'yup'` or `import { object, string } from 'yup'`
-    const usesNamespace = /import\s+(\*\s+as\s+yup|yup)\s+from\s+["']yup["']/.test(source);
-    const prefix = usesNamespace ? "yup" : "";
-
-    // Find yup.object(...) or object(...) calls
+  protected findObjectCalls(root: SgNode): SgNode[] {
+    const prefix = this.prefix;
     const objectPattern = prefix
       ? { rule: { kind: "call_expression", has: { kind: "member_expression", regex: `^${prefix}\\.object$` } } }
       : { rule: { kind: "call_expression", has: { kind: "identifier", regex: "^object$" } } };
 
-    const objectCalls = root.findAll(objectPattern);
+    const calls = root.findAll(objectPattern);
 
-    for (const call of objectCalls) {
-      if (!prefix) {
+    if (!prefix) {
+      return calls.filter((call) => {
         const callee = call.field("function");
-        if (!callee || callee.kind() !== "identifier" || callee.text() !== "object") continue;
-      }
-
-      const outermost = this.findOutermostChain(call);
-      const name = this.resolveSchemaName(outermost);
-      const { type } = this.resolveYupType(outermost, prefix);
-
-      schemas.push({
-        name: name ?? `anonymous_${call.range().start.line + 1}`,
-        library: "yup",
-        filePath,
-        line: call.range().start.line + 1,
-        shape: type,
-        raw: outermost.text(),
+        return callee && callee.kind() === "identifier" && callee.text() === "object";
       });
     }
 
-    // Find standalone schemas
-    const standaloneSchemas = this.findStandaloneSchemas(root, prefix);
-    for (const { name, node } of standaloneSchemas) {
-      if (schemas.some((s) => s.name === name)) continue;
-      const { type } = this.resolveYupType(node, prefix);
-      if (type.kind === "opaque") continue;
-
-      schemas.push({
-        name,
-        library: "yup",
-        filePath,
-        line: node.range().start.line + 1,
-        shape: type,
-        raw: node.text(),
-      });
-    }
-
-    return schemas;
+    return calls;
   }
 
-  private findOutermostChain(node: SgNode): SgNode {
-    let current = node;
-    while (true) {
-      const parent = current.parent();
-      if (!parent) break;
-      if (parent.kind() === "call_expression") {
-        const callee = parent.field("function");
-        if (callee?.kind() === "member_expression") {
-          current = parent;
-          continue;
-        }
-      }
-      break;
-    }
-    return current;
-  }
-
-  private findStandaloneSchemas(root: SgNode, prefix: string): Array<{ name: string; node: SgNode }> {
+  protected findStandaloneSchemas(root: SgNode): Array<{ name: string; node: SgNode }> {
+    const prefix = this.prefix;
     const results: Array<{ name: string; node: SgNode }> = [];
     const varDecls = root.findAll({ rule: { kind: "variable_declarator" } });
     const methods = ["array", "string", "number", "boolean", "date", "mixed", "tuple"];
@@ -112,20 +62,8 @@ export class YupExtractor implements RuntimeSchemaExtractor {
     return results;
   }
 
-  private resolveSchemaName(node: SgNode): string | null {
-    let current = node.parent();
-    while (current) {
-      if (current.kind() === "variable_declarator") {
-        const nameNode = current.field("name");
-        if (nameNode) return nameNode.text();
-      }
-      if (current.kind() === "pair" || current.kind() === "property_assignment") {
-        const key = current.field("key");
-        if (key) return key.text();
-      }
-      current = current.parent();
-    }
-    return null;
+  resolveType(node: SgNode): { type: ShapeType; optional: boolean } {
+    return this.resolveYupType(node, this.prefix);
   }
 
   resolveYupType(node: SgNode, prefix: string): { type: ShapeType; optional: boolean } {
@@ -175,7 +113,7 @@ export class YupExtractor implements RuntimeSchemaExtractor {
         if (args) {
           const objLiteral = this.findFirstChild(args, "object");
           if (objLiteral) {
-            const fields = this.extractObjectFields(objLiteral, prefix);
+            const fields = this.extractYupObjectFields(objLiteral, prefix);
             return { type: { kind: "object", fields }, optional: false };
           }
         }
@@ -209,11 +147,10 @@ export class YupExtractor implements RuntimeSchemaExtractor {
       if (args) {
         const objLiteral = this.findFirstChild(args, "object");
         if (objLiteral) {
-          const fields = this.extractObjectFields(objLiteral, prefix);
+          const fields = this.extractYupObjectFields(objLiteral, prefix);
           return { type: { kind: "object", fields }, optional: false };
         }
       }
-      // yup.object() with no args (shape will be added via .shape())
       return { type: { kind: "object", fields: [] }, optional: false };
     }
 
@@ -226,7 +163,6 @@ export class YupExtractor implements RuntimeSchemaExtractor {
           return { type: { kind: "array", element: r.type }, optional: false };
         }
       }
-      // array() with no schema arg => unknown[]
       return { type: { kind: "array", element: { kind: "primitive", value: "unknown" } }, optional: false };
     }
 
@@ -280,7 +216,8 @@ export class YupExtractor implements RuntimeSchemaExtractor {
     return null;
   }
 
-  private extractObjectFields(objLiteral: SgNode, prefix: string): ShapeField[] {
+  /** Yup-specific object field extraction (delegates to resolveYupType). */
+  private extractYupObjectFields(objLiteral: SgNode, prefix: string): ShapeField[] {
     const fields: ShapeField[] = [];
     for (const prop of objLiteral.children()) {
       if (prop.kind() !== "pair" && prop.kind() !== "property_assignment") continue;
@@ -291,27 +228,5 @@ export class YupExtractor implements RuntimeSchemaExtractor {
       fields.push({ name: key.text(), type, optional });
     }
     return fields;
-  }
-
-  private findFirstChild(node: SgNode, kind: string): SgNode | null {
-    for (const child of node.children()) {
-      if (child.kind() === kind) return child;
-      const found = this.findFirstChild(child, kind);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  private firstMeaningfulChild(node: SgNode): SgNode | null {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    for (const child of node.children()) {
-      if (!skip.has(child.kind() as string)) return child;
-    }
-    return null;
-  }
-
-  private meaningfulChildren(node: SgNode): SgNode[] {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    return node.children().filter((c) => !skip.has(c.kind() as string));
   }
 }

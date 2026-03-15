@@ -1,5 +1,7 @@
 export { parseTypeScript } from "./ts-structural.js";
-export type { ParseResult } from "./ts-structural.js";
+export { parseGo } from "./go-structural.js";
+export { parseStructural } from "./structural-core.js";
+export type { ParseResult, ParseContext, LanguageConfig } from "./structural-core.js";
 export { extractFromFile, extractFromFiles } from "./extractor.js";
 export type { ExtractionResult } from "./extractor.js";
 export { SemanticParser } from "./ts-semantic.js";

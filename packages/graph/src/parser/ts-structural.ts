@@ -1,43 +1,39 @@
 import { parse, Lang } from "@ast-grep/napi";
-import type { SgNode } from "@ast-grep/napi";
-import type { SymbolNode, SymbolKind } from "../schema/nodes.js";
-import type { SymbolEdge, EdgeKind } from "../schema/edges.js";
-import { createSymbolNode } from "../schema/nodes.js";
-import { createSymbolEdge } from "../schema/edges.js";
+import {
+  parseStructural,
+  makeId,
+  qualifiedName,
+  getSourceRange,
+  addSymbol,
+  createSymbolEdge,
+  createSymbolNode,
+} from "./structural-core.js";
+import type {
+  ParseResult,
+  ParseContext,
+  LanguageConfig,
+  SgNode,
+  SymbolNode,
+  SymbolEdge,
+  SymbolKind,
+} from "./structural-core.js";
 import { filePathToModuleName } from "../projector/module-layout.js";
 
-export interface ParseResult {
-  nodes: SymbolNode[];
-  edges: SymbolEdge[];
-}
+export type { ParseResult };
 
-function makeId(): string {
-  return crypto.randomUUID();
-}
-
-function qualifiedName(modName: string, symbolName: string): string {
-  return `${modName}.${symbolName}`;
-}
+// ─── TS-specific helpers ────────────────────────────────────────────────────
 
 /** Strip leading `: ` from type annotations (ast-grep includes the colon) */
 function stripTypeAnnotationPrefix(text: string): string {
   return text.replace(/^:\s*/, "");
 }
 
-function getSourceRange(node: SgNode): { startLine: number; endLine: number } {
-  const range = node.range();
-  return { startLine: range.start.line, endLine: range.end.line };
-}
-
 function hasModifier(node: SgNode, modifier: string): boolean {
   const text = node.text();
-  // Check if the declaration text starts with the modifier
-  // For export/async/etc. we check the parent or the node itself
   const parent = node.parent();
   if (parent && parent.kind() === "export_statement") {
     if (modifier === "export") return true;
   }
-  // Check for inline modifiers in the node text
   const beforeName = text.split(node.field("name")?.text() ?? "")[0] ?? "";
   return beforeName.includes(modifier);
 }
@@ -102,7 +98,6 @@ function collectDecorators(node: SgNode): string[] {
 
 function collectMethodDecorators(method: SgNode): string[] {
   const decorators: string[] = [];
-  // Method decorators appear as preceding siblings in class_body
   const parent = method.parent();
   if (!parent) return decorators;
 
@@ -190,12 +185,11 @@ function buildSignature(
   }
 }
 
+// ─── Extraction functions ───────────────────────────────────────────────────
+
 function extractFunctions(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const funcs = root.findAll({ rule: { kind: "function_declaration" } });
   for (const func of funcs) {
@@ -208,38 +202,23 @@ function extractFunctions(
     const exported = isExported(func);
     const mods = collectModifiers(func);
     if (isDefaultExport(func)) mods.push("default");
-    const params = func.field("parameters")?.text() ?? "()";
     const retTypeRaw = func.field("return_type")?.text() ?? "";
     const retType = stripTypeAnnotationPrefix(retTypeRaw);
     const body = func.field("body")?.text() ?? "";
 
-    const id = makeId();
-    const qn = qualifiedName(modName, name);
-
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "function",
-        name,
-        qualifiedName: qn,
-        parentId: moduleId,
-        signature: buildSignature("function", name, func, mods),
-        typeText: retType,
-        exported,
-        body,
-        modifiers: mods,
-        sourceRange: getSourceRange(func),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id: makeId(),
+      kind: "function",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, name),
+      parentId: ctx.moduleId,
+      signature: buildSignature("function", name, func, mods),
+      typeText: retType,
+      exported,
+      body,
+      modifiers: mods,
+      sourceRange: getSourceRange(func),
+    });
   }
 }
 
@@ -255,10 +234,7 @@ function isNestedInClass(node: SgNode): boolean {
 
 function extractClasses(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const regularClasses = root.findAll({ rule: { kind: "class_declaration" } });
   const abstractClasses = root.findAll({ rule: { kind: "abstract_class_declaration" } });
@@ -275,40 +251,29 @@ function extractClasses(
     const decorators = collectDecorators(cls);
     const body = cls.field("body")?.text() ?? "";
     const classId = makeId();
-    const classQn = qualifiedName(modName, name);
+    const classQn = qualifiedName(ctx.modName, name);
 
-    nodes.push(
-      createSymbolNode({
-        id: classId,
-        kind: "class",
-        name,
-        qualifiedName: classQn,
-        parentId: moduleId,
-        signature: buildSignature("class", name, cls, mods),
-        typeText: "",
-        exported,
-        body,
-        decorators,
-        modifiers: mods,
-        sourceRange: getSourceRange(cls),
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id: classId,
+      kind: "class",
+      name,
+      qualifiedName: classQn,
+      parentId: ctx.moduleId,
+      signature: buildSignature("class", name, cls, mods),
+      typeText: "",
+      exported,
+      body,
+      decorators,
+      modifiers: mods,
+      sourceRange: getSourceRange(cls),
+    });
 
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: classId,
-      }),
-    );
-
-    extractHeritage(cls, classId, modName, edges);
+    extractHeritage(cls, classId, ctx);
 
     const classBody = cls.field("body");
     if (classBody) {
-      extractMethods(classBody, modName, name, classId, nodes, edges);
-      extractProperties(classBody, modName, name, classId, nodes, edges);
+      extractMethods(classBody, name, classId, ctx);
+      extractProperties(classBody, name, classId, ctx);
     }
   }
 }
@@ -316,10 +281,8 @@ function extractClasses(
 function extractHeritage(
   cls: SgNode,
   classId: string,
-  modName: string,
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
-  // Look for extends_clause and implements_clause in the class heritage
   const allChildren = cls.children();
   for (const child of allChildren) {
     const kind = child.kind();
@@ -330,12 +293,12 @@ function extractHeritage(
         if (hkind === "extends_clause") {
           const typeName = extractHeritageTypeName(hc);
           if (typeName) {
-            edges.push(
+            ctx.edges.push(
               createSymbolEdge({
                 id: makeId(),
                 kind: "extends",
                 sourceId: classId,
-                targetId: typeName, // symbolic reference
+                targetId: typeName,
                 metadata: { targetName: typeName, unresolved: true },
               }),
             );
@@ -343,12 +306,12 @@ function extractHeritage(
         } else if (hkind === "implements_clause") {
           const typeNames = extractHeritageTypeNames(hc);
           for (const tn of typeNames) {
-            edges.push(
+            ctx.edges.push(
               createSymbolEdge({
                 id: makeId(),
                 kind: "implements",
                 sourceId: classId,
-                targetId: tn, // symbolic reference
+                targetId: tn,
                 metadata: { targetName: tn, unresolved: true },
               }),
             );
@@ -360,7 +323,6 @@ function extractHeritage(
 }
 
 function extractHeritageTypeName(clause: SgNode): string | null {
-  // The first identifier or member expression child is the type name
   const children = clause.children();
   for (const child of children) {
     const k = child.kind();
@@ -370,7 +332,6 @@ function extractHeritageTypeName(clause: SgNode): string | null {
     if (k === "member_expression") {
       return child.text();
     }
-    // For generic types like Base<T>, get the name part
     if (k === "generic_type") {
       const nameNode = child.children()[0];
       return nameNode ? nameNode.text() : null;
@@ -404,11 +365,9 @@ function detectGetterSetter(method: SgNode): "getter" | "setter" | null {
 
 function extractMethods(
   classBody: SgNode,
-  modName: string,
   className: string,
   classId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const concreteMethods = classBody.findAll({
     rule: { kind: "method_definition" },
@@ -433,48 +392,32 @@ function extractMethods(
 
     const decorators = collectMethodDecorators(method);
 
-    const params = method.field("parameters")?.text() ?? "()";
     const retTypeRaw = method.field("return_type")?.text() ?? "";
     const retType = stripTypeAnnotationPrefix(retTypeRaw);
     const body = isAbstract ? "" : (method.field("body")?.text() ?? "");
-    const id = makeId();
-    const qn = qualifiedName(modName, `${className}.${name}`);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "method",
-        name,
-        qualifiedName: qn,
-        parentId: classId,
-        signature: buildSignature("method", name, method, mods),
-        typeText: retType,
-        exported: false,
-        body,
-        decorators,
-        modifiers: mods,
-        sourceRange: getSourceRange(method),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: classId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, classId, {
+      id: makeId(),
+      kind: "method",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, `${className}.${name}`),
+      parentId: classId,
+      signature: buildSignature("method", name, method, mods),
+      typeText: retType,
+      exported: false,
+      body,
+      decorators,
+      modifiers: mods,
+      sourceRange: getSourceRange(method),
+    });
   }
 }
 
 function extractProperties(
   classBody: SgNode,
-  modName: string,
   className: string,
   classId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const props = classBody.findAll({
     rule: { kind: "public_field_definition" },
@@ -493,43 +436,27 @@ function extractProperties(
     const typeAnnRaw = prop.field("type")?.text() ?? "";
     const typeAnn = stripTypeAnnotationPrefix(typeAnnRaw);
     const value = prop.field("value")?.text() ?? "";
-    const id = makeId();
-    const qn = qualifiedName(modName, `${className}.${name}`);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "property",
-        name,
-        qualifiedName: qn,
-        parentId: classId,
-        signature: `${name}${typeAnnRaw}`,
-        typeText: typeAnn,
-        exported: false,
-        body: value,
-        decorators,
-        modifiers: mods,
-        sourceRange: getSourceRange(prop),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: classId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, classId, {
+      id: makeId(),
+      kind: "property",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, `${className}.${name}`),
+      parentId: classId,
+      signature: `${name}${typeAnnRaw}`,
+      typeText: typeAnn,
+      exported: false,
+      body: value,
+      decorators,
+      modifiers: mods,
+      sourceRange: getSourceRange(prop),
+    });
   }
 }
 
 function extractInterfaces(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const ifaces = root.findAll({ rule: { kind: "interface_declaration" } });
   for (const iface of ifaces) {
@@ -541,7 +468,6 @@ function extractInterfaces(
     const exported = isExported(iface);
     const body = iface.field("body")?.text() ?? "";
     const id = makeId();
-    const qn = qualifiedName(modName, name);
 
     // Extract index signatures from the interface body
     const indexSigs: string[] = [];
@@ -553,68 +479,40 @@ function extractInterfaces(
       }
     }
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "interface",
-        name,
-        qualifiedName: qn,
-        parentId: moduleId,
-        signature: buildSignature("interface", name, iface, []),
-        typeText: "",
-        exported,
-        body,
-        sourceRange: getSourceRange(iface),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id,
+      kind: "interface",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, name),
+      parentId: ctx.moduleId,
+      signature: buildSignature("interface", name, iface, []),
+      typeText: "",
+      exported,
+      body,
+      sourceRange: getSourceRange(iface),
+    });
 
     // Store index signatures as property symbols on the interface
     for (const sigText of indexSigs) {
-      const sigId = makeId();
-      const sigQn = qualifiedName(modName, `${name}.[index]`);
-
-      nodes.push(
-        createSymbolNode({
-          id: sigId,
-          kind: "property",
-          name: "[index]",
-          qualifiedName: sigQn,
-          parentId: id,
-          signature: sigText,
-          typeText: sigText,
-          exported: false,
-          body: "",
-          sourceRange: null,
-        }),
-      );
-
-      edges.push(
-        createSymbolEdge({
-          id: makeId(),
-          kind: "contains",
-          sourceId: id,
-          targetId: sigId,
-        }),
-      );
+      addSymbol(ctx, id, {
+        id: makeId(),
+        kind: "property",
+        name: "[index]",
+        qualifiedName: qualifiedName(ctx.modName, `${name}.[index]`),
+        parentId: id,
+        signature: sigText,
+        typeText: sigText,
+        exported: false,
+        body: "",
+        sourceRange: null,
+      });
     }
   }
 }
 
 function extractTypeAliases(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const types = root.findAll({ rule: { kind: "type_alias_declaration" } });
   for (const ta of types) {
@@ -625,41 +523,25 @@ function extractTypeAliases(
 
     const exported = isExported(ta);
     const value = ta.field("value")?.text() ?? "";
-    const id = makeId();
-    const qn = qualifiedName(modName, name);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "type-alias",
-        name,
-        qualifiedName: qn,
-        parentId: moduleId,
-        signature: buildSignature("type-alias", name, ta, []),
-        typeText: value,
-        exported,
-        body: value,
-        sourceRange: getSourceRange(ta),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id: makeId(),
+      kind: "type-alias",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, name),
+      parentId: ctx.moduleId,
+      signature: buildSignature("type-alias", name, ta, []),
+      typeText: value,
+      exported,
+      body: value,
+      sourceRange: getSourceRange(ta),
+    });
   }
 }
 
 function extractEnums(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const enums = root.findAll({ rule: { kind: "enum_declaration" } });
   for (const en of enums) {
@@ -671,39 +553,23 @@ function extractEnums(
     const exported = isExported(en);
     const body = en.field("body")?.text() ?? "";
     const id = makeId();
-    const qn = qualifiedName(modName, name);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "enum",
-        name,
-        qualifiedName: qn,
-        parentId: moduleId,
-        signature: buildSignature("enum", name, en, []),
-        typeText: "",
-        exported,
-        body,
-        sourceRange: getSourceRange(en),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id,
+      kind: "enum",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, name),
+      parentId: ctx.moduleId,
+      signature: buildSignature("enum", name, en, []),
+      typeText: "",
+      exported,
+      body,
+      sourceRange: getSourceRange(en),
+    });
 
     // Extract enum members
     const enumBody = en.field("body");
     if (enumBody) {
-      const members = enumBody.findAll({
-        rule: { kind: "enum_assignment" },
-      });
-      // Also find plain identifiers that are property_identifiers in enum body
       const allChildren = enumBody.children();
       for (const child of allChildren) {
         if (
@@ -716,32 +582,18 @@ function extractEnums(
               : child.text();
           if (!memberName) continue;
 
-          const memberId = makeId();
-          const memberQn = qualifiedName(modName, `${name}.${memberName}`);
-
-          nodes.push(
-            createSymbolNode({
-              id: memberId,
-              kind: "enum-member",
-              name: memberName,
-              qualifiedName: memberQn,
-              parentId: id,
-              signature: memberName,
-              typeText: "",
-              exported: false,
-              body: child.kind() === "enum_assignment" ? child.text() : "",
-              sourceRange: getSourceRange(child),
-            }),
-          );
-
-          edges.push(
-            createSymbolEdge({
-              id: makeId(),
-              kind: "contains",
-              sourceId: id,
-              targetId: memberId,
-            }),
-          );
+          addSymbol(ctx, id, {
+            id: makeId(),
+            kind: "enum-member",
+            name: memberName,
+            qualifiedName: qualifiedName(ctx.modName, `${name}.${memberName}`),
+            parentId: id,
+            signature: memberName,
+            typeText: "",
+            exported: false,
+            body: child.kind() === "enum_assignment" ? child.text() : "",
+            sourceRange: getSourceRange(child),
+          });
         }
       }
     }
@@ -750,10 +602,7 @@ function extractEnums(
 
 function extractVariables(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const lexDecls = root.findAll({ rule: { kind: "lexical_declaration" } });
   for (const decl of lexDecls) {
@@ -776,8 +625,6 @@ function extractVariables(
       const typeAnn = stripTypeAnnotationPrefix(typeAnnRaw);
       const valueNode = declarator.field("value");
       const value = valueNode?.text() ?? "";
-      const id = makeId();
-      const qn = qualifiedName(modName, name);
 
       const isArrowFn = valueNode !== null && valueNode.kind() === "arrow_function";
       const kind: SymbolKind = isArrowFn ? "function" : "variable";
@@ -787,30 +634,19 @@ function extractVariables(
         mods.push("async");
       }
 
-      nodes.push(
-        createSymbolNode({
-          id,
-          kind,
-          name,
-          qualifiedName: qn,
-          parentId: moduleId,
-          signature: kind === "function" ? `${name}${typeAnnRaw}` : `${declKind} ${name}${typeAnnRaw}`,
-          typeText: typeAnn,
-          exported,
-          body: value,
-          modifiers: mods,
-          sourceRange: getSourceRange(decl),
-        }),
-      );
-
-      edges.push(
-        createSymbolEdge({
-          id: makeId(),
-          kind: "contains",
-          sourceId: moduleId,
-          targetId: id,
-        }),
-      );
+      addSymbol(ctx, ctx.moduleId, {
+        id: makeId(),
+        kind,
+        name,
+        qualifiedName: qualifiedName(ctx.modName, name),
+        parentId: ctx.moduleId,
+        signature: kind === "function" ? `${name}${typeAnnRaw}` : `${declKind} ${name}${typeAnnRaw}`,
+        typeText: typeAnn,
+        exported,
+        body: value,
+        modifiers: mods,
+        sourceRange: getSourceRange(decl),
+      });
     }
   }
 }
@@ -847,10 +683,7 @@ function isNestedDeclaration(node: SgNode): boolean {
 
 function extractNamespaces(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const nsMods = root.findAll({ rule: { kind: "internal_module" } });
   for (const nsMod of nsMods) {
@@ -867,47 +700,33 @@ function extractNamespaces(
     const exported = isExported(nsMod);
     const body = nsMod.field("body")?.text() ?? "";
     const nsId = makeId();
-    const nsQn = qualifiedName(modName, name);
 
-    nodes.push(
-      createSymbolNode({
-        id: nsId,
-        kind: "namespace",
-        name,
-        qualifiedName: nsQn,
-        parentId: moduleId,
-        signature: buildSignature("namespace", name, nsMod, []),
-        typeText: "",
-        exported,
-        body,
-        sourceRange: getSourceRange(nsMod),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: moduleId,
-        targetId: nsId,
-      }),
-    );
+    addSymbol(ctx, ctx.moduleId, {
+      id: nsId,
+      kind: "namespace",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, name),
+      parentId: ctx.moduleId,
+      signature: buildSignature("namespace", name, nsMod, []),
+      typeText: "",
+      exported,
+      body,
+      sourceRange: getSourceRange(nsMod),
+    });
 
     // Extract members inside the namespace
     const nsBody = nsMod.field("body");
     if (nsBody) {
-      extractNamespaceMembers(nsBody, modName, name, nsId, nodes, edges);
+      extractNamespaceMembers(nsBody, name, nsId, ctx);
     }
   }
 }
 
 function extractNamespaceMembers(
   nsBody: SgNode,
-  modName: string,
   nsName: string,
   nsId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   // Functions inside namespace
   const funcs = nsBody.findAll({ rule: { kind: "function_declaration" } });
@@ -920,33 +739,20 @@ function extractNamespaceMembers(
     const retTypeRaw = func.field("return_type")?.text() ?? "";
     const retType = stripTypeAnnotationPrefix(retTypeRaw);
     const body = func.field("body")?.text() ?? "";
-    const id = makeId();
-    const qn = qualifiedName(modName, `${nsName}.${name}`);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "function",
-        name,
-        qualifiedName: qn,
-        parentId: nsId,
-        signature: buildSignature("function", name, func, mods),
-        typeText: retType,
-        exported,
-        body,
-        modifiers: mods,
-        sourceRange: getSourceRange(func),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: nsId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, nsId, {
+      id: makeId(),
+      kind: "function",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, `${nsName}.${name}`),
+      parentId: nsId,
+      signature: buildSignature("function", name, func, mods),
+      typeText: retType,
+      exported,
+      body,
+      modifiers: mods,
+      sourceRange: getSourceRange(func),
+    });
   }
 
   // Variables inside namespace
@@ -964,37 +770,24 @@ function extractNamespaceMembers(
       const typeAnn = stripTypeAnnotationPrefix(typeAnnRaw);
       const valueNode = declarator.field("value");
       const value = valueNode?.text() ?? "";
-      const id = makeId();
-      const qn = qualifiedName(modName, `${nsName}.${name}`);
 
       const isArrowFn = valueNode !== null && valueNode.kind() === "arrow_function";
       const kind: SymbolKind = isArrowFn ? "function" : "variable";
       const mods = [declKind];
 
-      nodes.push(
-        createSymbolNode({
-          id,
-          kind,
-          name,
-          qualifiedName: qn,
-          parentId: nsId,
-          signature: kind === "function" ? `${name}${typeAnnRaw}` : `${declKind} ${name}${typeAnnRaw}`,
-          typeText: typeAnn,
-          exported,
-          body: value,
-          modifiers: mods,
-          sourceRange: getSourceRange(decl),
-        }),
-      );
-
-      edges.push(
-        createSymbolEdge({
-          id: makeId(),
-          kind: "contains",
-          sourceId: nsId,
-          targetId: id,
-        }),
-      );
+      addSymbol(ctx, nsId, {
+        id: makeId(),
+        kind,
+        name,
+        qualifiedName: qualifiedName(ctx.modName, `${nsName}.${name}`),
+        parentId: nsId,
+        signature: kind === "function" ? `${name}${typeAnnRaw}` : `${declKind} ${name}${typeAnnRaw}`,
+        typeText: typeAnn,
+        exported,
+        body: value,
+        modifiers: mods,
+        sourceRange: getSourceRange(decl),
+      });
     }
   }
 
@@ -1006,32 +799,19 @@ function extractNamespaceMembers(
 
     const exported = isExported(iface);
     const body = iface.field("body")?.text() ?? "";
-    const id = makeId();
-    const qn = qualifiedName(modName, `${nsName}.${name}`);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "interface",
-        name,
-        qualifiedName: qn,
-        parentId: nsId,
-        signature: buildSignature("interface", name, iface, []),
-        typeText: "",
-        exported,
-        body,
-        sourceRange: getSourceRange(iface),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: nsId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, nsId, {
+      id: makeId(),
+      kind: "interface",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, `${nsName}.${name}`),
+      parentId: nsId,
+      signature: buildSignature("interface", name, iface, []),
+      typeText: "",
+      exported,
+      body,
+      sourceRange: getSourceRange(iface),
+    });
   }
 
   // Classes inside namespace
@@ -1043,42 +823,26 @@ function extractNamespaceMembers(
     const exported = isExported(cls);
     const mods = collectModifiers(cls);
     const body = cls.field("body")?.text() ?? "";
-    const id = makeId();
-    const qn = qualifiedName(modName, `${nsName}.${name}`);
 
-    nodes.push(
-      createSymbolNode({
-        id,
-        kind: "class",
-        name,
-        qualifiedName: qn,
-        parentId: nsId,
-        signature: buildSignature("class", name, cls, mods),
-        typeText: "",
-        exported,
-        body,
-        modifiers: mods,
-        sourceRange: getSourceRange(cls),
-      }),
-    );
-
-    edges.push(
-      createSymbolEdge({
-        id: makeId(),
-        kind: "contains",
-        sourceId: nsId,
-        targetId: id,
-      }),
-    );
+    addSymbol(ctx, nsId, {
+      id: makeId(),
+      kind: "class",
+      name,
+      qualifiedName: qualifiedName(ctx.modName, `${nsName}.${name}`),
+      parentId: nsId,
+      signature: buildSignature("class", name, cls, mods),
+      typeText: "",
+      exported,
+      body,
+      modifiers: mods,
+      sourceRange: getSourceRange(cls),
+    });
   }
 }
 
 function extractImports(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  edges: SymbolEdge[],
-  nodes: SymbolNode[],
+  ctx: ParseContext,
 ): void {
   const imports = root.findAll({ rule: { kind: "import_statement" } });
   for (const imp of imports) {
@@ -1088,12 +852,12 @@ function extractImports(
     const text = imp.text();
     const isTypeOnly = text.trimStart().startsWith("import type");
 
-    edges.push(
+    ctx.edges.push(
       createSymbolEdge({
         id: makeId(),
         kind: "imports",
-        sourceId: moduleId,
-        targetId: source, // symbolic reference to be resolved later
+        sourceId: ctx.moduleId,
+        targetId: source,
         metadata: {
           moduleSpecifier: source,
           typeOnly: isTypeOnly,
@@ -1107,10 +871,7 @@ function extractImports(
 
 function extractExports(
   root: SgNode,
-  modName: string,
-  moduleId: string,
-  nodes: SymbolNode[],
-  edges: SymbolEdge[],
+  ctx: ParseContext,
 ): void {
   const exports = root.findAll({ rule: { kind: "export_statement" } });
   for (const exp of exports) {
@@ -1119,11 +880,11 @@ function extractExports(
     // Re-exports: export { ... } from "..." or export * from "..."
     const source = exp.field("source")?.text()?.replace(/['"]/g, "");
     if (source) {
-      edges.push(
+      ctx.edges.push(
         createSymbolEdge({
           id: makeId(),
           kind: "imports",
-          sourceId: moduleId,
+          sourceId: ctx.moduleId,
           targetId: source,
           metadata: {
             moduleSpecifier: source,
@@ -1134,44 +895,38 @@ function extractExports(
         }),
       );
     }
-    // Declarations inside export_statement are handled by the respective extractors
-    // since they check isExported() via parent
   }
 }
 
+// ─── Language config ────────────────────────────────────────────────────────
+
+const tsConfig: LanguageConfig = {
+  parseRoot(code: string, filePath: string): SgNode {
+    const lang = filePath.endsWith(".tsx") ? Lang.Tsx : Lang.TypeScript;
+    return parse(lang, code).root();
+  },
+
+  filePathToModuleName,
+
+  moduleSignature(_root: SgNode, modName: string): string {
+    return `module ${modName}`;
+  },
+
+  extract(root: SgNode, ctx: ParseContext): void {
+    extractFunctions(root, ctx);
+    extractClasses(root, ctx);
+    extractInterfaces(root, ctx);
+    extractTypeAliases(root, ctx);
+    extractEnums(root, ctx);
+    extractVariables(root, ctx);
+    extractNamespaces(root, ctx);
+    extractImports(root, ctx);
+    extractExports(root, ctx);
+  },
+};
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
 export function parseTypeScript(code: string, filePath: string): ParseResult {
-  const nodes: SymbolNode[] = [];
-  const edges: SymbolEdge[] = [];
-
-  const lang = filePath.endsWith(".tsx") ? Lang.Tsx : Lang.TypeScript;
-  const tree = parse(lang, code);
-  const root = tree.root();
-
-  const modName = filePathToModuleName(filePath);
-  const moduleId = makeId();
-
-  // Module node
-  nodes.push(
-    createSymbolNode({
-      id: moduleId,
-      kind: "module",
-      name: modName,
-      qualifiedName: modName,
-      signature: `module ${modName}`,
-      exported: true,
-      sourceRange: { startLine: 0, endLine: code.split("\n").length - 1 },
-    }),
-  );
-
-  extractFunctions(root, modName, moduleId, nodes, edges);
-  extractClasses(root, modName, moduleId, nodes, edges);
-  extractInterfaces(root, modName, moduleId, nodes, edges);
-  extractTypeAliases(root, modName, moduleId, nodes, edges);
-  extractEnums(root, modName, moduleId, nodes, edges);
-  extractVariables(root, modName, moduleId, nodes, edges);
-  extractNamespaces(root, modName, moduleId, nodes, edges);
-  extractImports(root, modName, moduleId, edges, nodes);
-  extractExports(root, modName, moduleId, nodes, edges);
-
-  return { nodes, edges };
+  return parseStructural(code, filePath, tsConfig);
 }

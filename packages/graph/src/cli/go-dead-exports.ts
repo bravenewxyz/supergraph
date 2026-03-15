@@ -1,5 +1,3 @@
-#!/usr/bin/env bun
-
 import { readFile, readdir } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { runGoMap } from "./go-map.js";
@@ -258,35 +256,6 @@ export async function runGoDeadExports(opts: GoDeadExportsOptions): Promise<stri
   return output;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
-async function main() {
-  const args = process.argv.slice(2);
-  if (!args[0] || args[0] === "--help" || args[0] === "-h") {
-    process.stderr.write(
-      "Usage: bun devtools/graph/src/cli/go-dead-exports.ts <go-dir> [--out <file>]\n",
-    );
-    process.exit(1);
-  }
-
-  const arg0 = args[0];
-  if (!arg0) process.exit(1);
-  const srcRoot = resolve(arg0);
-  const outIdx = args.indexOf("--out");
-  const outPath =
-    outIdx !== -1 && args[outIdx + 1]
-      ? resolve(args[outIdx + 1] as string)
-      : undefined;
-
-  const output = await runGoDeadExports({ srcRoot, outPath });
-  if (!outPath) process.stdout.write(output);
-}
-
-if (import.meta.main) {
-  main().catch((err) => {
-    process.stderr.write(`${err}\n`);
-    process.exit(1);
-  });
-}
+// Note: This module provides the Go-specific dead-exports implementation.
+// Use the unified CLI entry point at cli/dead-exports.ts instead of running this directly.
+// The Go lang driver (cli/lang/go-driver.ts) delegates to runGoDeadExports.

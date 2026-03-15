@@ -19,6 +19,7 @@ import { ExtractorRegistry } from "../extractor/runtime-schema.js";
 import type { RuntimeSchemaInfo } from "../extractor/runtime-schema.js";
 import { ZodExtractor } from "../extractor/zod.js";
 import { matchSchemasToTypes } from "../analysis/schema-matcher.js";
+import { diffShapes } from "../analysis/shape-differ.js";
 import type { ShapeType, ShapeField } from "../schema/shapes.js";
 import { shapeToString } from "../schema/shapes.js";
 import ts from "typescript";
@@ -115,11 +116,6 @@ interface LogicAuditResult {
 
 // ── 1. Cross-representation scan (schema vs type) ──────────────────
 
-function extractObjectFields(shape: ShapeType): ShapeField[] | null {
-  if (shape.kind === "object") return shape.fields;
-  return null;
-}
-
 async function crossRepScan(
   files: string[],
   resolvedDir: string,
@@ -162,42 +158,58 @@ async function crossRepScan(
   const mismatches: CrossRepMismatch[] = [];
 
   for (const match of matches) {
-    const schemaFields = extractObjectFields(match.schema.shape);
+    const schemaFields = match.schema.shape.kind === "object" ? match.schema.shape.fields : null;
     const typeFields: ShapeField[] | null =
       match.tsTypeShape.length > 0 ? match.tsTypeShape : null;
 
     if (!schemaFields || !typeFields) continue;
 
-    const typeFieldMap = new Map(typeFields.map((f: ShapeField) => [f.name, f]));
+    // Delegate structural diffing to the shape-differ module
+    const shapeMismatches = diffShapes(schemaFields, typeFields, "", {
+      leftLabel: `schema "${match.schema.name}"`,
+      rightLabel: `type "${match.typeName}"`,
+    });
 
-    for (const sf of schemaFields) {
-      const tf = typeFieldMap.get(sf.name);
+    for (const sm of shapeMismatches) {
+      // Map shape-differ categories to CrossRepMismatch format
+      const fieldName = sm.path.split(".")[0] ?? sm.path;
+      const schemaField = schemaFields.find((f) => f.name === fieldName);
+      const typeField = typeFields.find((f) => f.name === fieldName);
 
       const field: CrossRepField = {
-        fieldName: sf.name,
-        schemaOptional: sf.optional,
-        typeOptional: tf?.optional ?? true,
+        fieldName,
+        schemaOptional: schemaField?.optional ?? false,
+        typeOptional: typeField?.optional ?? true,
       };
 
-      if (!sf.optional && tf && tf.optional) {
-        mismatches.push({
-          schemaName: match.schema.name,
-          typeName: match.typeName,
-          field,
-          mismatchKind: "schema-type-optionality",
-          message: `Schema "${match.schema.name}" requires "${sf.name}" but TypeScript type "${match.typeName}" marks it optional (?:)`,
-        });
+      let mismatchKind: string;
+      switch (sm.category) {
+        case "optionality":
+          mismatchKind = "schema-type-optionality";
+          break;
+        case "missing-field":
+          mismatchKind = "schema-type-missing-field";
+          break;
+        case "extra-field":
+          mismatchKind = "schema-type-extra-field";
+          break;
+        case "type-mismatch":
+          mismatchKind = "schema-type-mismatch";
+          break;
+        case "union-coverage":
+          mismatchKind = "schema-type-union-coverage";
+          break;
+        default:
+          mismatchKind = `schema-type-${sm.category}`;
       }
 
-      if (sf.optional && tf && !tf.optional) {
-        mismatches.push({
-          schemaName: match.schema.name,
-          typeName: match.typeName,
-          field,
-          mismatchKind: "schema-type-optionality",
-          message: `TypeScript type "${match.typeName}" requires "${sf.name}" but schema "${match.schema.name}" marks it .optional()`,
-        });
-      }
+      mismatches.push({
+        schemaName: match.schema.name,
+        typeName: match.typeName,
+        field,
+        mismatchKind,
+        message: sm.message,
+      });
     }
   }
 

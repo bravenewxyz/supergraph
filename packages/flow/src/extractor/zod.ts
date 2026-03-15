@@ -1,12 +1,8 @@
-import { parse, Lang } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
-import type {
-  RuntimeSchemaExtractor,
-  RuntimeSchemaInfo,
-} from "./runtime-schema.js";
 import type { ShapeType, ShapeField } from "../schema/shapes.js";
+import { BaseSchemaExtractor } from "./base-schema-extractor.js";
 
-export class ZodExtractor implements RuntimeSchemaExtractor {
+export class ZodExtractor extends BaseSchemaExtractor {
   readonly library = "zod";
 
   readonly validationPatterns = [
@@ -18,12 +14,8 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
     return /from\s+["']zod["']/.test(source) || /require\(["']zod["']\)/.test(source);
   }
 
-  extract(source: string, filePath: string): RuntimeSchemaInfo[] {
-    const tree = parse(Lang.TypeScript, source);
-    const root = tree.root();
-    const schemas: RuntimeSchemaInfo[] = [];
-
-    const objectCalls = root.findAll({
+  protected findObjectCalls(root: SgNode): SgNode[] {
+    return root.findAll({
       rule: {
         kind: "call_expression",
         has: {
@@ -32,68 +24,11 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
         },
       },
     });
-
-    for (const call of objectCalls) {
-      const outermost = this.findOutermostChain(call);
-      const name = this.resolveSchemaName(outermost);
-      const { type } = this.resolveZodType(outermost);
-
-      schemas.push({
-        name: name ?? `anonymous_${call.range().start.line + 1}`,
-        library: "zod",
-        filePath,
-        line: call.range().start.line + 1,
-        shape: type,
-        raw: outermost.text(),
-      });
-    }
-
-    const standaloneSchemas = this.findStandaloneSchemas(root);
-    for (const { name, node } of standaloneSchemas) {
-      const already = schemas.some((s) => s.name === name);
-      if (already) continue;
-
-      const { type } = this.resolveZodType(node);
-      if (type.kind === "opaque") continue;
-
-      schemas.push({
-        name,
-        library: "zod",
-        filePath,
-        line: node.range().start.line + 1,
-        shape: type,
-        raw: node.text(),
-      });
-    }
-
-    return schemas;
   }
 
-  private findOutermostChain(node: SgNode): SgNode {
-    let current = node;
-    while (true) {
-      const parent = current.parent();
-      if (!parent) break;
-      if (parent.kind() === "call_expression") {
-        const callee = parent.field("function");
-        if (callee?.kind() === "member_expression") {
-          current = parent;
-          continue;
-        }
-      }
-      break;
-    }
-    return current;
-  }
-
-  private findStandaloneSchemas(
-    root: SgNode,
-  ): Array<{ name: string; node: SgNode }> {
+  protected findStandaloneSchemas(root: SgNode): Array<{ name: string; node: SgNode }> {
     const results: Array<{ name: string; node: SgNode }> = [];
-
-    const varDecls = root.findAll({
-      rule: { kind: "variable_declarator" },
-    });
+    const varDecls = root.findAll({ rule: { kind: "variable_declarator" } });
 
     for (const decl of varDecls) {
       const nameNode = decl.field("name");
@@ -122,23 +57,8 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
     return results;
   }
 
-  private resolveSchemaName(node: SgNode): string | null {
-    let current = node.parent();
-    while (current) {
-      if (current.kind() === "variable_declarator") {
-        const nameNode = current.field("name");
-        if (nameNode) return nameNode.text();
-      }
-      if (
-        current.kind() === "pair" ||
-        current.kind() === "property_assignment"
-      ) {
-        const key = current.field("key");
-        if (key) return key.text();
-      }
-      current = current.parent();
-    }
-    return null;
+  resolveType(node: SgNode): { type: ShapeType; optional: boolean } {
+    return this.resolveZodType(node);
   }
 
   resolveZodType(node: SgNode): { type: ShapeType; optional: boolean } {
@@ -217,16 +137,8 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
       if (args) {
         const arg = this.firstMeaningfulChild(args);
         if (arg) {
-          const argText = arg.text();
-          if (arg.kind() === "string" || arg.kind() === "template_string") {
-            return { type: { kind: "literal", value: argText.replace(/^["'`]|["'`]$/g, "") }, optional: false };
-          }
-          if (arg.kind() === "number") {
-            return { type: { kind: "literal", value: Number(argText) }, optional: false };
-          }
-          if (argText === "true" || argText === "false") {
-            return { type: { kind: "literal", value: argText === "true" }, optional: false };
-          }
+          const lit = this.resolveLiteralArg(arg);
+          if (lit) return lit;
         }
       }
     }
@@ -247,7 +159,7 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
       if (args) {
         const objLiteral = this.findFirstChild(args, "object");
         if (objLiteral) {
-          const fields = this.extractObjectFields(objLiteral);
+          const fields = this.extractZodObjectFields(objLiteral);
           return { type: { kind: "object", fields }, optional: false };
         }
       }
@@ -384,7 +296,8 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
     return { type: { kind: "opaque", raw: text }, optional: false };
   }
 
-  private extractObjectFields(objLiteral: SgNode): ShapeField[] {
+  /** Zod-specific object field extraction (delegates to resolveZodType). */
+  private extractZodObjectFields(objLiteral: SgNode): ShapeField[] {
     const fields: ShapeField[] = [];
     for (const prop of objLiteral.children()) {
       if (
@@ -400,27 +313,5 @@ export class ZodExtractor implements RuntimeSchemaExtractor {
       fields.push({ name: key.text(), type, optional });
     }
     return fields;
-  }
-
-  private findFirstChild(node: SgNode, kind: string): SgNode | null {
-    for (const child of node.children()) {
-      if (child.kind() === kind) return child;
-      const found = this.findFirstChild(child, kind);
-      if (found) return found;
-    }
-    return null;
-  }
-
-  private firstMeaningfulChild(node: SgNode): SgNode | null {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    for (const child of node.children()) {
-      if (!skip.has(child.kind() as string)) return child;
-    }
-    return null;
-  }
-
-  private meaningfulChildren(node: SgNode): SgNode[] {
-    const skip = new Set<string>(["(", ")", ",", "[", "]", "{", "}"]);
-    return node.children().filter((c) => !skip.has(c.kind() as string));
   }
 }

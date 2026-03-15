@@ -31,104 +31,32 @@
  *   --fresh  Re-run the three source scripts before building the fused output.
  */
 
-import { mkdir, readdir } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { mkdir } from "node:fs/promises";
+import { relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
-import { parseRootArg, readFile } from "./utils.js";
+import { parseRootArg } from "./utils.js";
+import {
+  type FlowEndpoint,
+  type FlowsJson,
+  type PkgData,
+  type RawModule,
+  type RedisKey,
+  type SchemaJson,
+  type SqlEnum,
+  type SqlTable,
+  type ZodSchema,
+  compressPath as _compressPath,
+  compressExtDep as _compressExtDep,
+  loadAllMaps,
+  runForJson,
+  buildModuleLookup,
+  trunc,
+  resolveOutPath,
+} from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 const AUDIT = resolve(ROOT, "audit");
 const PKGS = resolve(ROOT, "audit/packages");
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type RawModule = {
-  path: string;
-  symbols: { name: string; kind: string; exported: boolean }[];
-  imports: { module: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-};
-
-type RawMap = {
-  package: string;
-  srcRoot: string;
-  modules: RawModule[];
-  dependencyGraph: Record<string, string[]>;
-};
-
-type FlowEndpoint = {
-  id: number;
-  service: string;
-  method: string;
-  path: string;
-  domain: string;
-  auth: string;
-  summary?: string;
-  file: string;
-  ctrl: string[];
-  redis: string[];
-  protocol: string[];
-  pg: string[];
-  analytics: string[];
-  integration: string[];
-  rateLimits: string[];
-  hooks: { name: string; inv: string[]; set: string[] }[];
-};
-
-type FlowsJson = {
-  meta: {
-    generated: string;
-    project: string;
-    totalEndpoints: number;
-    totalHooks: number;
-    domainOrder: string[];
-    pathSegments: [string, string][];
-  };
-  stats: {
-    byMethod: Record<string, number>;
-    byService: Record<string, number>;
-    byDomain: Record<string, number>;
-  };
-  endpoints: FlowEndpoint[];
-};
-
-type ZodField = { n: string; t: string; o: number };
-type ZodSchema = {
-  n: string;
-  f: string;
-  l: number;
-  fields?: ZodField[];
-  body?: string;
-};
-type SqlTable = {
-  n: string;
-  f: string;
-  pk: string[];
-  fk: { from: string[]; to: string }[];
-  cols: {
-    n: string;
-    t: string;
-    ts?: string;
-    nn?: number;
-    pk?: number;
-    uq?: number;
-    def?: string;
-    fk?: string;
-  }[];
-  idx: { n: string; cols: string[]; uq?: number }[];
-};
-type SqlEnum = { n: string; f: string; vals: string[] };
-type RedisKey = { p: string; ops: string[]; s?: string; files: string[] };
-
-type SchemaJson = {
-  project: string;
-  stats: { zod: number; sql: number; redis: number; ts: number };
-  zod: ZodSchema[];
-  sql: { enums: SqlEnum[]; tables: SqlTable[] };
-  redis: { keys: RedisKey[]; idx: { n: string; prefix?: string }[] };
-};
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -156,58 +84,20 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
   string,
 ][];
 
-const outArg = args.indexOf("--out");
-const outPath =
-  outArg !== -1
-    ? resolve(process.cwd(), args[outArg + 1]!)
-    : resolve(ROOT, slCfg.output ?? "audit/superlink.txt");
-
-// ─── Ensure source JSON files exist ──────────────────────────────────────────
-
-async function runForJson(scriptPath: string): Promise<string> {
-  const scriptAbs = resolve(import.meta.dir, scriptPath.split("/").pop()!);
-  console.log(`  Running ${scriptPath}…`);
-  const proc = Bun.spawn(["bun", scriptAbs, "--json", "--root", ROOT], {
-    cwd: ROOT,
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-  const text = await new Response(proc.stdout).text();
-  await proc.exited;
-  return text;
-}
+const outPath = resolveOutPath(
+  args,
+  resolve(ROOT, slCfg.output ?? "audit/superlink.txt"),
+);
 
 console.log("Building superlink…");
 const t0 = Date.now();
 
 // ─── Load per-package map.json files ─────────────────────────────────────────
 
-type PkgData = { short: string; map: RawMap };
-
-async function loadAllMaps(): Promise<Map<string, PkgData>> {
-  const result = new Map<string, PkgData>();
-  let entries: string[] = [];
-  try {
-    const de = await readdir(PKGS, { withFileTypes: true });
-    entries = de
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-  } catch {}
-  for (const short of entries) {
-    try {
-      const raw = await readFile(join(PKGS, short, "json/map.json"));
-      if (!raw) continue;
-      result.set(short, { short, map: JSON.parse(raw) });
-    } catch {}
-  }
-  return result;
-}
-
 const [allMaps, flowsRaw, schemaRaw] = await Promise.all([
-  loadAllMaps(),
-  runForJson("devtools/scripts/superflow.ts"),
-  runForJson("devtools/scripts/superschema.ts"),
+  loadAllMaps(PKGS),
+  runForJson("superflow", ROOT),
+  runForJson("superschema", ROOT),
 ]);
 
 const flows = JSON.parse(flowsRaw || "{}") as FlowsJson;
@@ -221,23 +111,7 @@ if (!flows.endpoints?.length) {
 // ─── Build global module lookup ───────────────────────────────────────────────
 // Key format: "{short}/{mod.path}", e.g. "backend/src/routes/guilds.route.ts"
 
-const moduleByKey = new Map<string, { short: string; mod: RawModule }>();
-for (const [short, { map }] of allMaps) {
-  for (const mod of map.modules) {
-    moduleByKey.set(`${short}/${mod.path}`, { short, mod });
-  }
-}
-
-// Count how many times each module is imported (within its package)
-const globalImportedBy = new Map<string, number>();
-for (const [short, { map }] of allMaps) {
-  for (const mod of map.modules) {
-    for (const dep of mod.internalDeps ?? []) {
-      const key = `${short}/${dep}`;
-      globalImportedBy.set(key, (globalImportedBy.get(key) ?? 0) + 1);
-    }
-  }
-}
+const { moduleByKey, globalImportedBy } = buildModuleLookup(allMaps);
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -266,29 +140,10 @@ function endpointFileToModuleKey(file: string): string | null {
 }
 
 /** Compress a module's raw path (src/routes/guilds.route.ts) for display. */
-function compressPath(rawPath: string): string {
-  let p = rawPath.replace(/^src\//, "").replace(/\/index$/, "");
-  if (p === "index") p = "idx";
-  for (const [from, to] of PATH_SEGS) {
-    const i = p.indexOf(from);
-    if (i !== -1) p = p.slice(0, i) + to + p.slice(i + from.length);
-  }
-  return p;
-}
+const compressPath = (rawPath: string) => _compressPath(rawPath, PATH_SEGS);
 
 /** Compress an external dep alias for display. */
-function compressExtDep(dep: string): string {
-  for (const [from, to] of EXT_ALIASES) {
-    if (dep === from) return to;
-    const last = from[from.length - 1];
-    if (last === "/" || last === ":" || last === "-") {
-      if (dep.startsWith(from)) return to + dep.slice(from.length);
-    } else if (dep.startsWith(`${from}/`)) {
-      return to + dep.slice(from.length);
-    }
-  }
-  return dep;
-}
+const compressExtDep = (dep: string) => _compressExtDep(dep, EXT_ALIASES);
 
 // ─── Domain assignment ────────────────────────────────────────────────────────
 
@@ -570,12 +425,6 @@ function opFlags(ep: FlowEndpoint): string {
   ].filter(Boolean);
   return f.length ? `[${f.join("")}]` : "";
 }
-
-/** Truncate list to n items + "+rest" */
-const trunc = (arr: string[], n: number) =>
-  arr.length <= n
-    ? arr.join(",")
-    : `${arr.slice(0, n).join(",")},+${arr.length - n}`;
 
 function generateOutput(): string {
   const lines: string[] = [];

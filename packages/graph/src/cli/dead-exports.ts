@@ -278,14 +278,14 @@ export async function runDeadExports(opts: DeadExportsOptions): Promise<string> 
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// Main (language-agnostic via lang driver abstraction)
 // ---------------------------------------------------------------------------
 
 async function main() {
   const args = process.argv.slice(2);
   if (!args[0] || args[0] === "--help" || args[0] === "-h") {
     console.error(
-      "Usage: bun devtools/graph/src/cli/dead-exports.ts <src-dir> [--out <file>]",
+      "Usage: bun devtools/graph/src/cli/dead-exports.ts <src-dir> [--out <file>] [--lang typescript|go]",
     );
     process.exit(1);
   }
@@ -294,7 +294,29 @@ async function main() {
   const outIdx = args.indexOf("--out");
   const outPath = outIdx !== -1 && args[outIdx + 1] ? resolve(args[outIdx + 1]!) : undefined;
 
-  const output = await runDeadExports({ srcRoot, outPath });
+  const langIdx = args.indexOf("--lang");
+  const langArg = langIdx !== -1 ? args[langIdx + 1] : undefined;
+
+  // Import lang driver system
+  const { detectLanguage, getDriver } = await import("./lang/index.js");
+
+  let driver;
+  if (langArg) {
+    driver = getDriver(langArg as import("./lang/types.js").LanguageId);
+    if (!driver) {
+      console.error(`Unknown language: ${langArg}. Supported: typescript, go`);
+      process.exit(1);
+    }
+  } else {
+    driver = await detectLanguage(srcRoot);
+    if (!driver) {
+      console.error(`Could not detect language for ${srcRoot}. Use --lang to specify.`);
+      process.exit(1);
+    }
+  }
+
+  console.error(`Detected language: ${driver.name}`);
+  const output = await driver.deadExports({ srcRoot, outPath });
   if (!outPath) process.stdout.write(output);
 }
 

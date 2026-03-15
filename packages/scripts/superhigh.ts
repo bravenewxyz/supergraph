@@ -32,116 +32,33 @@
  * Usage:  bun superhigh.ts [--out <path>] [--fresh]
  */
 
-import { mkdir, readdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
+import {
+  type FlowEndpoint,
+  type FlowsJson,
+  type PkgData,
+  type RawModule,
+  type RedisKey,
+  type SchemaJson,
+  type SqlEnum,
+  type SqlTable,
+  type TsType,
+  type ZodField,
+  type ZodSchema,
+  compressPath as _compressPath,
+  compressExtDep as _compressExtDep,
+  loadAllMaps,
+  runForJson,
+  buildModuleLookup,
+  resolveOutPath,
+} from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 const AUDIT = resolve(ROOT, "audit");
 const PKGS = resolve(ROOT, "audit/packages");
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type RawModule = {
-  path: string;
-  symbols: { name: string; kind: string; exported: boolean }[];
-  imports: { module: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-};
-
-type RawMap = {
-  package: string;
-  srcRoot: string;
-  modules: RawModule[];
-  dependencyGraph: Record<string, string[]>;
-};
-
-type FlowEndpoint = {
-  id: number;
-  service: string;
-  method: string;
-  path: string;
-  domain: string;
-  auth: string;
-  summary?: string;
-  file: string;
-  ctrl: string[];
-  redis: string[];
-  protocol: string[];
-  pg: string[];
-  analytics: string[];
-  integration: string[];
-  rateLimits: string[];
-  hooks: { name: string; inv: string[]; set: string[] }[];
-};
-
-type FlowsJson = {
-  meta: {
-    generated: string;
-    project: string;
-    totalEndpoints: number;
-    totalHooks: number;
-    domainOrder: string[];
-    pathSegments: [string, string][];
-  };
-  stats: {
-    byMethod: Record<string, number>;
-    byService: Record<string, number>;
-    byDomain: Record<string, number>;
-  };
-  endpoints: FlowEndpoint[];
-};
-
-type ZodField = { n: string; t: string; o: number };
-type ZodSchema = {
-  n: string;
-  f: string;
-  l: number;
-  fields?: ZodField[];
-  body?: string;
-};
-type SqlTable = {
-  n: string;
-  f: string;
-  pk: string[];
-  fk: { from: string[]; to: string }[];
-  cols: {
-    n: string;
-    t: string;
-    ts?: string;
-    nn?: number;
-    pk?: number;
-    uq?: number;
-    def?: string;
-    fk?: string;
-  }[];
-  idx: { n: string; cols: string[]; uq?: number }[];
-};
-type SqlEnum = { n: string; f: string; vals: string[] };
-type RedisKey = { p: string; ops: string[]; s?: string; files: string[] };
-type TsType = {
-  n: string;
-  k: 0 | 1;
-  f: string;
-  l: number;
-  int?: 1;
-  g?: string;
-  ext?: string[];
-  fields?: { n: string; t: string; o?: 1; ro?: 1 }[];
-  body?: string;
-};
-
-type SchemaJson = {
-  project: string;
-  stats: { zod: number; sql: number; redis: number; ts: number };
-  zod: ZodSchema[];
-  sql: { enums: SqlEnum[]; tables: SqlTable[] };
-  redis: { keys: RedisKey[]; idx: { n: string; prefix?: string }[] };
-  ts?: TsType[];
-};
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -175,71 +92,17 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
   string,
 ][];
 
-const outArg = args.indexOf("--out");
-const outPath =
-  outArg !== -1
-    ? resolve(process.cwd(), args[outArg + 1]!)
-    : FULL
-      ? resolve(ROOT, "audit/superhigh.txt")
-      : resolve(ROOT, "audit/superhigh-shortcut.txt");
-
-// ─── Ensure source JSON files exist ──────────────────────────────────────────
-
-async function runForJson(scriptPath: string): Promise<string> {
-  // scriptPath may be "devtools/scripts/foo.ts" (legacy relative-to-ROOT) or
-  // just a basename.  Derive the subcommand name (e.g. "superflow") for
-  // compiled binary self-invocation, or the full path for bun dev mode.
-  const scriptName = scriptPath.split("/").pop()!.replace(/\.[jt]s$/, "");
-  const isCompiledBinary = !process.execPath.includes("bun");
-
-  let cmd: string[];
-  if (isCompiledBinary) {
-    // Compiled binary: invoke self with subcommand
-    cmd = [process.execPath, scriptName, "--json", "--root", ROOT];
-  } else {
-    const scriptAbs = resolve(import.meta.dir, `${scriptName}.ts`);
-    cmd = ["bun", scriptAbs, "--json", "--root", ROOT];
-  }
-
-  console.log(`  Running ${scriptName}…`);
-  const proc = Bun.spawn(cmd, {
-    cwd: ROOT,
-    stdout: "pipe",
-    stderr: "inherit",
-  });
-  const text = await new Response(proc.stdout).text();
-  await proc.exited;
-  // Strip any leading progress/log lines before the JSON object or array
-  const jsonStart = text.search(/^[{[]/m);
-  return jsonStart >= 0 ? text.slice(jsonStart) : text;
-}
+const outPath = resolveOutPath(
+  args,
+  FULL
+    ? resolve(ROOT, "audit/superhigh.txt")
+    : resolve(ROOT, "audit/superhigh-shortcut.txt"),
+);
 
 console.log("Building superhigh…");
 const t0 = Date.now();
 
 // ─── Load per-package map.json files ─────────────────────────────────────────
-
-type PkgData = { short: string; map: RawMap };
-
-async function loadAllMaps(): Promise<Map<string, PkgData>> {
-  const result = new Map<string, PkgData>();
-  let entries: string[] = [];
-  try {
-    const de = await readdir(PKGS, { withFileTypes: true });
-    entries = de
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-  } catch {}
-  for (const short of entries) {
-    try {
-      const raw = await readFile(join(PKGS, short, "json/map.json"));
-      if (!raw) continue;
-      result.set(short, { short, map: JSON.parse(raw) });
-    } catch {}
-  }
-  return result;
-}
 
 // Also read superschema path abbreviations from superschema.txt
 async function getSchemaPathAbbrevLine(): Promise<string> {
@@ -255,9 +118,9 @@ async function getSchemaPathAbbrevLine(): Promise<string> {
 }
 
 const [allMaps, flowsRaw, schemaRaw, schemaPathAbbrevLine] = await Promise.all([
-  loadAllMaps(),
-  runForJson("devtools/scripts/superflow.ts"),
-  runForJson("devtools/scripts/superschema.ts"),
+  loadAllMaps(PKGS),
+  runForJson("superflow", ROOT),
+  runForJson("superschema", ROOT),
   getSchemaPathAbbrevLine(),
 ]);
 
@@ -266,6 +129,7 @@ const flows = JSON.parse(flowsRaw || "{}") as FlowsJson;
 flows.endpoints ??= [];
 flows.stats ??= { byMethod: {}, byService: {}, byDomain: {} };
 flows.meta ??= {
+  generated: new Date().toISOString(),
   project: "",
   totalEndpoints: 0,
   totalHooks: 0,
@@ -289,22 +153,7 @@ if (!HAS_SCHEMA) {
 
 // ─── Build global module lookup ───────────────────────────────────────────────
 
-const moduleByKey = new Map<string, { short: string; mod: RawModule }>();
-for (const [short, { map }] of allMaps) {
-  for (const mod of map.modules) {
-    moduleByKey.set(`${short}/${mod.path}`, { short, mod });
-  }
-}
-
-const globalImportedBy = new Map<string, number>();
-for (const [short, { map }] of allMaps) {
-  for (const mod of map.modules) {
-    for (const dep of mod.internalDeps ?? []) {
-      const key = `${short}/${dep}`;
-      globalImportedBy.set(key, (globalImportedBy.get(key) ?? 0) + 1);
-    }
-  }
-}
+const { moduleByKey, globalImportedBy } = buildModuleLookup(allMaps);
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 
@@ -331,26 +180,11 @@ let activeExtAliases: [string, string][] = EXT_ALIASES;
 
 function compressPath(rawPath: string): string {
   if (FULL) return rawPath.replace(/^src\//, "");
-  let p = rawPath.replace(/^src\//, "").replace(/\/index$/, "");
-  if (p === "index") p = "idx";
-  for (const [from, to] of activePathSegs) {
-    const i = p.indexOf(from);
-    if (i !== -1) p = p.slice(0, i) + to + p.slice(i + from.length);
-  }
-  return p;
+  return _compressPath(rawPath, activePathSegs);
 }
 
 function compressExtDep(dep: string): string {
-  for (const [from, to] of activeExtAliases) {
-    if (dep === from) return to;
-    const last = from[from.length - 1];
-    if (last === "/" || last === ":" || last === "-") {
-      if (dep.startsWith(from)) return to + dep.slice(from.length);
-    } else if (dep.startsWith(`${from}/`)) {
-      return to + dep.slice(from.length);
-    }
-  }
-  return dep;
+  return _compressExtDep(dep, activeExtAliases);
 }
 
 // ─── Domain assignment ────────────────────────────────────────────────────────

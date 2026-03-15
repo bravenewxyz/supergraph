@@ -4,6 +4,10 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
+import {
+  compressPath as _compressPath,
+  compressExtDep as _compressExtDep,
+} from "./shared.js";
 
 const ROOT = parseRootArg(process.cwd());
 let PROJECT_NAME = basename(ROOT);
@@ -480,28 +484,11 @@ function generateTxt(data: SuperGraph): string {
 }
 
 function compressExtDep(dep: string): string {
-  for (const [from, to] of EXT_ALIASES) {
-    if (dep === from) return to;
-    const last = from[from.length - 1];
-    if (last === "/" || last === ":" || last === "-") {
-      if (dep.startsWith(from)) return to + dep.slice(from.length);
-    } else if (dep.startsWith(`${from}/`)) {
-      return to + dep.slice(from.length);
-    }
-  }
-  return dep;
+  return _compressExtDep(dep, EXT_ALIASES);
 }
 
 function compressPath(originalPath: string): string {
-  let p = originalPath.replace(/^src\//, "").replace(/\/index$/, "");
-  if (p === "index") p = "idx";
-  for (const [from, to] of PATH_SEGS) {
-    const i = p.indexOf(from);
-    if (i !== -1) {
-      p = p.slice(0, i) + to + p.slice(i + from.length);
-    }
-  }
-  return p;
+  return _compressPath(originalPath, PATH_SEGS);
 }
 
 function buildLegend(data: SuperGraph): string[] {
