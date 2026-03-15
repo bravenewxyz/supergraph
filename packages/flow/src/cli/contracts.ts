@@ -32,18 +32,18 @@ interface ContractResult {
 async function collectFiles(dir: string, exts: string[]): Promise<string[]> {
   const results: string[] = [];
   async function walk(d: string): Promise<void> {
-    let names: string[];
+    let entries: import("node:fs").Dirent[];
     try {
-      names = await readdir(d);
+      entries = await readdir(d, { withFileTypes: true });
     } catch {
       return;
     }
-    for (const name of names) {
-      if (name === "node_modules" || name === ".git" || name.startsWith(".")) continue;
-      const full = join(d, name);
-      if (!exts.some((x) => name.endsWith(x))) {
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name === ".git" || entry.name.startsWith(".")) continue;
+      const full = join(d, entry.name);
+      if (entry.isDirectory()) {
         await walk(full);
-      } else {
+      } else if (exts.some((x) => entry.name.endsWith(x))) {
         results.push(full);
       }
     }
@@ -95,9 +95,46 @@ function extractRpcCalls(source: string, filePath: string, rpcClients: string[])
 function extractBalancedBlock(source: string, startIdx: number): string {
   let depth = 0;
   let i = startIdx;
-  while (i < source.length) {
-    if (source[i] === "{") depth++;
-    else if (source[i] === "}") {
+  const len = source.length;
+  while (i < len) {
+    const ch = source[i];
+
+    // Skip single-line comments
+    if (ch === "/" && source[i + 1] === "/") {
+      i = source.indexOf("\n", i);
+      if (i === -1) break;
+      i++;
+      continue;
+    }
+
+    // Skip block comments
+    if (ch === "/" && source[i + 1] === "*") {
+      i = source.indexOf("*/", i + 2);
+      if (i === -1) break;
+      i += 2;
+      continue;
+    }
+
+    // Skip string literals (single, double, and template)
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < len) {
+        if (source[i] === "\\") {
+          i += 2; // skip escaped character
+          continue;
+        }
+        if (source[i] === quote) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    if (ch === "{") depth++;
+    else if (ch === "}") {
       depth--;
       if (depth === 0) return source.slice(startIdx, i + 1);
     }

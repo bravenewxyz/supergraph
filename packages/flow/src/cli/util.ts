@@ -38,7 +38,7 @@ export function escapeRegex(s: string): string {
 
 export function countBranches(source: string): number {
   let count = 0;
-  const patterns = [/\bif\s*\(/g, /\belse\s+if\s*\(/g, /\?\s/g, /\bswitch\s*\(/g, /\bcase\s+/g];
+  const patterns = [/(?<!\belse\s)\bif\s*\(/g, /\belse\s+if\s*\(/g, /\?\s/g, /\bswitch\s*\(/g, /\bcase\s+/g];
   for (const p of patterns) {
     const matches = source.match(p);
     if (matches) count += matches.length;

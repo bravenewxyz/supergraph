@@ -94,6 +94,69 @@ function extractLines(source: string, range: { startLine: number; endLine: numbe
   return lines.slice(range.startLine - 1, range.endLine).join("\n");
 }
 
+/**
+ * Strip the function/method declaration preamble from a body string.
+ * The header already carries the full signature, so the body only needs
+ * the implementation lines (everything after the opening `{`).
+ * Also strips the final closing `}` that matches the opening brace.
+ */
+function stripPreambleAndClosing(body: string): string {
+  const lines = body.split("\n");
+  // Find the first line containing the opening brace of the function body
+  let braceIdx = -1;
+  let braceDepth = 0;
+  for (let i = 0; i < lines.length; i++) {
+    for (const ch of lines[i]!) {
+      if (ch === "{") { braceDepth++; if (braceDepth === 1) { braceIdx = i; break; } }
+    }
+    if (braceIdx >= 0) break;
+  }
+  if (braceIdx < 0) return body; // no brace found — return as-is (arrow expression, etc.)
+
+  // Take everything after the opening-brace line
+  const inner = lines.slice(braceIdx + 1);
+
+  // Strip the final closing brace (last non-empty line that is just `}` or `};`)
+  for (let i = inner.length - 1; i >= 0; i--) {
+    const trimmed = inner[i]!.trim();
+    if (!trimmed) continue;
+    if (trimmed === "}" || trimmed === "};") inner.splice(i, 1);
+    break;
+  }
+
+  return inner.join("\n");
+}
+
+/**
+ * Dedent a block of code: find the minimum leading whitespace across all
+ * non-empty lines and remove that many characters from each line.
+ */
+function dedent(text: string): string {
+  const lines = text.split("\n");
+  let minIndent = Infinity;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    if (indent < minIndent) minIndent = indent;
+  }
+  if (minIndent === 0 || minIndent === Infinity) return text;
+  return lines
+    .map((line) => (line.trim() ? line.slice(minIndent) : ""))
+    .join("\n");
+}
+
+/** Should we strip the preamble for this symbol kind? */
+const STRIP_PREAMBLE_KINDS = new Set(["function", "method", "class", "interface", "type-alias", "enum"]);
+
+/** Should we skip the full body and only render children? */
+function shouldSkipBody(sym: RawSymbol): boolean {
+  return (
+    (sym.kind === "class" || sym.kind === "interface") &&
+    sym.children !== undefined &&
+    sym.children.length > 0
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Graph construction
 // ---------------------------------------------------------------------------
@@ -294,7 +357,7 @@ function renderSymbolHeader(sym: RawSymbol, indent = 0): string {
 
 function renderHypergraph(data: HyperGraph): string {
   const out: string[] = [];
-  const bar = "═".repeat(72);
+  const bar = "═".repeat(40);
 
   out.push(`HYPERGRAPH | ${new Date().toISOString().slice(0, 10)}`);
   out.push(
@@ -329,7 +392,7 @@ function renderHypergraph(data: HyperGraph): string {
 
     const modPath = strip(node.originalPath);
     const { totalSymbols: tot, exportedSymbols: exp } = node.stats;
-    out.push(`── ${modPath}  (${exp}/${tot}) ${"─".repeat(Math.max(1, 60 - modPath.length))}`);
+    out.push(`── ${modPath}  (${exp}/${tot}) ──`);
 
     // Internal deps
     if (node.internalDeps.length > 0) {
@@ -362,18 +425,27 @@ function renderHypergraph(data: HyperGraph): string {
 
     out.push("");
 
-    // Symbol index with full bodies
+    // Symbol index with compact bodies
     for (const sym of node.symbols) {
       out.push(renderSymbolHeader(sym));
 
-      // Full body: extract from source file using line range
-      const body = sym.lines && node.source
-        ? extractLines(node.source, sym.lines)
-        : sym.body || "";
+      if (shouldSkipBody(sym)) {
+        // Class/interface with children: skip full body, render children only
+        // (children already contain all methods/properties — no duplication)
+      } else {
+        let body = sym.lines && node.source
+          ? extractLines(node.source, sym.lines)
+          : sym.body || "";
 
-      if (body) {
-        for (const line of body.split("\n")) {
-          out.push(`  ${line}`);
+        if (body) {
+          // Strip declaration preamble + closing brace for known kinds
+          if (STRIP_PREAMBLE_KINDS.has(sym.kind)) body = stripPreambleAndClosing(body);
+          body = dedent(body);
+          // Emit body lines, trimming trailing whitespace
+          for (const line of body.split("\n")) {
+            const trimmed = line.trimEnd();
+            if (trimmed) out.push(`  ${trimmed}`);
+          }
         }
       }
 
@@ -381,17 +453,19 @@ function renderHypergraph(data: HyperGraph): string {
       if (sym.children && sym.children.length > 0) {
         for (const child of sym.children) {
           out.push(renderSymbolHeader(child, 1));
-          const childBody = child.lines && node.source
+          let childBody = child.lines && node.source
             ? extractLines(node.source, child.lines)
             : child.body || "";
           if (childBody) {
+            if (STRIP_PREAMBLE_KINDS.has(child.kind)) childBody = stripPreambleAndClosing(childBody);
+            childBody = dedent(childBody);
             for (const line of childBody.split("\n")) {
-              out.push(`    ${line}`);
+              const trimmed = line.trimEnd();
+              if (trimmed) out.push(`    ${trimmed}`);
             }
           }
         }
       }
-      out.push("");
     }
   }
 

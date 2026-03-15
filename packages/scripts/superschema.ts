@@ -51,6 +51,7 @@ type SS =
   | { kind: "array"; element: SS }
   | { kind: "object"; fields: ZField[]; spreads: string[] }
   | { kind: "union"; members: SS[]; discriminated?: boolean }
+  | { kind: "intersection"; members: SS[] }
   | { kind: "record"; key: SS; value: SS }
   | { kind: "tuple"; elements: SS[] }
   | { kind: "ref"; name: string }
@@ -277,7 +278,19 @@ function parseZodNode(
         return inner;
       }
 
-      if (prop === "and" || prop === "or") {
+      if (prop === "and") {
+        const otherArg = args[0];
+        if (otherArg) {
+          const other = parseZodNode(otherArg, seen);
+          return {
+            shape: { kind: "intersection", members: [inner.shape, other.shape] },
+            optional: false,
+          };
+        }
+        return inner;
+      }
+
+      if (prop === "or") {
         const otherArg = args[0];
         if (otherArg) {
           const other = parseZodNode(otherArg, seen);
@@ -464,7 +477,7 @@ function parseZodNode(
       const b = args[1]
         ? parseZodNode(args[1], seen).shape
         : { kind: "unknown" as const };
-      return { shape: { kind: "union", members: [a, b] }, optional: false };
+      return { shape: { kind: "intersection", members: [a, b] }, optional: false };
     }
 
     case "lazy":
@@ -692,6 +705,12 @@ function resolveShape(
       discriminated: shape.discriminated,
     };
   }
+  if (shape.kind === "intersection") {
+    return {
+      kind: "intersection",
+      members: shape.members.map((m) => resolveShape(m, registry, depth + 1)),
+    };
+  }
   if (shape.kind === "record") {
     return {
       kind: "record",
@@ -772,6 +791,14 @@ function renderTypeName(shape: SS, depth = 0): string {
       const str = parts.join(" | ");
       if (str.length > 120 && parts.length > 3) {
         return parts.slice(0, 3).join(" | ") + ` | +${parts.length - 3}`;
+      }
+      return str;
+    }
+    case "intersection": {
+      const parts = shape.members.map((m) => renderTypeName(m, depth));
+      const str = parts.join(" & ");
+      if (str.length > 120 && parts.length > 3) {
+        return parts.slice(0, 3).join(" & ") + ` & +${parts.length - 3}`;
       }
       return str;
     }

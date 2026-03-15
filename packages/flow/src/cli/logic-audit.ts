@@ -137,16 +137,18 @@ async function crossRepScan(
 
   // Resolve inter-schema refs
   const byName = new Map(allSchemas.map((s) => [s.name, s]));
-  function resolveRefs(shape: ShapeType): ShapeType {
+  function resolveRefs(shape: ShapeType, seen: Set<string> = new Set()): ShapeType {
     if (shape.kind === "ref" && !shape.resolved) {
+      if (seen.has(shape.name)) return shape;
+      seen.add(shape.name);
       const target = byName.get(shape.name);
-      if (target) return resolveRefs(target.shape);
+      if (target) return resolveRefs(target.shape, seen);
     }
     if (shape.kind === "object") {
-      return { ...shape, fields: shape.fields.map((f) => ({ ...f, type: resolveRefs(f.type) })) };
+      return { ...shape, fields: shape.fields.map((f) => ({ ...f, type: resolveRefs(f.type, seen) })) };
     }
-    if (shape.kind === "array") return { ...shape, element: resolveRefs(shape.element) };
-    if (shape.kind === "union") return { ...shape, members: shape.members.map(resolveRefs) };
+    if (shape.kind === "array") return { ...shape, element: resolveRefs(shape.element, seen) };
+    if (shape.kind === "union") return { ...shape, members: shape.members.map((m) => resolveRefs(m, seen)) };
     return shape;
   }
   for (const schema of allSchemas) {

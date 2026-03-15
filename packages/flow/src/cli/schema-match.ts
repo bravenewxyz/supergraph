@@ -246,25 +246,27 @@ function formatJson(
 function resolveSchemaRefs(schemas: RuntimeSchemaInfo[]): void {
   const byName = new Map(schemas.map((s) => [s.name, s]));
 
-  function resolve(shape: ShapeType): ShapeType {
+  function resolve(shape: ShapeType, seen: Set<string> = new Set()): ShapeType {
     if (shape.kind === "ref" && !shape.resolved) {
+      if (seen.has(shape.name)) return shape;
+      seen.add(shape.name);
       const target = byName.get(shape.name);
-      if (target) return resolve(target.shape);
+      if (target) return resolve(target.shape, seen);
     }
     if (shape.kind === "object") {
       return {
         ...shape,
-        fields: shape.fields.map((f) => ({ ...f, type: resolve(f.type) })),
+        fields: shape.fields.map((f) => ({ ...f, type: resolve(f.type, seen) })),
       };
     }
     if (shape.kind === "array") {
-      return { ...shape, element: resolve(shape.element) };
+      return { ...shape, element: resolve(shape.element, seen) };
     }
     if (shape.kind === "union") {
-      return { ...shape, members: shape.members.map(resolve) };
+      return { ...shape, members: shape.members.map((m) => resolve(m, seen)) };
     }
     if (shape.kind === "record") {
-      return { ...shape, key: resolve(shape.key), value: resolve(shape.value) };
+      return { ...shape, key: resolve(shape.key, seen), value: resolve(shape.value, seen) };
     }
     return shape;
   }

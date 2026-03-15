@@ -58,6 +58,7 @@ type SymValue =
 interface SymState {
   vars: Map<string, SymValue>;
   constraints: any[];
+  intToStrCounter: { value: number };
 }
 
 interface ExecutionPath {
@@ -85,7 +86,6 @@ async function getZ3(): Promise<Z3Context> {
 
 export function resetZ3Context(): void {
   z3Ctx = null;
-  intToStrCounter = 0;
 }
 
 // ── Symbolic value creation from ShapeType ───────────────────────────────
@@ -457,7 +457,7 @@ function evalExpr(Z3: Z3Context, expr: ts.Expression, state: SymState): SymValue
       let result = Z3.String.val(expr.head.text);
       for (const span of expr.templateSpans) {
         const sv = evalExpr(Z3, span.expression, state);
-        const svStr = toZ3String(Z3, sv);
+        const svStr = toZ3String(Z3, sv, state.intToStrCounter);
         result = result.concat(svStr ?? Z3.String.const(`__span_${span.pos}`));
         if (span.literal.text) result = result.concat(Z3.String.val(span.literal.text));
       }
@@ -539,8 +539,8 @@ function evalBinary(Z3: Z3Context, expr: ts.BinaryExpression, state: SymState): 
 
   // String concatenation: string + anything
   if (op === ts.SyntaxKind.PlusToken) {
-    const ls = toZ3String(Z3, left);
-    const rs = toZ3String(Z3, right);
+    const ls = toZ3String(Z3, left, state.intToStrCounter);
+    const rs = toZ3String(Z3, right, state.intToStrCounter);
     if (ls && rs) {
       try { return { kind: "z3", expr: ls.concat(rs), sort: "string" }; } catch { /* fall through */ }
     }
@@ -670,7 +670,7 @@ function evalCall(Z3: Z3Context, expr: ts.CallExpression, state: SymState): SymV
         let result = obj.expr;
         for (const a of expr.arguments) {
           const av = evalExpr(Z3, a, state);
-          const s = toZ3String(Z3, av);
+          const s = toZ3String(Z3, av, state.intToStrCounter);
           if (s) result = result.concat(s);
           else return { kind: "concrete", value: undefined };
         }
@@ -797,7 +797,7 @@ function evalArrayPredicate(
 
   const boolExprs: any[] = [];
   for (const el of arr.elements) {
-    const cbState: SymState = { vars: new Map(state.vars), constraints: [...state.constraints] };
+    const cbState: SymState = { vars: new Map(state.vars), constraints: [...state.constraints], intToStrCounter: state.intToStrCounter };
     cbState.vars.set(paramName, el);
     let val: SymValue;
     if (ts.isBlock(cbBody)) {
@@ -833,7 +833,7 @@ function evalArrayMap(
 
   const mapped: SymValue[] = [];
   for (const el of arr.elements) {
-    const cbState: SymState = { vars: new Map(state.vars), constraints: [...state.constraints] };
+    const cbState: SymState = { vars: new Map(state.vars), constraints: [...state.constraints], intToStrCounter: state.intToStrCounter };
     cbState.vars.set(paramName, el);
     mapped.push(evalExpr(Z3, cbBody, cbState));
   }
@@ -852,12 +852,10 @@ function toZ3Bool(Z3: Z3Context, val: SymValue): any | null {
   return null;
 }
 
-let intToStrCounter = 0;
-
-function toZ3String(Z3: Z3Context, val: SymValue): any | null {
+function toZ3String(Z3: Z3Context, val: SymValue, counter: { value: number }): any | null {
   if (val.kind === "z3" && val.sort === "string") return val.expr;
   if (val.kind === "z3" && val.sort === "int") {
-    return Z3.String.const(`__intToStr_${intToStrCounter++}`);
+    return Z3.String.const(`__intToStr_${counter.value++}`);
   }
   if (val.kind === "z3" && val.sort === "bool") {
     return Z3.If(val.expr, Z3.String.val("true"), Z3.String.val("false"));
@@ -889,7 +887,7 @@ function typeofStr(val: SymValue): string | null {
 // ── State management ─────────────────────────────────────────────────────
 
 function cloneState(state: SymState): SymState {
-  return { vars: cloneVars(state.vars), constraints: [...state.constraints] };
+  return { vars: cloneVars(state.vars), constraints: [...state.constraints], intToStrCounter: state.intToStrCounter };
 }
 
 function cloneVars(vars: Map<string, SymValue>): Map<string, SymValue> {
@@ -1179,7 +1177,7 @@ function explorePaths(
       for (const bp of bodyPaths) {
         if (bp.returned) { results.push(bp); continue; }
         if (!bp.finalVars) { results.push(bp); continue; }
-        const contState: SymState = { vars: bp.finalVars, constraints: [...bp.constraints] };
+        const contState: SymState = { vars: bp.finalVars, constraints: [...bp.constraints], intToStrCounter: state.intToStrCounter };
         results.push(...unrollLoop(Z3, stmt.expression, undefined, body, remaining, contState, maxPaths, pathCount, Math.max(0, maxLoopUnroll - 1)));
       }
       return results;
@@ -1251,7 +1249,7 @@ function unrollLoop(
       results.push(bp);
     } else {
       const nextVars = bp.finalVars ?? cloneVars(contState.vars);
-      const nextState: SymState = { vars: nextVars, constraints: [...bp.constraints] };
+      const nextState: SymState = { vars: nextVars, constraints: [...bp.constraints], intToStrCounter: state.intToStrCounter };
       if (incrementor) execExprStmt(Z3, incrementor, nextState);
       results.push(...unrollLoop(Z3, condition, incrementor, body, afterLoop, nextState, maxPaths, pathCount, itersLeft - 1));
     }
@@ -1281,7 +1279,7 @@ function unrollForOf(
       if (bp.returned) {
         results.push(bp);
       } else {
-        currentState = { vars: bp.finalVars ?? cloneVars(currentState.vars), constraints: [...bp.constraints] };
+        currentState = { vars: bp.finalVars ?? cloneVars(currentState.vars), constraints: [...bp.constraints], intToStrCounter: state.intToStrCounter };
       }
     }
   }
@@ -1304,10 +1302,12 @@ async function checkPostcondition(
   postcondExpr: ts.Expression,
   inputValue: SymValue,
   timeoutMs: number,
+  intToStrCounter: { value: number },
 ): Promise<"proven" | { counterexample: Record<string, unknown> } | "unknown"> {
   const checkState: SymState = {
     vars: new Map([["input", inputValue], ["result", path.returnValue]]),
     constraints: [],
+    intToStrCounter,
   };
   const postcondVal = evalExpr(Z3, postcondExpr, checkState);
   const postcondBool = toZ3Bool(Z3, postcondVal);
@@ -1348,7 +1348,7 @@ export async function proveInvariant(
   const maxLoopUnroll = options?.maxLoopUnroll ?? DEFAULT_MAX_LOOP_UNROLL;
 
   let Z3: Z3Context;
-  intToStrCounter = 0;
+  const intToStrCounter = { value: 0 };
   try { Z3 = await getZ3(); } catch (e: any) {
     return { invariantName: invariant.name, status: "unsupported", pathsExplored: 0, pathsProven: 0, pathsFailed: 0, error: e.message };
   }
@@ -1361,7 +1361,7 @@ export async function proveInvariant(
     return { invariantName: invariant.name, status: "unsupported", pathsExplored: 0, pathsProven: 0, pathsFailed: 0, error: "Empty function body" };
 
   const z3Consts: Array<{ name: string; expr: any }> = [];
-  const initial: SymState = { vars: new Map(), constraints: [] };
+  const initial: SymState = { vars: new Map(), constraints: [], intToStrCounter };
   let inputValue: SymValue;
 
   if (func.params.length === 0) {
@@ -1405,7 +1405,7 @@ export async function proveInvariant(
 
   for (const path of returnedPaths) {
     try {
-      const r = await checkPostcondition(Z3, path, postcondExpr, inputValue, timeoutMs);
+      const r = await checkPostcondition(Z3, path, postcondExpr, inputValue, timeoutMs, intToStrCounter);
       if (r === "proven") proven++;
       else if (r !== "unknown") { failed++; if (!firstCx) firstCx = r.counterexample; }
     } catch { /* solver error */ }

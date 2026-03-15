@@ -315,6 +315,12 @@ function diffSameKind(
           category: "type-mismatch",
         });
       }
+      const minLen = Math.min(left.members.length, r.members.length);
+      for (let i = 0; i < minLen; i++) {
+        mismatches.push(
+          ...diffTypes(left.members[i]!, r.members[i]!, `${path}&[${i}]`, opts),
+        );
+      }
       break;
     }
 

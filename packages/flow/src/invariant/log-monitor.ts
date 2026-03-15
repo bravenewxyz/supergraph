@@ -36,13 +36,140 @@ export function matchesFilter(event: unknown, filter: string): boolean {
   return false;
 }
 
+/**
+ * Safely resolve a dotted property path (e.g. "data.foo.bar") on a value.
+ * Only allows identifier segments — no brackets, no computed access.
+ */
+function resolvePath(root: unknown, path: string): unknown {
+  const segments = path.split(".");
+  let cur: unknown = root;
+  for (const seg of segments) {
+    if (cur === null || cur === undefined || typeof cur !== "object") return undefined;
+    cur = (cur as Record<string, unknown>)[seg];
+  }
+  return cur;
+}
+
+// Identifier / dotted-path starting with "data"
+const PATH_RE = /^data(?:\.\w+)+$/;
+// Numeric literal (integer or decimal, optional leading minus)
+const NUM_RE = /^-?\d+(?:\.\d+)?$/;
+// String literal (single- or double-quoted, no embedded quotes)
+const STR_RE = /^(?:"[^"]*"|'[^']*')$/;
+// Boolean / null / undefined literals
+const KEYWORD_RE = /^(?:true|false|null|undefined)$/;
+
+type Comparator = "===" | "!==" | "==" | "!=" | ">=" | "<=" | ">" | "<";
+const COMPARATORS: Comparator[] = ["===", "!==", "==", "!=", ">=", "<=", ">", "<"];
+
+/**
+ * Parse a literal token into its JS value.
+ */
+function parseLiteral(token: string): unknown {
+  if (NUM_RE.test(token)) return Number(token);
+  if (STR_RE.test(token)) return token.slice(1, -1);
+  if (token === "true") return true;
+  if (token === "false") return false;
+  if (token === "null") return null;
+  if (token === "undefined") return undefined;
+  return undefined;
+}
+
+function isLiteral(token: string): boolean {
+  return NUM_RE.test(token) || STR_RE.test(token) || KEYWORD_RE.test(token);
+}
+
+/**
+ * Evaluate a single simple expression. Supported forms:
+ *   data.field === value
+ *   data.field !== value
+ *   data.field > / >= / < / <= value
+ *   data.field == value / data.field != value
+ *   typeof data.field === "string"
+ *   data.field              (truthy check)
+ *   data.field.length > 0   (property chain including .length)
+ */
+function evaluateSingle(data: unknown, expr: string): boolean {
+  const trimmed = expr.trim();
+
+  // typeof data.field === "type"
+  const typeofMatch = trimmed.match(
+    /^typeof\s+(data(?:\.\w+)+)\s*(===|!==|==|!=)\s*("[^"]*"|'[^']*')$/
+  );
+  if (typeofMatch) {
+    const val = resolvePath({ data }, typeofMatch[1]!);
+    const actual = typeof val;
+    const expected = typeofMatch[3]!.slice(1, -1);
+    const op = typeofMatch[2] as Comparator;
+    if (op === "===" || op === "==") return actual === expected;
+    if (op === "!==" || op === "!=") return actual !== expected;
+    return false;
+  }
+
+  // Comparison: path <op> literal  or  literal <op> path
+  for (const op of COMPARATORS) {
+    const idx = trimmed.indexOf(op);
+    if (idx === -1) continue;
+    const lhs = trimmed.slice(0, idx).trim();
+    const rhs = trimmed.slice(idx + op.length).trim();
+    if (!lhs || !rhs) continue;
+
+    let pathVal: unknown;
+    let literalVal: unknown;
+
+    if (PATH_RE.test(lhs) && isLiteral(rhs)) {
+      pathVal = resolvePath({ data }, lhs);
+      literalVal = parseLiteral(rhs);
+    } else if (PATH_RE.test(rhs) && isLiteral(lhs)) {
+      pathVal = resolvePath({ data }, rhs);
+      literalVal = parseLiteral(lhs);
+      // Swap so comparison direction is literal <op> path → path <reverseOp> literal
+      // Easier to just evaluate directly with original operand positions
+      return compareValues(parseLiteral(lhs), op, resolvePath({ data }, rhs));
+    } else {
+      continue;
+    }
+
+    return compareValues(pathVal, op, literalVal);
+  }
+
+  // Bare truthy check: data.field or data.field.nested
+  if (PATH_RE.test(trimmed)) {
+    return Boolean(resolvePath({ data }, trimmed));
+  }
+
+  // Nothing matched — reject
+  return false;
+}
+
+function compareValues(lhs: unknown, op: Comparator, rhs: unknown): boolean {
+  switch (op) {
+    case "===": return lhs === rhs;
+    case "!==": return lhs !== rhs;
+    case "==":  return lhs == rhs;  // eslint-disable-line eqeqeq
+    case "!=":  return lhs != rhs;  // eslint-disable-line eqeqeq
+    case ">":   return (lhs as number) > (rhs as number);
+    case ">=":  return (lhs as number) >= (rhs as number);
+    case "<":   return (lhs as number) < (rhs as number);
+    case "<=":  return (lhs as number) <= (rhs as number);
+    default:    return false;
+  }
+}
+
+/**
+ * Safely evaluate a condition string against `data`.
+ *
+ * Only allows simple property-access comparisons joined by && / ||.
+ * No function calls, no assignment, no arbitrary code execution.
+ */
 export function evaluateCondition(data: unknown, condition: string): boolean {
   try {
-    if (/[;{}]|\bfunction\b|\bimport\b|\brequire\b|\beval\b|\bnew\b/.test(condition)) {
-      return false;
-    }
-    const fn = new Function("data", `"use strict"; return (${condition})`);
-    return Boolean(fn(data));
+    // Split on || first (lower precedence), then && within each group
+    const orGroups = condition.split("||");
+    return orGroups.some((orGroup) => {
+      const andParts = orGroup.split("&&");
+      return andParts.every((part) => evaluateSingle(data, part));
+    });
   } catch {
     return false;
   }
