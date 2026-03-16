@@ -92,12 +92,29 @@ export function analyzePushSites(
   const unguarded = pushSites.filter((p) => p.guard === null);
 
   if (guarded.length > 0 && unguarded.length > 0) {
+    // Text-rendering / output-building pattern: when an unguarded push
+    // targets a "main output" collection (lines, out, output, result,
+    // parts, rows, etc.) and guarded pushes target "sub-part" collections,
+    // this is normal — the main output always gets a line, sub-parts are
+    // conditional.  Suppress when the unguarded collection looks like a
+    // primary output accumulator and the guarded one looks like a
+    // sub-component being built up.
+    const OUTPUT_NAMES = /^(lines|out|output|result|results|rows|parts|sections|chunks|text|buf|acc)$/i;
+
     for (const g of guarded) {
       for (const u of unguarded) {
         // Skip same-collection: pushing to the same array both
         // conditionally and unconditionally is normal (text rendering,
         // result accumulation). The real signal is cross-collection.
         if (g.collection === u.collection) continue;
+
+        // Skip output-building pattern: unguarded push to a main output
+        // array + guarded push to a different sub-part array is normal
+        // text/data accumulation, not a guard inconsistency.
+        const uBase = u.collection.split(".").pop() ?? u.collection;
+        const gBase = g.collection.split(".").pop() ?? g.collection;
+        if (OUTPUT_NAMES.test(uBase) && !OUTPUT_NAMES.test(gBase)) continue;
+
         const confidence = scoreGuardConfidence(
           g.collection, u.collection, sourceLines,
         );
@@ -130,6 +147,14 @@ export function scoreGuardConfidence(
   if (!sourceLines) return "med";
   const guardedBase = guardedCol.split(".").pop() ?? guardedCol;
   const unguardedBase = unguardedCol.split(".").pop() ?? unguardedCol;
+
+  // DFS / accumulator pattern: names like "path", "stack", "visited",
+  // "seen", "pending" are intentionally always-push accumulators that
+  // track traversal state, while other collections selectively record
+  // results. These are never guard bugs.
+  const ACCUMULATOR_NAMES = /^(path|stack|visited|seen|pending|queue|worklist|current|rolledBack)$/i;
+  if (ACCUMULATOR_NAMES.test(unguardedBase)) return "low";
+
   const coConsumed = sourceLines.some(
     (line) => line.includes(guardedBase) && line.includes(unguardedBase),
   );
@@ -257,6 +282,8 @@ export function analyzeOpSites(
   const guarded = opSites.filter((p) => p.guard !== null);
   const unguarded = opSites.filter((p) => p.guard === null);
 
+  const OUTPUT_NAMES = /^(lines|out|output|result|results|rows|parts|sections|chunks|text|buf|acc)$/i;
+
   if (guarded.length > 0 && unguarded.length > 0) {
     for (const g of guarded) {
       for (const u of unguarded) {
@@ -264,6 +291,12 @@ export function analyzeOpSites(
         const uBase = u.op.split(".").pop();
         if (gBase !== uBase) continue; // Only compare same-method operations
         if (g.op === u.op) continue;   // Skip exact same target
+
+        // Skip output-building pattern (see analyzePushSites)
+        const uTarget = u.op.split(".").slice(0, -1).pop() ?? u.op;
+        const gTarget = g.op.split(".").slice(0, -1).pop() ?? g.op;
+        if (OUTPUT_NAMES.test(uTarget) && !OUTPUT_NAMES.test(gTarget)) continue;
+
         results.push({
           filePath,
           line: callbackStart + 1,

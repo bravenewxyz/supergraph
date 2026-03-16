@@ -54,6 +54,24 @@ function isEntryPoint(modulePath: string): boolean {
   return false;
 }
 
+/**
+ * Detect standalone script entry points that are meant to be run directly
+ * (not imported). These have 0 inbound imports by design.
+ *
+ * Heuristics:
+ * 1. File contains `import.meta.main` or `process.argv` (CLI entry)
+ * 2. File is referenced in package.json `bin` or `scripts`
+ * 3. File has a shebang line (#!/usr/bin/env)
+ */
+function isStandaloneScript(content: string): boolean {
+  // Check first 5 lines for shebang
+  const firstLines = content.slice(0, 500);
+  if (firstLines.startsWith("#!")) return true;
+  if (/\bimport\.meta\.main\b/.test(content)) return true;
+  if (/\bprocess\.argv\b/.test(content)) return true;
+  return false;
+}
+
 function strip(p: string): string {
   return p.replace(/^src\//, "");
 }
@@ -118,6 +136,15 @@ async function analyzeDeadExports(
     }
   }
 
+  // Build module path → absolute file path (needed by both orphan and symbol checks)
+  const modToFile = new Map<string, string>();
+  for (const f of allFiles) {
+    const rel = relative(srcRoot, f).replace(/\.(ts|tsx)$/, "");
+    const modPath = "src/" + rel;
+    modToFile.set(modPath, f);
+    modToFile.set(rel, f);
+  }
+
   for (const mod of manifest.modules) {
     const key = strip(mod.path);
     if (!importedModules.has(mod.path) && !isEntryPoint(key)) {
@@ -125,6 +152,14 @@ async function analyzeDeadExports(
       const modBasename = key.replace(/^src\//, "");
       const isDynamic = [...dynamicallyImported].some(d => modBasename.endsWith(d) || d.endsWith(modBasename));
       if (isDynamic) continue;
+
+      // Check if this is a standalone script (has shebang, import.meta.main,
+      // or process.argv) — these are CLI entry points by design, not orphans.
+      const modFile = modToFile.get(mod.path) ?? modToFile.get(key);
+      if (modFile) {
+        const content = fileContents.get(modFile) ?? "";
+        if (isStandaloneScript(content)) continue;
+      }
 
       const exports = collectExports(mod.symbols);
       if (exports.length > 0) {
@@ -134,15 +169,6 @@ async function analyzeDeadExports(
   }
 
   // 2. Symbol-level: for non-orphan modules, find exports unused by importers
-  // Build: module path → absolute file path
-  const modToFile = new Map<string, string>();
-  for (const f of allFiles) {
-    const rel = relative(srcRoot, f).replace(/\.(ts|tsx)$/, "");
-    const modPath = "src/" + rel;
-    modToFile.set(modPath, f);
-    modToFile.set(rel, f);
-  }
-
   const unusedSymbols: DeadResult["unusedSymbols"] = [];
   const orphanSet = new Set(orphanModules.map((o) => o.module));
 

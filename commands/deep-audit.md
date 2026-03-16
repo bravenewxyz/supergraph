@@ -72,6 +72,10 @@ Read `audit/superhigh.txt` in full, then read all three per-package map files (`
 Read `complexity.txt` and `dead.txt` in full, then analyze:
 
 1. **Dead exports** — verify `dead.txt` against `map.txt`. Intentional or genuine dead code?
+   **Known false positive patterns — do NOT report these:**
+   - **Orphan modules that are CLI entry points** (contain `import.meta.main`, `process.argv`, or shebang). These have 0 inbound imports by design.
+   - **Exports meant for external package consumers** (e.g. test utilities, fast-check arbitraries, public API symbols). The detector only checks internal imports.
+   - **Re-export barrels** (`index.ts`) that aggregate submodule exports for the package boundary.
 2. **Circular dependencies** — from `deps.txt`. Identify cleanest cut point.
 3. **Complexity hotspots** — functions above complexity 15.
 4. **Type-safety surface** — high escape-hatch scores (`any`, casts, `!.`, `@ts-ignore`).
@@ -129,6 +133,12 @@ Compare Zod schema fields with TS type fields. Report where 2+ representations d
 ### 6d. Guard consistency scan
 
 Review both standard and broad guard warnings. `⚠high` = always investigate.
+
+**Known false positive patterns — do NOT report these as issues:**
+- **Output-building loops**: `lines.push`/`out.push`/`result.push` (unguarded) + `parts.push`/`opParts.push`/other sub-array (guarded). This is normal text rendering — always push a line, conditionally build parts.
+- **DFS/accumulator**: `path.push`/`stack.push`/`visited` (unguarded) + `cycles.push`/`results.push` (guarded). Traversal always tracks state, selectively records results.
+- **Type discrimination**: `implementsEdges.push` (unguarded) + `extendsEdges.push` (guarded by type check). The guard intentionally applies to only one collection.
+- **Cascading operations**: `rolledBack.push` (unguarded) + `cascaded.push` (guarded). Every entry is processed, only some trigger cascades.
 
 ### 6e. Temporal ordering scan
 
@@ -244,6 +254,8 @@ Rules for this file:
 - The "Phase notes" section at the bottom provides context but is optional per phase
 - The number is stable — it's how the user refers to issues from now on
 
+**Multi-package numbering**: When auditing multiple packages, use a **single global issue counter** across all packages. The first package starts at #1; the second package continues from where the first left off. Each per-package `findings.md` uses the same global numbers. This way the user can refer to any issue by a single unambiguous number (e.g. "#14") without needing to specify the package. In Phase 9, present a single unified table across all packages.
+
 ### 8c. Grouped plans
 
 Group findings into **1–12 plans** as coherent work sessions. Each plan references issues by their number. Order: Security → Correctness → Data integrity → Concurrency → Core pipeline → Infrastructure → Polish → Large refactors.
@@ -280,6 +292,7 @@ Write `plans/README.md`:
 
 Output **only this** — nothing else:
 
+For a **single package**:
 ```
 <package-name>: <file-count> files, <line-count> lines — <N> issues found
 
@@ -293,7 +306,24 @@ Output **only this** — nothing else:
 I can fix <X> of these now. Which issues? (numbers, ranges like 1-5, or "all")
 ```
 
-Show the **full numbered issue list** from `findings.md`. Every issue gets one row.
+For **multiple packages**, use a single unified table with globally unique numbers and a `pkg` column:
+```
+3 packages audited: 126 files, 39,931 lines — 43 issues found
+
+ #  | pkg     | sev      | location              | description
+----|---------|----------|-----------------------|-----------------------------
+ 1  | flow    | high     | sym-executor.ts:545   | Swallowed error in Z3 fallback
+ 2  | flow    | high     | sym-executor.ts:1411  | Silent catch in proof loop
+ ...
+ 19 | graph   | high     | graph-store.ts:301    | Unsafe JSON deserialization
+ ...
+ 33 | scripts | high     | shared.ts:19-67       | Duplicated type hierarchy
+ ...
+
+I can fix <X> of these now. Which issues? (numbers, ranges like 1-5, or "all")
+```
+
+Show the **full numbered issue list** from `findings.md`. Every issue gets one row. Numbers are **globally unique across all packages** — no restarting at 1 per package.
 
 **Choosing what to offer**: count how many issues are small/medium effort to fix (based on your assessment during Phase 3–7). Offer to fix that number. For example: "I can fix 14 of these now." Don't offer to fix issues that require major architectural changes, external service changes, or decisions only the user can make — but do include them in the list so the user sees them.
 

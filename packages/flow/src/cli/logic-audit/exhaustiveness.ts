@@ -96,6 +96,15 @@ export function analyzeSwitchExhaustiveness(
 
   if (missingMembers.length === 0) return null;
 
+  // Intentionally partial switches: when a switch handles a small fraction
+  // of a large enum/union (e.g. switching on TypeScript's SyntaxKind with
+  // 350+ members but only handling 9 numeric operators), the developer is
+  // deliberately filtering to a subset — this is not an exhaustiveness bug.
+  // Suppress when: (a) ≥20 known members, AND (b) handled < 30% of total.
+  // These switches are "selective filters", not exhaustive dispatchers.
+  const coverage = handledMembers.length / knownMembers.length;
+  if (knownMembers.length >= 20 && coverage < 0.3) return null;
+
   const switchExpr = node.expression.getText(sourceFile);
   const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 
