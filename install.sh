@@ -225,7 +225,7 @@ fi
 # ─── 2. Install Claude Code commands ────────────────────────────
 mkdir -p "${CLAUDE_CMD_DIR}"
 
-COMMANDS=("deep-audit" "high-level" "init-supergraph")
+COMMANDS=("deep-audit" "deep-strategic" "high-level" "init-supergraph")
 
 if [ "${LOCAL_MODE}" = true ]; then
   CMD_OK=true
@@ -287,6 +287,7 @@ printf "  ${WHITE}${BOLD}supergraph${RESET}         ${DIM}run in any repo to gen
 printf "  ${WHITE}${BOLD}/init-supergraph${RESET}   ${DIM}bootstrap supergraph on any repo${RESET}\n"
 printf "  ${WHITE}${BOLD}/high-level${RESET}        ${DIM}read the full supergraph overview${RESET}\n"
 printf "  ${WHITE}${BOLD}/deep-audit${RESET}        ${DIM}10-phase deep package audit${RESET}\n"
+printf "  ${WHITE}${BOLD}/deep-strategic${RESET}    ${DIM}strategic review — gaps, opportunities, leverage${RESET}\n"
 echo ""
 
 # ─── PATH check ─────────────────────────────────────────────────

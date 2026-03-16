@@ -1,10 +1,6 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GraphStore } from "../store/graph-store.js";
-import { createSymbolNode } from "../schema/nodes.js";
-import { createSymbolEdge } from "../schema/edges.js";
 import type { GraphOperation, OperationEntry } from "../schema/operations.js";
-import type { SymbolNode } from "../schema/nodes.js";
-import type { SymbolEdge } from "../schema/edges.js";
 import { OperationLog } from "../operations/op-log.js";
 import {
   checkCommutativity,
@@ -17,31 +13,7 @@ import { resolveLWW } from "../operations/lww-resolver.js";
 import { computeInverse, rollbackAgent } from "../operations/rollback.js";
 import { tmpdir } from "os";
 import { join } from "path";
-
-// --- Helpers ---
-
-function makeNode(
-  overrides: Partial<SymbolNode> & { id: string; name: string },
-): SymbolNode {
-  return createSymbolNode({
-    kind: "function",
-    qualifiedName: overrides.qualifiedName ?? `mod.${overrides.name}`,
-    ...overrides,
-  });
-}
-
-function makeEdge(
-  overrides: Partial<SymbolEdge> & {
-    id: string;
-    sourceId: string;
-    targetId: string;
-  },
-): SymbolEdge {
-  return createSymbolEdge({
-    kind: "calls",
-    ...overrides,
-  });
-}
+import { makeNode, makeEdge } from "./helpers.js";
 
 function makeEntry(
   partial: Partial<OperationEntry> & { op: GraphOperation },
@@ -1008,7 +980,7 @@ describe("MergeEngine", () => {
     expect(result.conflicts).toHaveLength(0);
   });
 
-  test("contract-dependent ops are treated as commutes (pending contract check)", () => {
+  test("contract-dependent ops fall back to LWW (pending contract check)", () => {
     const setA: OperationEntry[] = [
       makeEntry({
         op: { type: "ModifyBody", symbolId: "s1", newBody: "a" },
@@ -1032,7 +1004,10 @@ describe("MergeEngine", () => {
     ];
 
     const result = engine.compose([setA, setB]);
-    expect(result.applied).toHaveLength(2);
+    expect(result.applied).toHaveLength(1);
+    expect(result.applied[0]!.agentId).toBe("agent-2"); // higher lamport wins
+    expect(result.autoResolved).toHaveLength(1);
+    expect(result.autoResolved[0]!.strategy).toBe("contract-fallback-lww");
     expect(result.conflicts).toHaveLength(0);
   });
 
@@ -1300,7 +1275,7 @@ describe("Rollback", () => {
       const edge = makeEdge({ id: "e1", sourceId: "s1", targetId: "s2" });
       const op: GraphOperation = { type: "AddEdge", edge };
       const inv = computeInverse(op, store);
-      expect(inv).toEqual({ type: "RemoveEdge", edgeId: "e1" });
+      expect(inv).toEqual({ type: "RemoveEdge", edgeId: "e1", sourceId: "s1", targetId: "s2" });
     });
 
     test("RemoveEdge inverse is AddEdge (when edge exists)", () => {

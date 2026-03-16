@@ -266,10 +266,31 @@ function stripLiteralsAndComments(code: string): string {
         if (code[i] === "\\" ) { i += 2; continue; }
         if (code[i] === "`") { depth--; i++; continue; }
         if (code[i] === "$" && i + 1 < len && code[i + 1] === "{") {
-          // skip template expression — just scan for matching }
+          // skip template expression — scan for matching }, handling nested templates
           i += 2;
           let braces = 1;
           while (i < len && braces > 0) {
+            if (code[i] === "`") {
+              // Nested template literal inside ${} — skip it recursively
+              i++;
+              while (i < len && code[i] !== "`") {
+                if (code[i] === "\\") { i += 2; continue; }
+                if (code[i] === "$" && i + 1 < len && code[i + 1] === "{") {
+                  i += 2;
+                  let inner = 1;
+                  while (i < len && inner > 0) {
+                    if (code[i] === "{") inner++;
+                    else if (code[i] === "}") inner--;
+                    if (inner > 0) i++;
+                  }
+                  if (i < len) i++;
+                  continue;
+                }
+                i++;
+              }
+              if (i < len) i++; // skip closing backtick
+              continue;
+            }
             if (code[i] === "{") braces++;
             else if (code[i] === "}") braces--;
             if (braces > 0) i++;

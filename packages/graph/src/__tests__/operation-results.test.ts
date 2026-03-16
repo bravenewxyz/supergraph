@@ -1,18 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GraphStore } from "../store/graph-store.js";
-import { createSymbolNode } from "../schema/nodes.js";
-import type { SymbolNode } from "../schema/nodes.js";
 import type { GraphOperation, OperationResult } from "../schema/operations.js";
-
-function makeNode(
-  overrides: Partial<SymbolNode> & { id: string; name: string },
-): SymbolNode {
-  return createSymbolNode({
-    kind: "function",
-    qualifiedName: overrides.qualifiedName ?? `mod.${overrides.name}`,
-    ...overrides,
-  });
-}
+import { makeNode } from "./helpers.js";
 
 describe("applyOperation returns OperationResult", () => {
   let store: GraphStore;

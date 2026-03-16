@@ -1,38 +1,12 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { GraphStore } from "../store/graph-store.js";
-import { createSymbolNode } from "../schema/nodes.js";
-import { createSymbolEdge } from "../schema/edges.js";
-import type { SymbolNode } from "../schema/nodes.js";
-import type { SymbolEdge } from "../schema/edges.js";
 import type { GraphOperation } from "../schema/operations.js";
 import { SymbolLockTable } from "../coordination/symbol-lock-table.js";
 import { ContractLayer } from "../coordination/contract-layer.js";
 import { ScopeGraph } from "../coordination/scope-graph.js";
 import { classifyOperation, classifyBatch } from "../coordination/tier-classifier.js";
 import type { TierClassification } from "../coordination/tier-classifier.js";
-
-function makeNode(
-  overrides: Partial<SymbolNode> & { id: string; name: string },
-): SymbolNode {
-  return createSymbolNode({
-    kind: "function",
-    qualifiedName: overrides.qualifiedName ?? `mod.${overrides.name}`,
-    ...overrides,
-  });
-}
-
-function makeEdge(
-  overrides: Partial<SymbolEdge> & {
-    id: string;
-    sourceId: string;
-    targetId: string;
-  },
-): SymbolEdge {
-  return createSymbolEdge({
-    kind: "calls",
-    ...overrides,
-  });
-}
+import { makeNode, makeEdge } from "./helpers.js";
 
 // ============================================================
 // SymbolLockTable

@@ -19,7 +19,7 @@ export interface MergeConflict {
 export interface AutoResolution {
   winner: OperationEntry;
   loser: OperationEntry;
-  strategy: "lww" | "idempotent";
+  strategy: "lww" | "idempotent" | "contract-fallback-lww";
 }
 
 /**
@@ -108,12 +108,12 @@ export class MergeEngine {
 
           if (result === "contract-dependent") {
             // Contract drift checking not yet implemented — fall back to LWW.
-            // Both ops stay but the caller is informed via autoResolved.
+            // Marked as "contract-fallback-lww" so callers can detect this case.
             const resolution = resolveLWW(entryA, entryB);
             autoResolved.push({
               winner: resolution.winner,
               loser: resolution.loser,
-              strategy: "lww",
+              strategy: "contract-fallback-lww",
             });
             applied.delete(resolution.loser.id);
             excluded.add(resolution.loser.id);

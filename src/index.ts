@@ -47,14 +47,14 @@ if (!existsSync(setupDone)) {
   const claudeCmdDir = join(homedir(), ".claude", "commands");
   try {
     mkdirSync(claudeCmdDir, { recursive: true });
-    const commands = ["deep-audit.md", "high-level.md"];
+    const commands = ["deep-audit.md", "deep-strategic.md", "high-level.md"];
     for (const cmd of commands) {
       const res = await fetch(`${BASE_URL}/${cmd}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         writeFileSync(join(claudeCmdDir, cmd), await res.text());
       }
     }
-    console.log(`Installed /deep-audit and /high-level commands for Claude Code`);
+    console.log(`Installed /deep-audit, /deep-strategic, and /high-level commands for Claude Code`);
     mkdirSync(supergraphDir, { recursive: true });
     writeFileSync(setupDone, new Date().toISOString());
   } catch {
@@ -104,6 +104,11 @@ Commands:
 The full pipeline also generates:
   audit/supergraph.txt            Unified map: domains + schemas + modules + types
   audit/supergraph-compact.txt    Compressed version for AI context windows
+
+Claude Code commands (installed automatically):
+  /deep-audit             10-phase systematic package audit
+  /deep-strategic         Strategic review — gaps, opportunities, leverage
+  /high-level             Quick architecture overview
 
 Global options:
   --root <path>           Target repo root (default: cwd)

@@ -132,7 +132,12 @@ export class OperationLog {
         skipped++;
         continue;
       }
-      if (!entry.op.type) {
+      const VALID_OP_TYPES = new Set([
+        "AddSymbol", "RemoveSymbol", "ModifyBody", "ModifySignature",
+        "RenameSymbol", "MoveSymbol", "AddEdge", "RemoveEdge",
+        "SetExported", "AddModifier", "RemoveModifier", "ModifyDecorators",
+      ]);
+      if (!entry.op.type || !VALID_OP_TYPES.has(entry.op.type)) {
         skipped++;
         continue;
       }
