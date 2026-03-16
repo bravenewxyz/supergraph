@@ -27,7 +27,7 @@ import type { LanguageDriver } from "../../packages/graph/src/cli/lang/index.js"
 // TS-only flow tools (imported lazily via direct imports since they're always TS)
 import { runSchemaMatch } from "../../packages/flow/src/cli/schema-match.js";
 import { runTrace } from "../../packages/flow/src/cli/trace.js";
-import { runLogicAudit } from "../../packages/flow/src/cli/logic-audit.js";
+import { runLogicAudit } from "../../packages/flow/src/cli/logic-audit/index.js";
 import { runContracts } from "../../packages/flow/src/cli/contracts.js";
 import { runInvariantDiscover } from "../../packages/flow/src/cli/invariant.js";
 
