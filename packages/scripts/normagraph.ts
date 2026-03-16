@@ -1,0 +1,508 @@
+#!/usr/bin/env bun
+
+import { mkdir, readdir } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { readFile } from "./utils.js";
+
+// ---------------------------------------------------------------------------
+// Types (same as hypergraph — reads from map.json)
+// ---------------------------------------------------------------------------
+
+type RawSymbol = {
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  signature: string;
+  typeText: string;
+  body: string;
+  exported: boolean;
+  modifiers: string[];
+  lines: { startLine: number; endLine: number } | null;
+  children?: RawSymbol[];
+};
+
+type RawModule = {
+  path: string;
+  relativePath: string;
+  symbols: RawSymbol[];
+  imports: { module: string; raw?: string; typeOnly?: boolean }[];
+  internalDeps: string[];
+  externalDeps: string[];
+  stats: { totalSymbols: number; exportedSymbols: number };
+};
+
+type RawMap = {
+  package: string;
+  srcRoot: string;
+  modules: RawModule[];
+  dependencyGraph: Record<string, string[]>;
+};
+
+type NormaNode = {
+  idx: number;
+  path: string;
+  pkg: string;
+  pkgName: string;
+  originalPath: string;
+  symbols: RawSymbol[];
+  imports: RawModule["imports"];
+  internalDeps: string[];
+  externalDeps: string[];
+  stats: { totalSymbols: number; exportedSymbols: number };
+  source: string;
+};
+
+type NormaEdge = { source: number; target: number; cross: boolean };
+
+type NormaGraph = {
+  generated: string;
+  nodes: NormaNode[];
+  edges: NormaEdge[];
+  packages: { short: string; pkgName: string; moduleCount: number }[];
+  stats: {
+    totalModules: number;
+    totalSymbols: number;
+    totalEdges: number;
+    crossEdges: number;
+    tier1Count: number;
+    tier2Count: number;
+    tier3Count: number;
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Complexity estimation + call extraction
+// ---------------------------------------------------------------------------
+
+const BRANCH_PATTERN = /\b(if|else\s+if|case|for|while|do|catch)\b|\?\?|\|\||&&/g;
+
+function roughCC(source: string): number {
+  const matches = source.match(BRANCH_PATTERN);
+  return 1 + (matches?.length ?? 0);
+}
+
+const CALL_PATTERN = /\b([a-zA-Z_$][\w$]*)\s*\(/g;
+const KEYWORDS = new Set([
+  "if", "for", "while", "do", "switch", "catch", "return", "throw", "typeof",
+  "instanceof", "new", "await", "yield", "import", "export", "function", "class",
+  "const", "let", "var", "delete", "void", "Array", "Object", "String", "Number",
+  "Boolean", "Promise", "Map", "Set", "Error", "console", "Math", "JSON", "Date",
+  "parseInt", "parseFloat", "require",
+]);
+
+function extractCalls(source: string): string[] {
+  const calls = new Set<string>();
+  let match: RegExpExecArray | null;
+  const re = new RegExp(CALL_PATTERN.source, "g");
+  while ((match = re.exec(source)) !== null) {
+    const name = match[1]!;
+    if (!KEYWORDS.has(name) && name.length > 1) calls.add(name);
+  }
+  return [...calls].slice(0, 12);
+}
+
+type Tier = "full" | "brief" | "sig";
+
+const TYPE_KINDS = new Set(["interface", "type-alias", "enum"]);
+
+function classifySymbol(sym: RawSymbol, source: string, bodyText: string): Tier {
+  if (TYPE_KINDS.has(sym.kind)) return "full";
+  if (sym.kind === "variable" || sym.kind === "enum-member") return "sig";
+  const cc = roughCC(bodyText);
+  if (cc > 5) return "full";
+  if (cc >= 3) return "brief";
+  return "sig";
+}
+
+// ---------------------------------------------------------------------------
+// Source reading (shared cache)
+// ---------------------------------------------------------------------------
+
+const sourceCache = new Map<string, string>();
+
+async function readSourceFile(root: string, srcRoot: string, modulePath: string): Promise<string> {
+  const pkgRoot = dirname(srcRoot);
+  for (const ext of [".ts", ".tsx", ".js", ".jsx"]) {
+    const fullPath = resolve(root, pkgRoot, modulePath + ext);
+    if (sourceCache.has(fullPath)) return sourceCache.get(fullPath)!;
+    const content = await readFile(fullPath);
+    if (content) {
+      sourceCache.set(fullPath, content);
+      return content;
+    }
+  }
+  return "";
+}
+
+function extractLines(source: string, range: { startLine: number; endLine: number } | null): string {
+  if (!range || !source) return "";
+  const lines = source.split("\n");
+  return lines.slice(range.startLine - 1, range.endLine).join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Graph construction (same pattern as hypergraph/supergraph)
+// ---------------------------------------------------------------------------
+
+async function buildNormagraph(auditDir: string, root: string): Promise<NormaGraph> {
+  let auditEntries: string[] = [];
+  try {
+    const entries = await readdir(auditDir, { withFileTypes: true });
+    auditEntries = entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  } catch {}
+
+  const pkgMaps: { short: string; map: RawMap }[] = [];
+  for (const short of auditEntries) {
+    try {
+      const raw = await readFile(join(auditDir, short, "json/map.json"));
+      if (!raw) continue;
+      pkgMaps.push({ short, map: JSON.parse(raw) });
+    } catch {}
+  }
+
+  const pkgNameToShort: Record<string, string> = {};
+  for (const { short, map } of pkgMaps) pkgNameToShort[map.package] = short;
+  const pkgNamesSorted = Object.keys(pkgNameToShort).sort((a, b) => b.length - a.length);
+
+  const nodes: NormaNode[] = [];
+  const pathToIdx: Record<string, number> = {};
+  let totalSymbols = 0;
+
+  for (const { short, map } of pkgMaps) {
+    for (const mod of map.modules ?? []) {
+      const prefixed = `${short}/${mod.path}`;
+      if (pathToIdx[prefixed] !== undefined) continue;
+      const idx = nodes.length;
+      pathToIdx[prefixed] = idx;
+      const source = await readSourceFile(root, map.srcRoot, mod.path);
+      totalSymbols += mod.stats?.totalSymbols ?? 0;
+      nodes.push({
+        idx, path: prefixed, pkg: short, pkgName: map.package,
+        originalPath: mod.path,
+        symbols: mod.symbols ?? [],
+        imports: mod.imports ?? [],
+        internalDeps: mod.internalDeps ?? [],
+        externalDeps: (mod.externalDeps ?? []).filter((d) => !d.startsWith("@/")),
+        stats: mod.stats ?? { totalSymbols: 0, exportedSymbols: 0 },
+        source,
+      });
+    }
+  }
+
+  // Edges (same as supergraph.ts)
+  const edges: NormaEdge[] = [];
+  const edgeSet = new Set<string>();
+  function addEdge(si: number, ti: number, cross: boolean) {
+    if (si === ti || si === undefined || ti === undefined) return;
+    const key = `${si}:${ti}`;
+    if (edgeSet.has(key)) return;
+    edgeSet.add(key);
+    edges.push({ source: si, target: ti, cross });
+  }
+
+  for (const { short, map } of pkgMaps) {
+    for (const [src, targets] of Object.entries(map.dependencyGraph ?? {})) {
+      const si = pathToIdx[`${short}/${src}`];
+      if (si === undefined) continue;
+      for (const tgt of targets) {
+        const ti = pathToIdx[`${short}/${tgt}`];
+        if (ti !== undefined) addEdge(si, ti, false);
+      }
+    }
+  }
+
+  for (const { short, map } of pkgMaps) {
+    for (const mod of map.modules ?? []) {
+      const si = pathToIdx[`${short}/${mod.path}`];
+      if (si === undefined) continue;
+      const seen = new Set<number>();
+      for (const imp of mod.imports ?? []) {
+        for (const pkgName of pkgNamesSorted) {
+          if (!imp.module.startsWith(pkgName)) continue;
+          const targetShort = pkgNameToShort[pkgName];
+          if (!targetShort || targetShort === short) break;
+          const subpath = imp.module.slice(pkgName.length).replace(/^\//, "");
+          let targetPath: string | null = null;
+          if (!subpath) {
+            for (const c of [`${targetShort}/src/index`, `${targetShort}/src/main`]) {
+              if (pathToIdx[c] !== undefined) { targetPath = c; break; }
+            }
+          } else {
+            for (const c of [`${targetShort}/src/${subpath}`, `${targetShort}/src/${subpath}/index`]) {
+              if (pathToIdx[c] !== undefined) { targetPath = c; break; }
+            }
+            if (!targetPath) {
+              const fb = `${targetShort}/src/index`;
+              if (pathToIdx[fb] !== undefined) targetPath = fb;
+            }
+          }
+          if (targetPath !== null) {
+            const ti = pathToIdx[targetPath];
+            if (ti !== undefined && !seen.has(ti)) { seen.add(ti); addEdge(si, ti, true); }
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  const byPackage: Record<string, number> = {};
+  for (const n of nodes) byPackage[n.pkg] = (byPackage[n.pkg] ?? 0) + 1;
+
+  return {
+    generated: new Date().toISOString(),
+    nodes, edges,
+    packages: Object.entries(byPackage).sort(([a], [b]) => a.localeCompare(b))
+      .map(([short, moduleCount]) => ({
+        short, pkgName: pkgMaps.find((p) => p.short === short)?.map.package ?? short, moduleCount,
+      })),
+    stats: {
+      totalModules: nodes.length, totalSymbols, totalEdges: edges.length,
+      crossEdges: edges.filter((e) => e.cross).length,
+      tier1Count: 0, tier2Count: 0, tier3Count: 0,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+const KIND_SHORT: Record<string, string> = {
+  function: "fn", method: "method", class: "class", interface: "interface",
+  "type-alias": "type", enum: "enum", variable: "const", property: "prop",
+  namespace: "ns", "enum-member": "member", test: "test",
+};
+
+function strip(p: string): string { return p.replace(/^src\//, ""); }
+
+function fmtSig(sym: RawSymbol): string {
+  let sig = sym.signature ? sym.signature.replace(/\s*\n\s*/g, " ").trim() : sym.name;
+  const kindWords: Record<string, string> = {
+    interface: "interface ", "type-alias": "type ", enum: "enum ", class: "class ", namespace: "namespace ",
+  };
+  const prefix = kindWords[sym.kind];
+  if (prefix && sig.startsWith(prefix)) sig = sig.slice(prefix.length);
+  return sig;
+}
+
+function renderNormagraph(data: NormaGraph): string {
+  const out: string[] = [];
+  const bar = "═".repeat(60);
+  let tier1 = 0, tier2 = 0, tier3 = 0;
+
+  // Count importers per module
+  const importerCount = new Map<number, number>();
+  for (const e of data.edges) {
+    importerCount.set(e.target, (importerCount.get(e.target) ?? 0) + 1);
+  }
+
+  // Cross-pkg importers
+  const crossImporters = new Map<number, string[]>();
+  for (const e of data.edges) {
+    if (!e.cross) continue;
+    const src = data.nodes[e.source];
+    if (!src) continue;
+    const list = crossImporters.get(e.target) ?? [];
+    list.push(`[${src.pkg}] ${strip(src.originalPath)}`);
+    crossImporters.set(e.target, list);
+  }
+
+  // ── MODULE INDEX ──
+  out.push(`NORMAGRAPH | ${new Date().toISOString().slice(0, 10)}`);
+  out.push(""); // placeholder for stats — filled in after render
+
+  out.push("");
+  out.push(`${"═".repeat(4)} MODULE INDEX ${"═".repeat(44)}`);
+
+  for (const node of data.nodes) {
+    const modPath = strip(node.originalPath);
+    const { totalSymbols: tot, exportedSymbols: exp } = node.stats;
+    const imp = importerCount.get(node.idx) ?? 0;
+    const topExports = node.symbols
+      .filter((s) => s.exported)
+      .slice(0, 4)
+      .map((s) => s.name)
+      .join(",");
+    const more = node.symbols.filter((s) => s.exported).length > 4 ? ",…" : "";
+    const deps = node.internalDeps.map(strip).slice(0, 3).join(",");
+    const depsMore = node.internalDeps.length > 3 ? ",…" : "";
+    const extDeps = node.externalDeps.length > 0 ? ` | ${node.externalDeps.slice(0, 3).join(",")}` : "";
+
+    out.push(
+      `${modPath.padEnd(36)} [${exp}/${tot}]←${imp}  ${topExports}${more}${deps ? ` → ${deps}${depsMore}` : ""}${extDeps}`,
+    );
+  }
+
+  // ── MODULES (with tiered detail) ──
+  out.push("");
+  out.push(`${"═".repeat(4)} MODULES ${"═".repeat(49)}`);
+  out.push("");
+
+  let currentPkg = "";
+  for (const node of data.nodes) {
+    if (node.pkg !== currentPkg) {
+      currentPkg = node.pkg;
+      const pkgInfo = data.packages.find((p) => p.short === currentPkg);
+      out.push(`${"═".repeat(4)} [${currentPkg}] ${pkgInfo?.pkgName ?? currentPkg} ${"═".repeat(Math.max(1, 40 - currentPkg.length))}`);
+      out.push("");
+    }
+
+    const modPath = strip(node.originalPath);
+    const { totalSymbols: tot, exportedSymbols: exp } = node.stats;
+    out.push(`── ${modPath} [${exp}/${tot}] ${"─".repeat(Math.max(1, 52 - modPath.length))}`);
+
+    if (node.internalDeps.length > 0) {
+      out.push(`← ${node.internalDeps.map(strip).join(", ")}`);
+    }
+    const crossDeps: string[] = [];
+    for (const e of data.edges) {
+      if (!e.cross || e.source !== node.idx) continue;
+      const tgt = data.nodes[e.target];
+      if (tgt) crossDeps.push(`[${tgt.pkg}] ${strip(tgt.originalPath)}`);
+    }
+    if (crossDeps.length > 0) out.push(`← ${crossDeps.join(", ")}  (cross-pkg)`);
+    if (node.externalDeps.length > 0) out.push(`←ext ${node.externalDeps.join(", ")}`);
+
+    const importers = crossImporters.get(node.idx);
+    if (importers && importers.length > 0) {
+      const shown = importers.slice(0, 6);
+      const suffix = importers.length > 6 ? ` (+${importers.length - 6})` : "";
+      out.push(`→ ${shown.join(", ")}${suffix}`);
+    }
+
+    out.push("");
+
+    for (const sym of node.symbols) {
+      const ex = sym.exported ? "+" : " ";
+      const mods = (sym.modifiers ?? [])
+        .filter((m) => m !== "const" && m !== "let" && m !== "export" && m !== "default")
+        .join(" ");
+      const modStr = mods ? `${mods} ` : "";
+      const kind = KIND_SHORT[sym.kind] ?? sym.kind;
+      const sig = fmtSig(sym);
+
+      const bodyText = sym.lines && node.source
+        ? extractLines(node.source, sym.lines)
+        : sym.body || "";
+      const tier = classifySymbol(sym, node.source, bodyText);
+
+      if (tier === "full") {
+        tier1++;
+        const cc = TYPE_KINDS.has(sym.kind) ? "" : `  CC${roughCC(bodyText)}`;
+        const ln = sym.lines
+          ? (sym.lines.startLine === sym.lines.endLine ? `  L${sym.lines.startLine}` : `  L${sym.lines.startLine}-${sym.lines.endLine}`)
+          : "";
+        out.push(`${ex}${modStr}${kind} ${sig}${cc}${ln}`);
+        if (bodyText) {
+          for (const line of bodyText.split("\n")) out.push(`  ${line}`);
+        }
+        if (sym.children && sym.children.length > 0) {
+          for (const child of sym.children) {
+            const cex = child.exported ? "+" : " ";
+            const cmods = (child.modifiers ?? []).filter((m) => m !== "export" && m !== "default").join(" ");
+            const cmodStr = cmods ? `${cmods} ` : "";
+            const ckind = KIND_SHORT[child.kind] ?? child.kind;
+            const csig = fmtSig(child);
+            const childBody = child.lines && node.source ? extractLines(node.source, child.lines) : child.body || "";
+            const childTier = classifySymbol(child, node.source, childBody);
+            if (childTier === "full") {
+              const ccc = TYPE_KINDS.has(child.kind) ? "" : `  CC${roughCC(childBody)}`;
+              out.push(`  ${cex}${cmodStr}${ckind} ${csig}${ccc}`);
+              if (childBody) for (const line of childBody.split("\n")) out.push(`    ${line}`);
+            } else if (childTier === "brief") {
+              const calls = extractCalls(childBody);
+              out.push(`  ${cex}${cmodStr}${ckind} ${csig}`);
+              if (calls.length > 0) out.push(`    → calls: ${calls.join(", ")}`);
+            } else {
+              out.push(`  ${cex}${cmodStr}${ckind} ${csig}`);
+            }
+          }
+        }
+        out.push("");
+      } else if (tier === "brief") {
+        tier2++;
+        const calls = extractCalls(bodyText);
+        out.push(`${ex}${modStr}${kind} ${sig}`);
+        if (calls.length > 0) out.push(`  → calls: ${calls.join(", ")}`);
+      } else {
+        tier3++;
+        // Sig tier: just the signature. For constants, include the value if short.
+        if (sym.kind === "variable" && bodyText.length < 80 && bodyText.length > 0) {
+          const val = bodyText.replace(/^[^=]*=\s*/, "").replace(/;\s*$/, "").trim();
+          if (val.length < 60) {
+            out.push(`${ex}${modStr}${kind} ${sym.name} = ${val}`);
+            continue;
+          }
+        }
+        out.push(`${ex}${modStr}${kind} ${sig}`);
+      }
+    }
+    out.push("");
+  }
+
+  // Cross-package edges
+  out.push(`${"═".repeat(4)} CROSS-PACKAGE EDGES ${"═".repeat(38)}`);
+  out.push("");
+  const crossBySource = new Map<string, string[]>();
+  for (const e of data.edges) {
+    if (!e.cross) continue;
+    const src = data.nodes[e.source];
+    const tgt = data.nodes[e.target];
+    if (!src || !tgt) continue;
+    const key = `${src.pkg}/${strip(src.originalPath)}`;
+    const list = crossBySource.get(key) ?? [];
+    list.push(`${tgt.pkg}/${strip(tgt.originalPath)}`);
+    crossBySource.set(key, list);
+  }
+  for (const [src, targets] of [...crossBySource.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    out.push(`${src} → ${targets.join(" ")}`);
+  }
+  out.push("");
+
+  // Backfill stats line
+  data.stats.tier1Count = tier1;
+  data.stats.tier2Count = tier2;
+  data.stats.tier3Count = tier3;
+
+  const statsLine = [
+    `${data.packages.length} pkg`,
+    `${data.stats.totalModules} mod`,
+    `${data.stats.totalSymbols} sym`,
+    `${data.stats.totalEdges} edges (${data.stats.crossEdges} cross)`,
+    `detail: ${tier1} full, ${tier2} brief, ${tier3} sig`,
+  ].join(" · ");
+  out[1] = statsLine;
+
+  return out.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export interface NormagraphOptions {
+  root: string;
+}
+
+export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
+  const root = opts.root;
+  const auditDir = resolve(root, "audit/packages");
+
+  console.log("Building normagraph (complexity-gated)...");
+  const t0 = Date.now();
+  const data = await buildNormagraph(auditDir, root);
+  const text = renderNormagraph(data);
+
+  await mkdir(resolve(root, "audit"), { recursive: true });
+  const outPath = resolve(root, "audit/normagraph.txt");
+  await Bun.write(outPath, text);
+
+  const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
+  const ratio = data.stats.tier1Count + data.stats.tier2Count + data.stats.tier3Count;
+  console.log(
+    `  ${data.stats.tier1Count} full, ${data.stats.tier2Count} brief, ${data.stats.tier3Count} sig (of ${ratio} symbols)`,
+  );
+  console.log(`  ${(text.length / 1024).toFixed(0)} KB → ${relative(root, outPath)}`);
+  console.log(`Done in ${elapsed}s`);
+}

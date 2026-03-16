@@ -1,5 +1,5 @@
 export type { LanguageDriver, LanguageId, MapOptions, MapResult, ComplexityOptions, DeadExportsOptions } from "./types.js";
-export { PackageManifest } from "./types.js";
+export type { PackageManifest } from "./types.js";
 export { registerDriver, detectLanguage, getDriver, allDrivers } from "./registry.js";
 export { goDriver } from "./go-driver.js";
 export { tsDriver } from "./ts-driver.js";

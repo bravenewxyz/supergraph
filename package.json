@@ -23,7 +23,8 @@
     "supergraph": "bun packages/scripts/supergraph.ts",
     "pkg-graph": "bun packages/scripts/pkg-graph.ts",
     "check-health": "bun packages/scripts/check-health.ts",
-    "demo": "bun src/ui/graph-animation.ts"
+    "demo": "bun src/ui/graph-animation.ts",
+    "install-local": "bash install.sh --local"
   },
   "devDependencies": {
     "bun-types": "latest"

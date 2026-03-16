@@ -7,6 +7,16 @@ BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 BIN_DIR="$HOME/.local/bin"
 CLAUDE_CMD_DIR="$HOME/.claude/commands"
 
+# ─── Local mode ────────────────────────────────────────────────
+# Usage: ./install.sh --local
+#   Builds from source and installs from the local repo instead of
+#   downloading from GitHub releases.
+LOCAL_MODE=false
+if [[ "${1:-}" == "--local" ]]; then
+  LOCAL_MODE=true
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
 # ─── Colors & symbols ───────────────────────────────────────────
 if [ -t 1 ]; then
   BOLD='\033[1m'
@@ -53,6 +63,9 @@ TARGET="${PLATFORM}-${ARCH_SUFFIX}"
 RELEASE_URL="https://github.com/${REPO}/releases/latest/download/supergraph-${TARGET}.tar.gz"
 
 printf "  ${DIM}platform${RESET}  ${CYAN}${TARGET}${RESET}\n"
+if [ "${LOCAL_MODE}" = true ]; then
+  printf "  ${DIM}mode${RESET}      ${YELLOW}local build${RESET}\n"
+fi
 echo ""
 
 # ─── Spinner helper ─────────────────────────────────────────────
@@ -139,66 +152,125 @@ download() {
 # ─── 1. Install binary ──────────────────────────────────────────
 rm -f "${BIN_DIR}/supergraph"
 mkdir -p "${BIN_DIR}"
-TMP="$(mktemp -d)"
-TARBALL="${TMP}/supergraph.tar.gz"
 
-download "${RELEASE_URL}" "${TARBALL}" "Downloading binary"
+if [ "${LOCAL_MODE}" = true ]; then
+  # Build from source
+  if [ ! -f "${SCRIPT_DIR}/package.json" ]; then
+    step_fail "Not in supergraph repo root — cannot build from source"
+    exit 1
+  fi
 
-if [ ! -s "${TARBALL}" ]; then
-  step_fail "download failed ${DIM}(empty file)${RESET}"
-  rm -rf "${TMP}"; exit 1
+  spinner_start "Building from source"
+  if ! (cd "${SCRIPT_DIR}" && bun run build) >/dev/null 2>&1; then
+    spinner_stop
+    step_fail "Build failed — run ${CYAN}bun run build${RESET} manually for details"
+    exit 1
+  fi
+  spinner_stop
+
+  if [ ! -f "${SCRIPT_DIR}/supergraph" ]; then
+    step_fail "Build produced no binary"
+    exit 1
+  fi
+
+  cp "${SCRIPT_DIR}/supergraph" "${BIN_DIR}/supergraph"
+  chmod +x "${BIN_DIR}/supergraph"
+
+  VERSION="$("${BIN_DIR}/supergraph" --version 2>/dev/null || echo "unknown")"
+  step_done "Binary installed ${BOLD}${WHITE}${VERSION}${RESET} ${DIM}(local build)${RESET}"
+  step_detail "${BIN_DIR}/supergraph"
+
+  # Install native libraries (for Go analysis)
+  SUPERGRAPH_LIB="${BIN_DIR}/../lib/supergraph"
+  mkdir -p "${SUPERGRAPH_LIB}"
+  if [ -d "${SCRIPT_DIR}/lib" ]; then
+    cp -r "${SCRIPT_DIR}/lib/"* "${SUPERGRAPH_LIB}/"
+    step_detail "${SUPERGRAPH_LIB}/ ${DIM}(native libs)${RESET}"
+  fi
+else
+  # Download from GitHub releases
+  TMP="$(mktemp -d)"
+  TARBALL="${TMP}/supergraph.tar.gz"
+
+  download "${RELEASE_URL}" "${TARBALL}" "Downloading binary"
+
+  if [ ! -s "${TARBALL}" ]; then
+    step_fail "download failed ${DIM}(empty file)${RESET}"
+    rm -rf "${TMP}"; exit 1
+  fi
+  if ! gzip -t "${TARBALL}" 2>/dev/null; then
+    step_fail "download corrupted ${DIM}(truncated gzip — try again)${RESET}"
+    rm -rf "${TMP}"; exit 1
+  fi
+
+  tar xzf "${TARBALL}" -C "${TMP}"
+  rm -f "${TARBALL}"
+  mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
+  chmod +x "${BIN_DIR}/supergraph"
+
+  VERSION="$("${BIN_DIR}/supergraph" --version 2>/dev/null || echo "unknown")"
+  step_done "Binary installed ${BOLD}${WHITE}${VERSION}${RESET}"
+  step_detail "${BIN_DIR}/supergraph"
+
+  # Install native libraries (for Go analysis)
+  SUPERGRAPH_LIB="${BIN_DIR}/../lib/supergraph"
+  mkdir -p "${SUPERGRAPH_LIB}"
+  if [ -d "${TMP}/lib" ]; then
+    cp -r "${TMP}/lib/"* "${SUPERGRAPH_LIB}/"
+    step_detail "${SUPERGRAPH_LIB}/ ${DIM}(native libs)${RESET}"
+  fi
+  rm -rf "${TMP}"
 fi
-if ! gzip -t "${TARBALL}" 2>/dev/null; then
-  step_fail "download corrupted ${DIM}(truncated gzip — try again)${RESET}"
-  rm -rf "${TMP}"; exit 1
-fi
-
-tar xzf "${TARBALL}" -C "${TMP}"
-rm -f "${TARBALL}"
-mv "${TMP}/supergraph" "${BIN_DIR}/supergraph"
-chmod +x "${BIN_DIR}/supergraph"
-
-VERSION="$("${BIN_DIR}/supergraph" --version 2>/dev/null || echo "unknown")"
-step_done "Binary installed ${BOLD}${WHITE}${VERSION}${RESET}"
-step_detail "${BIN_DIR}/supergraph"
-
-# Install native libraries (for Go analysis)
-SUPERGRAPH_LIB="${BIN_DIR}/../lib/supergraph"
-mkdir -p "${SUPERGRAPH_LIB}"
-if [ -d "${TMP}/lib" ]; then
-  cp -r "${TMP}/lib/"* "${SUPERGRAPH_LIB}/"
-  step_detail "${SUPERGRAPH_LIB}/ ${DIM}(native libs)${RESET}"
-fi
-rm -rf "${TMP}"
 
 # ─── 2. Install Claude Code commands ────────────────────────────
 mkdir -p "${CLAUDE_CMD_DIR}"
 
 COMMANDS=("deep-audit" "high-level" "init-supergraph")
 
-spinner_start "Installing Claude Code commands"
-CMD_OK=true
-for cmd in "${COMMANDS[@]}"; do
-  if ! curl --http1.1 -fsSL \
-       --connect-timeout 10 \
-       --max-time 15 \
-       --retry 3 \
-       --retry-delay 2 \
-       --retry-all-errors \
-       "${BASE}/commands/${cmd}.md" \
-       -o "${CLAUDE_CMD_DIR}/${cmd}.md" 2>/dev/null; then
-    CMD_OK=false
-  fi
-done
-spinner_stop
-
-if [ "${CMD_OK}" = true ]; then
-  step_done "Claude Code commands installed"
+if [ "${LOCAL_MODE}" = true ]; then
+  CMD_OK=true
   for cmd in "${COMMANDS[@]}"; do
-    step_detail "/${cmd}"
+    local_cmd="${SCRIPT_DIR}/commands/${cmd}.md"
+    if [ -f "${local_cmd}" ]; then
+      cp "${local_cmd}" "${CLAUDE_CMD_DIR}/${cmd}.md"
+    else
+      CMD_OK=false
+    fi
   done
+
+  if [ "${CMD_OK}" = true ]; then
+    step_done "Claude Code commands installed ${DIM}(from local repo)${RESET}"
+    for cmd in "${COMMANDS[@]}"; do
+      step_detail "/${cmd}"
+    done
+  else
+    printf "  ${YELLOW}!${RESET} Some commands not found locally ${DIM}(non-fatal)${RESET}\n"
+  fi
 else
-  printf "  ${YELLOW}!${RESET} Some commands failed to install ${DIM}(non-fatal)${RESET}\n"
+  spinner_start "Installing Claude Code commands"
+  CMD_OK=true
+  for cmd in "${COMMANDS[@]}"; do
+    if ! curl --http1.1 -fsSL \
+         --connect-timeout 10 \
+         --max-time 15 \
+         --retry 3 \
+         --retry-delay 2 \
+         --retry-all-errors \
+         "${BASE}/commands/${cmd}.md" \
+         -o "${CLAUDE_CMD_DIR}/${cmd}.md" 2>/dev/null; then
+      CMD_OK=false
+    fi
+  done
+  spinner_stop
+
+  if [ "${CMD_OK}" = true ]; then
+    step_done "Claude Code commands installed"
+    for cmd in "${COMMANDS[@]}"; do
+      step_detail "/${cmd}"
+    done
+  else
+    printf "  ${YELLOW}!${RESET} Some commands failed to install ${DIM}(non-fatal)${RESET}\n"
+  fi
 fi
 
 # ─── 3. Mark setup done ─────────────────────────────────────────

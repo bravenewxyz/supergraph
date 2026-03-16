@@ -36,6 +36,7 @@ import { runAggregate } from "../../packages/scripts/supergraph.js";
 import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
 import { runHypergraph } from "../../packages/scripts/hypergraph.js";
+import { runNormagraph } from "../../packages/scripts/normagraph.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -776,6 +777,7 @@ Usage:
     withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate"),
     withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
     withTimeout(runHypergraph({ root: ROOT }), CROSS_TIMEOUT, "hypergraph"),
+    withTimeout(runNormagraph({ root: ROOT }), CROSS_TIMEOUT, "normagraph"),
   ]);
   unmuteCross();
 
@@ -823,7 +825,7 @@ Usage:
   // -----------------------------------------------------------------------
   // Tally failures (while animation still runs)
   // -----------------------------------------------------------------------
-  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph"];
+  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph", "normagraph"];
   const crossFailures: string[] = [];
   for (let i = 0; i < crossResults.length; i++) {
     const r = crossResults[i]!;
@@ -849,7 +851,7 @@ Usage:
 
   if (!anim) {
     console.log(`\n${C.dim}━━${C.reset} ${C.bold}cross-package${C.reset} ${C.dim}${"━".repeat(43)}${C.reset}`);
-    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "hypergraph"];
+    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "hypergraph", "normagraph"];
     for (let i = 0; i < crossResults.length; i++) {
       const r = crossResults[i]!;
       const label = crossLabels[i]!;
