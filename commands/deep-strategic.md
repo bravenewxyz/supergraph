@@ -6,9 +6,9 @@ Strategic codebase review using supergraph audit artifacts. Identifies feature g
 
 ## Model requirements
 
-This command is designed for **Claude Opus with the 1M token context window**. The entire strategy depends on loading the full codebase — every symbol, every function body, every audit artifact — into context BEFORE asking the user any questions. With less context, the questions become generic. With full context, the questions become surgical — informed by actual code patterns, architectural tensions, and implementation choices the model has already seen.
+This command is designed for **Claude Opus with the 1M token context window**. The entire strategy depends on loading the full codebase — `symbols.txt` contains every symbol with tiered detail, `supergraph.txt` maps every module and cross-package edge — into context BEFORE asking the user any questions. With less context, the questions become generic. With full context, the questions become surgical — informed by actual code patterns, architectural tensions, and implementation choices the model has already seen.
 
-If running on a smaller context model, skip Phase 1c (symbols-full.txt) and Phase 1d (source files). The review will still work but will be less precise.
+If running on a smaller context model, read only `supergraph-compact.txt` and `supergraph.txt` (skip `symbols.txt`). The review will still work but will be less precise.
 
 ---
 
@@ -58,57 +58,40 @@ The order matters — start with the architectural overview, then drill into str
 
 ### 1a. Architecture layer (read first)
 
-Read these files in their entirety:
-
-1. `audit/supergraph-compact.txt` — the 30,000-foot view: domains, module counts, import ranks
-2. `audit/supergraph.txt` — unified map: all domains, all modules, all cross-package edges
-3. Every package's `deps.txt` — full dependency graphs
-4. Every package's `imports.txt` — modules ranked by how many others depend on them
+Read `audit/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies.
 
 After this layer you understand the skeleton: what talks to what, what's central, what's peripheral.
 
-### 1b. Analysis layer (read second)
+### 1b. Source layer (read second — this is what 1M context enables)
 
-For each package, read in full:
+Read `audit/symbols.txt` in its entirety. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships. Read it in chunks using offset/limit if needed, but read ALL of it.
 
-1. `map.txt` — every module with its symbols, functions, types, comments
-2. `complexity.txt` — complexity hotspots, nesting depth, type-safety escape hatches, structural impedance
-3. `dead.txt` — orphan modules, unused exports
-4. `logic-audit.txt` — decision tables, guard consistency, exhaustiveness gaps, status functions
-5. `trace-boundaries.txt` — serialization boundaries, error handlers, JSON roundtrips (read first 300 lines if file exceeds 25K tokens; the most important boundaries are listed first)
-6. `invariants/discovery.txt` — function signatures, repeated patterns, hub functions, signature inconsistencies, cross-boundary type drift
-7. `findings.md` — if `/deep-audit` was run previously, read its findings
-
-After this layer you understand the health: where the code is strong, where it's fragile, where it's dead.
-
-### 1c. Source layer (read third — this is what 1M context enables)
-
-Read `audit/symbols-full.txt` in its entirety. This file contains **every function body in the codebase** — the actual source code, not just signatures. Read it in chunks using offset/limit if needed, but read ALL of it.
-
-This is the layer that transforms the review from "structural observations" to "I've read your code." Without it, you're guessing at intent from signatures. With it, you can see:
-- Whether a complex function is doing something clever or just poorly structured
+This is the layer that transforms the review from "structural observations" to "I've read your code." Without it, you're guessing at intent from module names. With it, you can see:
+- What every function actually does — signatures, bodies, return types
+- How modules relate — import counts, dependency edges, cross-package connections
 - Whether dead exports are abandoned features or intentional public API
 - Whether repeated patterns are copy-paste debt or intentional specialization
-- What the code actually does vs what the architecture suggests it should do
+- The actual type shapes and data structures flowing through the system
 
-If `symbols-full.txt` doesn't exist or is empty, fall back to `audit/symbols.txt` (which has tiered detail: full bodies for important functions, signatures for the rest).
+If `symbols.txt` doesn't exist, fall back to reading per-package `map.txt` files instead.
 
-### 1d. Project context (read fourth)
+### 1c. Project context (read third)
 
 1. Root `package.json` — name, description, scripts, dependencies
 2. Root `README.md` or `CLAUDE.md` if they exist
 3. Per-package `package.json` files
 4. Any `CLAUDE.md` files in packages
+5. If `/deep-audit` was run previously, read each package's `findings.md`
 
-### 1e. Verify completeness
+### 1d. Verify completeness
 
 Before proceeding, you should have:
 - The full module graph in your head
-- Every function's complexity score and nesting depth
-- Every dead export and orphan module
-- Every logic audit warning
-- The actual source code of every function
+- Every function's signature and the bodies of high-importance functions
+- Cross-package edges and dependency relationships
 - The project's stated purpose and dependencies
+
+Do NOT read per-package debug/analysis files (`complexity.txt`, `dead.txt`, `logic-audit.txt`, `trace-boundaries.txt`, `discovery.txt`) during this phase. Those are for `/deep-audit`. The strategic review works from `symbols.txt` and `supergraph.txt` — the unified views that capture everything worth knowing in a format designed for exactly this kind of holistic analysis.
 
 If any critical file is missing, note it in one line and continue with what you have.
 
@@ -189,29 +172,29 @@ Work silently. Using the full codebase context AND the user's answers, analyze a
 
 Does the code structure match what the user says they're building?
 
-- **Over-built areas**: sophisticated abstractions serving simple use cases. Cross-reference `complexity.txt` hotspots with `imports.txt` — high complexity + low import count = possible over-engineering. But now you can verify by reading the actual function bodies from Phase 1c.
-- **Under-built areas**: critical paths with minimal structure. Cross-reference user's stated priorities with module sizes and test coverage.
-- **Phantom features**: code that implies features the user didn't mention. You've read the source — you can see functions that are implemented but never called, APIs that are built but never exposed.
+- **Over-built areas**: sophisticated abstractions serving simple use cases. In `symbols.txt`, look for modules with high symbol counts but low import counts (←N) — lots of code that nothing uses.
+- **Under-built areas**: critical paths with minimal structure. Cross-reference user's stated priorities with what you see in the module index.
+- **Phantom features**: code that implies features the user didn't mention. You've read the symbols — you can see functions that are exported but never imported, APIs that are built but never exposed.
 - **Missing foundations**: features the user wants that have no architectural support. You know every module and every type — you can see exactly what's missing.
 
 ### 3b. Leverage analysis
 
 Identify highest-leverage changes — small modifications with outsized impact:
 
-- **Hub functions** (from `discovery.txt`) — functions called by 10+ others. You've read their bodies — are they well-written? A bug here affects everything.
-- **Near-complete features** — dead exports that suggest 80%-done work. You've seen the implementations — how close are they really?
-- **Abstraction opportunities** — repeated patterns from `discovery.txt`. You've read the actual function bodies — are these truly duplicative or intentionally specialized?
-- **Dependency bottlenecks** — modules with extreme fan-in. You've seen their implementations — are they robust enough for their importance?
+- **Hub modules** — modules with high ←N importer counts in `symbols.txt`. These are load-bearing walls. Improving them has blast radius.
+- **Near-complete features** — exported functions with real implementations that nothing imports yet. You've seen the bodies — how close are they to being useful?
+- **Abstraction opportunities** — similar function signatures across modules visible in `symbols.txt`. Are these truly duplicative or intentionally specialized?
+- **Dependency bottlenecks** — modules imported by many others. Are they robust enough for their importance?
 - **Trivial wins** — things that take <1hr and make a visible difference. You've seen the code — you know exactly what to suggest.
 
 ### 3c. Quality gradient
 
-Map which parts are production-grade vs prototype-grade. Unlike a structural-only review, you've read the source:
+Map which parts are production-grade vs prototype-grade. You've read the symbols — use what you know:
 
-- Complexity hotspots → you can distinguish inherent complexity (the problem is hard) from accidental complexity (the code is tangled)
-- Type-safety escape hatches → you can see whether each `as` cast is hiding a real bug or working around a library limitation
-- Error handling → you've read the catch blocks. Are they logging, swallowing, or propagating?
-- Test coverage → you've seen which modules have test files and which don't
+- Large function bodies in `symbols.txt` → you can distinguish inherent complexity (the problem is hard) from accidental complexity (the code is tangled)
+- `as` casts visible in function bodies → are they hiding real bugs or working around library limitations?
+- Error handling visible in function bodies → are catch blocks logging, swallowing, or propagating?
+- Test modules visible in the module index → which domains have test coverage and which don't?
 
 ### 3d. Frontier opportunities
 
@@ -236,12 +219,12 @@ Only flag deviations that **actually matter** given the user's stated context. A
 
 ### 3g. Correlation insights
 
-Cross-cut the data for non-obvious connections:
-- Modules with high complexity AND high import count = fragile load-bearing code
-- Modules with many dead exports AND recent activity = active churn in wrong direction
-- Hub functions with no test coverage = highest-risk code in the codebase
-- Cross-package edges that pass through serialization boundaries = data integrity risk
-- Functions where `discovery.txt` reports signature inconsistencies = API drift between layers
+Cross-cut what you've read for non-obvious connections:
+- Modules with large symbol counts AND high import counts = fragile load-bearing code
+- Modules with many exports but few importers = potential over-engineering or abandoned work
+- High-fan-in modules with no test modules nearby = highest-risk code in the codebase
+- Cross-package edges visible in `supergraph.txt` = integration points worth scrutinizing
+- Similar function names across packages with different signatures = API drift between layers
 
 ---
 
@@ -346,7 +329,7 @@ Want me to implement any of the top moves?
 The user picks moves by number. For each:
 
 1. Read the implementation details from `moves.md`
-2. You already have the source in context from Phase 1c — reference it directly
+2. You already have the source in context from Phase 1b — reference it directly
 3. Implement the change
 4. Run tests
 5. Report what changed
