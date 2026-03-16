@@ -18,7 +18,7 @@
     "trace": "bun run src/cli/trace.ts",
     "invariant": "bun run src/cli/invariant.ts",
     "contracts": "bun run src/cli/contracts.ts",
-    "logic-audit": "bun run src/cli/logic-audit.ts"
+    "logic-audit": "bun run src/cli/logic-audit/index.ts"
   },
   "dependencies": {
     "@supergraph/graph": "workspace:*",

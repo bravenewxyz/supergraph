@@ -45,7 +45,7 @@ async function checkSchemaExports(cfg: Required<AuditConfig>): Promise<CheckResu
 
   const schemasDir = resolve(ROOT, commonDir);
   const indexPath = resolve(schemasDir, "index.ts");
-  const indexContent = await readFile(indexPath);
+  const indexContent = await readFile(indexPath) ?? "";
 
   const allEntries = await readdir(schemasDir, { withFileTypes: true });
   const schemaFiles = allEntries
@@ -85,7 +85,7 @@ async function checkRouteRegistration(cfg: Required<AuditConfig>): Promise<Check
 
   const resolvedRoutes = resolve(ROOT, beSrc, routesDir ?? "routes");
   const indexPath = resolve(ROOT, beSrc, entryPoint ?? "index.ts");
-  const indexContent = await readFile(indexPath);
+  const indexContent = await readFile(indexPath) ?? "";
   const suffix = routeFileSuffix ?? ".route.ts";
   const prefixes = routeImportPrefixes ?? [];
 
@@ -154,7 +154,7 @@ async function checkHookOptionsConsistency(cfg: Required<AuditConfig>): Promise<
   let totalQueryHooks = 0;
 
   for (const file of hookFiles) {
-    const src = await readFile(resolve(resolvedHooks, file));
+    const src = await readFile(resolve(resolvedHooks, file)) ?? "";
     if (queryHookPattern.test(src)) {
       totalQueryHooks++;
       if (!optionsPattern.test(src)) suspicious.push(file);
@@ -194,7 +194,7 @@ async function checkWorkspaceConsistency(cfg: Required<AuditConfig>): Promise<Ch
   const knownPackages = new Set<string>();
   for (const file of pkgFiles) {
     try {
-      const pkg = JSON.parse(await readFile(file));
+      const pkg = JSON.parse(await readFile(file) ?? "");
       if (pkg.name) knownPackages.add(pkg.name);
     } catch {}
   }
@@ -204,7 +204,7 @@ async function checkWorkspaceConsistency(cfg: Required<AuditConfig>): Promise<Ch
   for (const file of pkgFiles) {
     let pkg: Record<string, unknown>;
     try {
-      pkg = JSON.parse(await readFile(file));
+      pkg = JSON.parse(await readFile(file) ?? "");
     } catch {
       continue;
     }
@@ -255,7 +255,7 @@ async function checkClaudeMdCoverage(cfg: Required<AuditConfig>): Promise<CheckR
     if (rel.split("/").length > 3) continue;
     let pkg: Record<string, unknown>;
     try {
-      pkg = JSON.parse(await readFile(file));
+      pkg = JSON.parse(await readFile(file) ?? "");
     } catch {
       continue;
     }
@@ -318,7 +318,7 @@ async function checkArchitectureDrift(cfg: Required<AuditConfig>): Promise<Check
     };
   }
 
-  const archContent = await readFile(archPath);
+  const archContent = await readFile(archPath) ?? "";
   const archMtime = await getMtime(archPath);
   const timestampMatch = archContent.match(/Generated:\s*(\d{4}-\d{2}-\d{2}T[\d:.]+Z?)/);
   const generatedAt = timestampMatch ? timestampMatch[1] : null;

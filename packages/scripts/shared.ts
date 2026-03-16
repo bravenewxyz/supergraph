@@ -49,21 +49,14 @@ export type GraphRawSymbol = {
   children?: GraphRawSymbol[];
 };
 
-export type GraphRawModule = {
-  path: string;
+export type GraphRawModule = Omit<RawModule, "symbols" | "imports"> & {
   relativePath: string;
   symbols: GraphRawSymbol[];
   imports: { module: string; raw?: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
 };
 
-export type GraphRawMap = {
-  package: string;
-  srcRoot: string;
+export type GraphRawMap = Omit<RawMap, "modules"> & {
   modules: GraphRawModule[];
-  dependencyGraph: Record<string, string[]>;
 };
 
 export type GraphNode = {

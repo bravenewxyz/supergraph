@@ -62,7 +62,7 @@ async function buildGraph(
 
     let pkg: Record<string, unknown>;
     try {
-      pkg = JSON.parse(await readFile(file));
+      pkg = JSON.parse(await readFile(file) ?? "");
     } catch {
       continue;
     }
@@ -130,7 +130,7 @@ async function buildGraph(
       const goModPath = resolve(goPackagesDir, entry.name, "go.mod");
       let goModContent: string;
       try {
-        goModContent = await readFile(goModPath);
+        goModContent = await readFile(goModPath) ?? "";
       } catch {
         continue;
       }

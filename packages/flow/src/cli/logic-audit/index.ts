@@ -8,7 +8,7 @@
  *   3. Decision tables: status-determining functions with suspicious gaps
  *
  * Usage:
- *   bun packages/flow/src/cli/logic-audit.ts <src-dir> [--format text|json] [--out <file>]
+ *   bun packages/flow/src/cli/logic-audit/index.ts <src-dir> [--format text|json] [--out <file>]
  */
 
 import { readFile, writeFile } from "node:fs/promises";

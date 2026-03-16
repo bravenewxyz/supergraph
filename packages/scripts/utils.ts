@@ -22,11 +22,11 @@ export function parseRootArg(defaultRoot: string): string {
   return defaultRoot;
 }
 
-export async function readFile(path: string): Promise<string> {
+export async function readFile(path: string): Promise<string | null> {
   try {
     return await Bun.file(path).text();
   } catch {
-    return "";
+    return null;
   }
 }
 

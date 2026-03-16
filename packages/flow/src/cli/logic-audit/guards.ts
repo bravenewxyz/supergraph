@@ -190,6 +190,14 @@ export function analyzePushSites(
         // This is intentional — every item goes to exactly one list.
         if (g.guard === "__else__" || (g.guard && g.guardLine === u.line)) continue;
 
+        // Map pre-population safety: if the unguarded push target involves
+        // a .get() on a Map that was .set()/.has() earlier in the same
+        // loop body, the access is safe.
+        if (sourceLines && /\.get\s*\(/.test(u.collection)) {
+          const mapVar = u.collection.replace(/\.get\s*\(.*$/, "").replace(/\.\w+$/, "") || u.collection.split(".")[0]!;
+          if (isMapPrePopulated(sourceLines, mapVar, u.line - 1, loopStart)) continue;
+        }
+
         const confidence = scoreGuardConfidence(
           g.collection, u.collection, sourceLines,
         );
@@ -214,6 +222,23 @@ export function analyzePushSites(
   }
 }
 
+/** Escape a string for use in a RegExp constructor. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Check if a Map variable is pre-populated (via .set() or .has()+.set()) between
+ * scopeStart and getLine. If so, a subsequent .get() on the same Map is safe.
+ */
+function isMapPrePopulated(lines: string[], mapVar: string, getLine: number, scopeStart: number): boolean {
+  const setPattern = new RegExp(`${escapeRegExp(mapVar)}\\.(set|has)\\s*\\(`);
+  for (let i = scopeStart; i < getLine && i < lines.length; i++) {
+    if (setPattern.test(lines[i]!)) return true;
+  }
+  return false;
+}
+
 /** Split a camelCase or PascalCase identifier into word components. */
 function camelWords(name: string): string[] {
   return name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[\s_]+/);
@@ -232,7 +257,7 @@ export function scoreGuardConfidence(
   // "seen", "pending" are intentionally always-push accumulators that
   // track traversal state, while other collections selectively record
   // results. These are never guard bugs.
-  const ACCUMULATOR_NAMES = /^(path|stack|visited|seen|pending|queue|worklist|current|rolledBack|decorators|nodes|tables|enums)$/i;
+  const ACCUMULATOR_NAMES = /^(path|stack|queue|visited|seen|pending|frontier|worklist|lines|out|output|result|results|parts|sections|chunks|segments|entries|items|collected|accumulated|gathered|current|rolledBack|decorators|nodes|tables|enums)$/i;
   if (ACCUMULATOR_NAMES.test(unguardedBase)) return "low";
 
   // Different entity types: when the collection names share no camelCase
@@ -324,7 +349,7 @@ export function scanForEachMapGuards(
       if (ch === "}") {
         braceDepth--;
         if (inCallback && braceDepth <= callbackDepth) {
-          analyzeOpSites(opSites, callbackVar, filePath, callbackStart, results);
+          analyzeOpSites(opSites, callbackVar, filePath, callbackStart, results, lines);
           inCallback = false;
           opSites = [];
         }
@@ -384,6 +409,7 @@ export function analyzeOpSites(
   filePath: string,
   callbackStart: number,
   results: GuardInconsistency[],
+  sourceLines?: string[],
 ): void {
   if (opSites.length < 2) return;
 
@@ -415,6 +441,14 @@ export function analyzeOpSites(
         // allFunctions.push vs allAdapters.push) are intentionally
         // collecting everything of different types.
         if (/^all[A-Z]/.test(uTarget) && /^all[A-Z]/.test(gTarget)) continue;
+
+        // Map pre-population safety: if the unguarded op is a .get() on a
+        // Map that was .set()/.has() earlier in the same callback, the
+        // .get() is safe (the key is guaranteed to exist).
+        if (sourceLines && /\.get\s*\(/.test(u.op)) {
+          const mapVar = u.op.replace(/\.get\s*\(.*$/, "").replace(/\.\w+$/, "") || u.op.split(".")[0]!;
+          if (isMapPrePopulated(sourceLines, mapVar, u.line - 1, callbackStart)) continue;
+        }
 
         results.push({
           filePath,
@@ -610,7 +644,7 @@ export function scanConditionalAssignments(
 
 /**
  * Pattern 4: Promise.all with mixed error handling
- * Detects: Promise.all([a.catch(...), b, c.catch(...)]) where some have .catch and some don't
+ * Detects Promise.all where some promises have .catch() and some don't (mixed error handling)
  */
 export function scanPromiseAllMixedCatch(
   lines: string[],
@@ -623,6 +657,11 @@ export function scanPromiseAllMixedCatch(
   let match: RegExpExecArray | null;
 
   while ((match = promiseAllRe.exec(source)) !== null) {
+    // Skip matches inside comments (line starts with //, *, or /*)
+    const matchLine = source.slice(0, match.index).split("\n").length - 1;
+    const lineContent = lines[matchLine]?.trimStart() ?? "";
+    if (lineContent.startsWith("//") || lineContent.startsWith("*") || lineContent.startsWith("/*")) continue;
+
     const inner = match[1]!;
     const lineOffset = source.slice(0, match.index).split("\n").length;
     const args = splitTopLevelComma(inner);

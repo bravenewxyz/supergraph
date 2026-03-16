@@ -14,7 +14,7 @@ export type GraphOperation =
   | { type: "RenameSymbol"; symbolId: string; newName: string }
   | { type: "MoveSymbol"; symbolId: string; newParentId: string }
   | { type: "AddEdge"; edge: SymbolEdge }
-  | { type: "RemoveEdge"; edgeId: string }
+  | { type: "RemoveEdge"; edgeId: string; sourceId?: string; targetId?: string }
   | { type: "SetExported"; symbolId: string; exported: boolean }
   | { type: "AddModifier"; symbolId: string; modifier: string }
   | { type: "RemoveModifier"; symbolId: string; modifier: string }

@@ -104,25 +104,30 @@ export class OperationLog {
    * Read an NDJSON file and rebuild all indexes from it.
    * Existing in-memory entries are cleared first.
    *
-   * Note: Uses Bun.file() API — requires Bun runtime.
    */
-  async replay(filePath: string): Promise<void> {
+  async replay(filePath: string): Promise<{ skipped: number }> {
     this.entries = [];
     this.lamport = 0;
     this.byAgent = new Map();
     this.bySymbol = new Map();
     this.byBatch = new Map();
     this.pendingWrites = [];
+    this.filePath = filePath;
 
-    const file = Bun.file(filePath);
-    if (!(await file.exists())) return;
+    let text: string;
+    try {
+      const { readFile } = await import("node:fs/promises");
+      text = await readFile(filePath, "utf-8");
+    } catch {
+      return { skipped: 0 };
+    }
 
-    const text = await file.text();
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
 
     let skipped = 0;
     for (const line of lines) {
-      const entry = JSON.parse(line);
+      let entry: any;
+      try { entry = JSON.parse(line); } catch { skipped++; continue; }
       if (!entry?.id || !entry?.op || !entry?.agentId || typeof entry?.lamport !== "number") {
         skipped++;
         continue;
@@ -144,6 +149,8 @@ export class OperationLog {
     if (skipped > 0) {
       console.warn(`op-log replay: skipped ${skipped} malformed entries in ${filePath}`);
     }
+
+    return { skipped };
   }
 
   // --- Compaction ---
@@ -152,7 +159,6 @@ export class OperationLog {
    * Write a snapshot of the current graph state alongside the log.
    * This allows future replays to start from this checkpoint.
    *
-   * Note: Uses Bun.write() API — requires Bun runtime.
    */
   async snapshot(graphStore: { export(): { nodes: unknown[]; edges: unknown[] } }): Promise<void> {
     if (!this.filePath) return;
@@ -163,7 +169,8 @@ export class OperationLog {
       graph: graphStore.export(),
       timestamp: Date.now(),
     };
-    await Bun.write(snapshotPath, JSON.stringify(data, null, 2));
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(snapshotPath, JSON.stringify(data, null, 2));
   }
 
   // --- Internal ---

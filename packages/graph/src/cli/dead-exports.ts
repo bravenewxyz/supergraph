@@ -76,6 +76,42 @@ function strip(p: string): string {
   return p.replace(/^src\//, "");
 }
 
+/**
+ * Load module paths referenced by package.json exports, bin, and main fields.
+ * These are package boundary entry points that should not be flagged as orphans.
+ */
+async function loadPackageBoundaryModules(srcRoot: string): Promise<Set<string>> {
+  const result = new Set<string>();
+  const pkgPath = join(srcRoot, "..", "package.json");
+  try {
+    const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+    const paths: string[] = [];
+
+    // main
+    if (typeof pkg.main === "string") paths.push(pkg.main);
+
+    // bin
+    if (typeof pkg.bin === "string") paths.push(pkg.bin);
+    else if (pkg.bin && typeof pkg.bin === "object") paths.push(...Object.values(pkg.bin as Record<string, string>));
+
+    // exports - recursively collect all string values
+    function collectExportPaths(obj: unknown): void {
+      if (typeof obj === "string") paths.push(obj);
+      else if (obj && typeof obj === "object") {
+        for (const v of Object.values(obj as Record<string, unknown>)) collectExportPaths(v);
+      }
+    }
+    if (pkg.exports) collectExportPaths(pkg.exports);
+
+    for (const p of paths) {
+      // Normalize: strip leading ./, strip extension, strip src/ prefix
+      const normalized = p.replace(/^\.\//, "").replace(/\.\w+$/, "").replace(/^src\//, "");
+      result.add(normalized);
+    }
+  } catch { /* no package.json or parse error */ }
+  return result;
+}
+
 /** Collect all exported symbol names from a module (recurse into children). */
 function collectExports(symbols: SymbolSummary[]): string[] {
   const names: string[] = [];
@@ -100,6 +136,9 @@ async function analyzeDeadExports(
   manifest: PackageManifest,
   srcRoot: string,
 ): Promise<DeadResult> {
+  // Load package boundary modules (exports, bin, main from package.json)
+  const boundaryModules = await loadPackageBoundaryModules(srcRoot);
+
   // Build inbound-count map
   const inbound = new Map<string, number>();
   for (const mod of manifest.modules) {
@@ -161,6 +200,9 @@ async function analyzeDeadExports(
         if (isStandaloneScript(content)) continue;
       }
 
+      // Check if this module is a package boundary entry point (exports/bin/main)
+      if (boundaryModules.has(strip(mod.path))) continue;
+
       const exports = collectExports(mod.symbols);
       if (exports.length > 0) {
         orphanModules.push({ module: key, exports });
@@ -201,9 +243,19 @@ async function analyzeDeadExports(
       // Skip likely parser artifacts (loop vars like i, j)
       if (sym.name.length <= 2) continue;
       // Word-boundary check: is the name used in any importing file?
-      const re = new RegExp(`\\b${escapeRegExp(sym.name)}\\b`);
-      if (!re.test(importerContent)) {
-        unusedSymbols.push({ module: key, symbol: sym.name, kind: sym.kind });
+      const symbolName = sym.name;
+      const re = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`);
+      let found = re.test(importerContent);
+
+      // Check for namespace imports: import * as NS from './module'
+      // where the symbol is accessed as NS.symbolName
+      if (!found) {
+        const nsPattern = new RegExp(`\\w+\\.${escapeRegExp(symbolName)}\\b`);
+        if (nsPattern.test(importerContent)) found = true;
+      }
+
+      if (!found) {
+        unusedSymbols.push({ module: key, symbol: symbolName, kind: sym.kind });
       }
     }
   }

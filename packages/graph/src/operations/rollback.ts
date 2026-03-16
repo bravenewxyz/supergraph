@@ -76,7 +76,7 @@ export function computeInverse(
     }
 
     case "AddEdge":
-      return { type: "RemoveEdge", edgeId: op.edge.id };
+      return { type: "RemoveEdge", edgeId: op.edge.id, sourceId: op.edge.sourceId, targetId: op.edge.targetId };
 
     case "RemoveEdge": {
       const edge = graphStore.getEdge(op.edgeId);

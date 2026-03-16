@@ -43,8 +43,19 @@ async function main() {
     console.log(`\n1. Using current version v${pkg.version}`);
   } else {
     console.log("\n1. Bumping version...");
-    run("npm version patch --no-git-tag-version");
-    pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
+    // Custom versioning: each segment rolls over at 42 → bump the next higher segment
+    const parts = (pkg.version as string).split(".").map(Number);
+    // Increment the last (patch) segment
+    parts[parts.length - 1]!++;
+    // Carry: if any segment exceeds 42, reset it to 0 and increment the one above
+    for (let i = parts.length - 1; i > 0; i--) {
+      if (parts[i]! > 42) {
+        parts[i] = 0;
+        parts[i - 1]!++;
+      }
+    }
+    pkg.version = parts.join(".");
+    writeFileSync(join(ROOT, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
     console.log(`   v${pkg.version}`);
   }
   const version = pkg.version;
@@ -53,7 +64,7 @@ async function main() {
   console.log("\n2. Committing and pushing...");
   const dirty = run("git status --porcelain");
   if (dirty) {
-    run("git add -A");
+    run("git add package.json");
     run(`git commit -m "release: v${version}"`);
   }
   run("git push");
@@ -106,9 +117,9 @@ async function main() {
     .join(" ");
 
   // Delete existing release/tag if present (re-release)
-  try { run(`gh release delete v${version} -y`); } catch {}
-  try { run(`git push origin :refs/tags/v${version}`); } catch {}
-  try { run(`git tag -d v${version}`); } catch {}
+  try { run(`gh release delete v${version} -y`); } catch { /* no existing release */ }
+  try { run(`git push origin :refs/tags/v${version}`); } catch { /* no existing tag on remote */ }
+  try { run(`git tag -d v${version}`); } catch { /* no existing local tag */ }
 
   run(
     `gh release create v${version} ${assets} --title "v${version}" --notes "Release v${version}"`,

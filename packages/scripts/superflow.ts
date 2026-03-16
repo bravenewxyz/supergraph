@@ -56,7 +56,7 @@ type Config = {
 };
 
 const CONFIG_PATH = resolve(ROOT, "audit/config.json");
-const cfg: Config = JSON.parse((await readFile(CONFIG_PATH)) || "{}");
+const cfg: Config = JSON.parse((await readFile(CONFIG_PATH)) ?? "{}");
 const sfCfg = cfg.superflows ?? {};
 
 const ROUTE_SOURCES: RouteSource[] = (sfCfg.services ?? []).map((s) => ({
@@ -420,7 +420,7 @@ async function buildSpreadLookup(
     const resolved = importPath.startsWith("@/")
       ? resolve(pkgSrcDir, importPath.slice(2)) + ".ts"
       : resolve(dirname(fileAbsPath), importPath).replace(/\.ts$/, "") + ".ts";
-    const importContent = await readFile(resolved).catch(() => "");
+    const importContent = await readFile(resolved);
     if (!importContent) continue;
     for (const name of names) {
       // Find const NAME = { KEY: { path: "...", method: "..." } }

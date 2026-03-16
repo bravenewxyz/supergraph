@@ -36,7 +36,7 @@ export function getAffectedSymbolIds(op: GraphOperation): string[] {
     case "AddEdge":
       return [op.edge.sourceId, op.edge.targetId];
     case "RemoveEdge":
-      return []; // EdgeId doesn't expose symbol; treat as commutative
+      return [op.sourceId, op.targetId].filter((id): id is string => !!id);
     case "SetExported":
       return [op.symbolId];
     case "AddModifier":

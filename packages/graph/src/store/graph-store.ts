@@ -233,9 +233,10 @@ export class GraphStore {
         this.addEdge(op.edge);
         return { applied: true, operationType: op.type };
       }
-      case "RemoveEdge":
+      case "RemoveEdge": {
         this.removeEdge(op.edgeId);
         return { applied: true, operationType: op.type };
+      }
       case "SetExported": {
         const existing = this.getSymbol(op.symbolId);
         if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };

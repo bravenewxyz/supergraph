@@ -178,10 +178,8 @@ async function parseSwagger(swaggerPath: string): Promise<{
 // ─── Parse orval TS SDK ──────────────────────────────────────────────────────
 
 async function parseTsSdk(sdkPath: string, root: string): Promise<TsFunction[]> {
-  let src: string;
-  try {
-    src = await readFile(sdkPath);
-  } catch {
+  const src = await readFile(sdkPath);
+  if (!src) {
     console.warn(`⚠ TS SDK not found: ${sdkPath}`);
     return [];
   }

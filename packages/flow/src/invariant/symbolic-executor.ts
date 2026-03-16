@@ -21,11 +21,62 @@ import ts from "typescript";
 import type { ShapeType } from "../schema/shapes.js";
 import type { DiscoveredFunction, Invariant } from "./types.js";
 
-/**
- * Z3 context type — the z3-solver WASM package doesn't ship TS declarations.
- * All Z3 interactions go through this opaque handle.
- */
-type Z3Context = any;
+/** Minimal Z3 type surface — the z3-solver WASM package doesn't ship TS declarations. */
+interface Z3Expr {
+  add(other: Z3Expr): Z3Expr;
+  sub(other: Z3Expr): Z3Expr;
+  mul(other: Z3Expr): Z3Expr;
+  div(other: Z3Expr): Z3Expr;
+  mod(other: Z3Expr): Z3Expr;
+  lt(other: Z3Expr): Z3Expr;
+  le(other: Z3Expr): Z3Expr;
+  gt(other: Z3Expr): Z3Expr;
+  ge(other: Z3Expr): Z3Expr;
+  eq(other: Z3Expr): Z3Expr;
+  neq(other: Z3Expr): Z3Expr;
+  concat(other: Z3Expr): Z3Expr;
+  contains(other: Z3Expr): Z3Expr;
+  prefixOf(other: Z3Expr): Z3Expr;
+  suffixOf(other: Z3Expr): Z3Expr;
+  indexOf(other: Z3Expr, offset?: Z3Expr): Z3Expr;
+  replace(from: Z3Expr, to: Z3Expr): Z3Expr;
+  length(): Z3Expr;
+  toString(): string;
+}
+
+interface Z3Sort {
+  const(name: string): Z3Expr;
+  val(v: string | number | boolean): Z3Expr;
+}
+
+interface Z3Decl {
+  name?(): string;
+  call(): Z3Expr;
+}
+
+interface Z3Model {
+  decls(): Z3Decl[];
+  eval(expr: Z3Expr): { toString(): string };
+}
+
+interface Z3Solver {
+  add(expr: Z3Expr): void;
+  set(key: string, value: unknown): void;
+  check(): Promise<string>;
+  model(): { eval(expr: Z3Expr): { toString(): string }; decls(): any[] };
+}
+
+interface Z3Context {
+  Int: Z3Sort;
+  Bool: Z3Sort;
+  String: Z3Sort & { val(s: string): Z3Expr; const(name: string): Z3Expr };
+  And(...args: Z3Expr[]): Z3Expr;
+  Or(...args: Z3Expr[]): Z3Expr;
+  Not(expr: Z3Expr): Z3Expr;
+  If(cond: Z3Expr, then: Z3Expr, else_: Z3Expr): Z3Expr;
+  Implies(a: Z3Expr, b: Z3Expr): Z3Expr;
+  Solver: { new (): Z3Solver };
+}
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -48,21 +99,21 @@ interface ProveOptions {
 // ── Internal types ───────────────────────────────────────────────────────
 
 type SymValue =
-  | { kind: "z3"; expr: any; sort: "int" | "bool" | "string" }
+  | { kind: "z3"; expr: Z3Expr; sort: "int" | "bool" | "string" }
   | { kind: "object"; fields: Map<string, SymValue> }
-  | { kind: "array"; elements: SymValue[]; lengthExpr: any }
+  | { kind: "array"; elements: SymValue[]; lengthExpr: Z3Expr }
   | { kind: "concrete"; value: unknown }
   | { kind: "undefined" }
   | { kind: "null" };
 
 interface SymState {
   vars: Map<string, SymValue>;
-  constraints: any[];
+  constraints: Z3Expr[];
   intToStrCounter: { value: number };
 }
 
 interface ExecutionPath {
-  constraints: any[];
+  constraints: Z3Expr[];
   returnValue: SymValue;
   returned: boolean;
   finalVars?: Map<string, SymValue>;
@@ -80,7 +131,7 @@ async function getZ3(): Promise<Z3Context> {
   if (z3Ctx) return z3Ctx;
   const { init } = await import("z3-solver");
   const z3Module = await init();
-  z3Ctx = new z3Module.Context("symbolic-exec");
+  z3Ctx = new z3Module.Context("symbolic-exec") as unknown as Z3Context;
   return z3Ctx;
 }
 
@@ -94,7 +145,7 @@ function createSymbolicValue(
   Z3: Z3Context,
   name: string,
   shape: ShapeType,
-  z3Consts: Array<{ name: string; expr: any }>,
+  z3Consts: Array<{ name: string; expr: Z3Expr }>,
   depth: number = 0,
 ): SymValue {
   if (depth > 4) return { kind: "concrete", value: undefined };
@@ -200,7 +251,7 @@ function addTypeConstraints(
   name: string,
   shape: ShapeType,
   sym: SymValue,
-  constraints: any[],
+  constraints: Z3Expr[],
 ): void {
   if (shape.kind === "union" && sym.kind === "z3") {
     const allStrLit = shape.members.every(
@@ -792,7 +843,7 @@ function evalArrayPredicate(
   if (!cb) return { kind: "concrete", value: undefined };
   const { body: cbBody, paramName } = cb;
 
-  const boolExprs: any[] = [];
+  const boolExprs: Z3Expr[] = [];
   for (const el of arr.elements) {
     const cbState: SymState = { vars: new Map(state.vars), constraints: [...state.constraints], intToStrCounter: state.intToStrCounter };
     cbState.vars.set(paramName, el);
@@ -839,7 +890,7 @@ function evalArrayMap(
 
 // ── Z3 conversion helpers ────────────────────────────────────────────────
 
-function toZ3Bool(Z3: Z3Context, val: SymValue): any | null {
+function toZ3Bool(Z3: Z3Context, val: SymValue): Z3Expr | null {
   if (val.kind === "z3" && val.sort === "bool") return val.expr;
   if (val.kind === "z3" && val.sort === "int") return Z3.Not(val.expr.eq(Z3.Int.val(0)));
   if (val.kind === "z3" && val.sort === "string") return Z3.Not(val.expr.eq(Z3.String.val("")));
@@ -849,7 +900,7 @@ function toZ3Bool(Z3: Z3Context, val: SymValue): any | null {
   return null;
 }
 
-function toZ3String(Z3: Z3Context, val: SymValue, counter: { value: number }): any | null {
+function toZ3String(Z3: Z3Context, val: SymValue, counter: { value: number }): Z3Expr | null {
   if (val.kind === "z3" && val.sort === "string") return val.expr;
   if (val.kind === "z3" && val.sort === "int") {
     return Z3.String.const(`__intToStr_${counter.value++}`);
@@ -1057,7 +1108,7 @@ function explorePaths(
     if (ts.isSwitchStatement(stmt)) {
       const switchVal = evalExpr(Z3, stmt.expression, state);
       const remaining = stmts.slice(i + 1);
-      const caseEqs: any[] = [];
+      const caseEqs: Z3Expr[] = [];
       let hasDefault = false;
 
       for (const clause of stmt.caseBlock.clauses) {
@@ -1317,11 +1368,11 @@ async function checkPostcondition(
 
   const result = await solver.check();
   if (result === "unsat") return "proven";
-  if (result === "sat") return { counterexample: extractModel(solver.model()) };
+  if (result === "sat") return { counterexample: extractModel(solver.model() as Z3Model) };
   return "unknown";
 }
 
-function extractModel(model: any): Record<string, unknown> {
+function extractModel(model: Z3Model): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   try {
     for (const d of model.decls()) {
@@ -1357,7 +1408,7 @@ export async function proveInvariant(
   if (bodyStmts.length === 0)
     return { invariantName: invariant.name, status: "unsupported", pathsExplored: 0, pathsProven: 0, pathsFailed: 0, error: "Empty function body" };
 
-  const z3Consts: Array<{ name: string; expr: any }> = [];
+  const z3Consts: Array<{ name: string; expr: Z3Expr }> = [];
   const initial: SymState = { vars: new Map(), constraints: [], intToStrCounter };
   let inputValue: SymValue;
 
@@ -1405,11 +1456,20 @@ export async function proveInvariant(
       const r = await checkPostcondition(Z3, path, postcondExpr, inputValue, timeoutMs, intToStrCounter);
       if (r === "proven") proven++;
       else if (r !== "unknown") { failed++; if (!firstCx) firstCx = r.counterexample; }
-    } catch { /* solver error — path counted as unknown (neither proven nor failed) */ }
+    } catch (e) {
+      // Solver error — path counted as unknown (neither proven nor failed)
+      if (typeof process !== "undefined" && process.env?.DEBUG) {
+        console.warn(`[symbolic-executor] solver error on path: ${e}`);
+      }
+    }
   }
 
   const status: SymbolicProofResult["status"] =
     failed > 0 ? "counterexample" : proven === returnedPaths.length ? "proven" : "unknown";
+
+  if (status === "unknown" || failed > 0) {
+    resetZ3Context(); // Ensure fresh context for next proof attempt
+  }
 
   return { invariantName: invariant.name, status, counterexample: firstCx, pathsExplored: returnedPaths.length, pathsProven: proven, pathsFailed: failed };
 }

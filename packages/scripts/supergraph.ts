@@ -76,7 +76,7 @@ async function loadIssueFiles(dir: string): Promise<IssueFiles> {
     "trace-boundaries",
   ] as const) {
     try {
-      files[key] = JSON.parse(await readFile(join(dir, `json/${key}.json`)));
+      files[key] = JSON.parse(await readFile(join(dir, `json/${key}.json`)) ?? "");
     } catch { /* file may not exist — expected for optional issue types */ }
   }
   return files;
@@ -110,7 +110,7 @@ async function buildSupergraph(
   for (const short of auditEntries) {
     try {
       const map: RawMap = JSON.parse(
-        await readFile(join(auditDir, short, "json/map.json")),
+        await readFile(join(auditDir, short, "json/map.json")) ?? "",
       );
       const issues = await loadIssueFiles(join(auditDir, short));
       pkgMaps.push({ short, map, issues });

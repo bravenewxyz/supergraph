@@ -381,7 +381,7 @@ function buildJobs(t: PkgTarget): Job[] {
       phase: "6",
       cmd: [
         "bun",
-        flow("logic-audit.ts"),
+        flow("logic-audit/index.ts"),
         srcDir,
         "--format",
         "text",
@@ -395,7 +395,7 @@ function buildJobs(t: PkgTarget): Job[] {
       phase: "6",
       cmd: [
         "bun",
-        flow("logic-audit.ts"),
+        flow("logic-audit/index.ts"),
         srcDir,
         "--format",
         "json",

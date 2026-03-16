@@ -107,8 +107,16 @@ export class MergeEngine {
           }
 
           if (result === "contract-dependent") {
-            // TODO: Contract drift checking will be implemented in graph-bridge.
-            // For now, treat as commutes — both ops stay in applied.
+            // Contract drift checking not yet implemented — fall back to LWW.
+            // Both ops stay but the caller is informed via autoResolved.
+            const resolution = resolveLWW(entryA, entryB);
+            autoResolved.push({
+              winner: resolution.winner,
+              loser: resolution.loser,
+              strategy: "lww",
+            });
+            applied.delete(resolution.loser.id);
+            excluded.add(resolution.loser.id);
             continue;
           }
 

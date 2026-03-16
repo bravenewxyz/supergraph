@@ -118,7 +118,7 @@ async function sectionPackageRegistry(
     const rel = relative(resolve(ROOT, packagesDir), dir);
     if (rel.split("/").length > 3) continue;
 
-    const pkg = JSON.parse(await readFile(file));
+    const pkg = JSON.parse(await readFile(file) ?? "");
     const name: string = pkg.name ?? basename(dir);
     const location = relative(ROOT, dir);
 
@@ -187,7 +187,7 @@ async function sectionBackendRouteTree(
   const sections: string[] = ["## Backend API -- Complete Route Tree", ""];
 
   for (const file of routeFiles) {
-    const src = await readFile(file);
+    const src = await readFile(file) ?? "";
     const routes = parseRouteFile(src);
     if (routes.length === 0) continue;
 
@@ -213,14 +213,14 @@ async function sectionBackendRouteTree(
 }
 
 async function sectionSchemaCatalog(schemasDir: string): Promise<string> {
-  const indexSrc = await readFile(resolve(ROOT, schemasDir, "index.ts"));
+  const indexSrc = await readFile(resolve(ROOT, schemasDir, "index.ts")) ?? "";
   const moduleRe = /export \* from "\.\/([^"]+)"/g;
   const sections: string[] = ["## Zod Schema Catalog", ""];
   let m: RegExpExecArray | null;
 
   while ((m = moduleRe.exec(indexSrc)) !== null) {
     const moduleName = m[1];
-    const src = await readFile(resolve(ROOT, schemasDir, `${moduleName}.ts`));
+    const src = await readFile(resolve(ROOT, schemasDir, `${moduleName}.ts`)) ?? "";
     if (!src) continue;
 
     const schemaRe = /export const ([A-Z][a-zA-Z]*Schema)\b/g;
@@ -264,7 +264,7 @@ async function sectionFrontendHooks(
   const rows: string[] = [];
 
   for (const file of hookFiles) {
-    const src = await readFile(file);
+    const src = await readFile(file) ?? "";
     const hookRe = /export (?:const|function) (use[A-Z][a-zA-Z]*)/g;
     let m: RegExpExecArray | null;
     while ((m = hookRe.exec(src)) !== null) {
@@ -285,7 +285,7 @@ async function sectionFrontendHooks(
 }
 
 async function sectionQueryOptions(frontendSrc: string): Promise<string> {
-  const src = await readFile(resolve(ROOT, frontendSrc, "lib/options.ts"));
+  const src = await readFile(resolve(ROOT, frontendSrc, "lib/options.ts")) ?? "";
   const optionRe = /export const ([a-zA-Z]+Options)\b/g;
   const rows: string[] = [];
   let m: RegExpExecArray | null;
@@ -318,7 +318,7 @@ async function sectionQueryOptions(frontendSrc: string): Promise<string> {
 }
 
 async function sectionPgTables(backendSrc: string): Promise<string> {
-  const src = await readFile(resolve(ROOT, backendSrc, "stable/db/schema.ts"));
+  const src = await readFile(resolve(ROOT, backendSrc, "stable/db/schema.ts")) ?? "";
   const sections: string[] = ["## PostgreSQL Tables", ""];
 
   const enumRe = /export const (\w+) = pgEnum\("([^"]+)",\s*\[([\s\S]*?)\]\)/g;
@@ -379,7 +379,7 @@ async function sectionPgTables(backendSrc: string): Promise<string> {
 }
 
 async function sectionErrorCodes(constantsIndexPath: string): Promise<string> {
-  const src = await readFile(constantsIndexPath);
+  const src = await readFile(constantsIndexPath) ?? "";
   const sections: string[] = ["## Error Codes", ""];
 
   const ecStart = src.indexOf("export const ERROR_CODES");
@@ -429,10 +429,10 @@ async function sectionErrorCodes(constantsIndexPath: string): Promise<string> {
 async function sectionFeatureFlags(commonDir: string): Promise<string> {
   const schemasSrc = await readFile(
     join(commonDir, "schemas/featuresFlags.ts"),
-  );
+  ) ?? "";
   const constantsSrc = await readFile(
     join(commonDir, "constants/featuresFlags.ts"),
-  );
+  ) ?? "";
   const sections: string[] = ["## Feature Flags", ""];
 
   const flagsMatch = schemasSrc.match(
@@ -489,7 +489,7 @@ async function sectionFeatureFlags(commonDir: string): Promise<string> {
 }
 
 async function sectionConstants(constantsIndexPath: string): Promise<string> {
-  const src = await readFile(constantsIndexPath);
+  const src = await readFile(constantsIndexPath) ?? "";
   const sections: string[] = ["## Constants", ""];
 
   const arrays = [
@@ -524,7 +524,7 @@ async function sectionConstants(constantsIndexPath: string): Promise<string> {
 
 async function sectionGoApiRoutes(swaggerPath: string): Promise<string> {
   try {
-    const swaggerSrc = await readFile(swaggerPath);
+    const swaggerSrc = await readFile(swaggerPath) ?? "";
     const swagger = JSON.parse(swaggerSrc);
     const paths = swagger.paths || {};
     const sections: string[] = ["## Go Protocol API Routes", ""];

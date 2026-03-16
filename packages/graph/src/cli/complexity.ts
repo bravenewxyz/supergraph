@@ -419,6 +419,17 @@ function propAccessRoot(node: ts.Expression): { path: string } | undefined {
   return { path };
 }
 
+function findEnclosingFunction(node: ts.Node): ts.SignatureDeclaration | undefined {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur) {
+    if (ts.isFunctionDeclaration(cur) || ts.isFunctionExpression(cur) || ts.isArrowFunction(cur) || ts.isMethodDeclaration(cur)) {
+      return cur as ts.SignatureDeclaration;
+    }
+    cur = cur.parent;
+  }
+  return undefined;
+}
+
 function enclosingName(node: ts.Node): string {
   let cur: ts.Node | undefined = node.parent;
   while (cur) {
@@ -528,6 +539,29 @@ function detectClumpsInFile(sf: ts.SourceFile, module: string): DataClumpFinding
       }
       for (const [path, fields] of groups) {
         if (fields.length < MIN_CLUMP_FIELDS) continue;
+
+        // Filter out intentional field selections that are not refactoring opportunities:
+        const parentNode: ts.Node | undefined = node.parent;
+        // 1. Object literal is a return value
+        const isReturnValue = parentNode != null && ts.isReturnStatement(parentNode);
+        // 2. Object literal is a function/call argument
+        const isFunctionArg = parentNode != null && ts.isCallExpression(parentNode) && parentNode.arguments.includes(node);
+        // 3. Object literal contains a spread (e.g. { ...source, extra })
+        const isSpread = node.properties.some(p => ts.isSpreadAssignment(p));
+        if (isReturnValue || isFunctionArg || isSpread) continue;
+
+        // Filter out clumps where the source is a function parameter (intentional destructuring)
+        const enclosing = findEnclosingFunction(node);
+        if (enclosing) {
+          const paramNames = (enclosing.parameters ?? []) as Iterable<ts.ParameterDeclaration>;
+          const paramNameList: string[] = [];
+          for (const p of paramNames) {
+            if (ts.isIdentifier(p.name)) paramNameList.push(p.name.text);
+          }
+          const sourceRoot = path.split(".")[0]!;
+          if (paramNameList.includes(sourceRoot)) continue;
+        }
+
         const fn = enclosingName(node);
         const key = `${module}|${fn}|${path}`;
         if (seen.has(key)) continue;
