@@ -94,7 +94,10 @@ export function analyzePushSites(
   if (guarded.length > 0 && unguarded.length > 0) {
     for (const g of guarded) {
       for (const u of unguarded) {
-        if (g.collection !== u.collection) continue;
+        // Skip same-collection: pushing to the same array both
+        // conditionally and unconditionally is normal (text rendering,
+        // result accumulation). The real signal is cross-collection.
+        if (g.collection === u.collection) continue;
         const confidence = scoreGuardConfidence(
           g.collection, u.collection, sourceLines,
         );
