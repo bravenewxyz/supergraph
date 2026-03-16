@@ -28,10 +28,10 @@ If running on a smaller context model, read only `supergraph-compact.txt` and `s
 
 ## Output directory
 
-All written output goes under `audit/strategic/`. For multi-package reviews, one unified brief.
+All written output goes under `.supergraph/strategic/`. For multi-package reviews, one unified brief.
 
 ```
-audit/strategic/
+.supergraph/strategic/
   brief.md              # Full strategic brief (human-readable)
   moves.md              # Top moves with implementation details
 ```
@@ -40,7 +40,7 @@ audit/strategic/
 
 ## Phase 0: Generate artifacts (if needed)
 
-Check if `audit/supergraph.txt` exists. If not:
+Check if `.supergraph/supergraph.txt` exists. If not:
 
 ```bash
 supergraph --no-anim
@@ -60,14 +60,14 @@ The order matters — start with the architectural overview, then drill into str
 
 The Read tool has a **25,000 token limit per call**. For large files like `symbols.txt` (often 30K-55K+ lines), you MUST use a chunked reading strategy. Here's how to do it fast:
 
-1. **First, check the file size** — run `wc -l audit/symbols.txt` via Bash to know how many lines you're dealing with.
+1. **First, check the file size** — run `wc -l .supergraph/symbols.txt` via Bash to know how many lines you're dealing with.
 2. **Read in large parallel batches** — use multiple Read calls in a SINGLE message, each with `offset` and `limit` parameters. This is critical for speed: 6 parallel reads complete in the same wall-clock time as 1 read.
 3. **Use Bash `cat` as a fallback for very large files** — when a file exceeds Read tool limits even with chunking, use `cat -n <file> | head -n X | tail -n Y` via the Bash tool. The Bash tool has higher output limits than Read.
 
 **Concrete strategy for `symbols.txt`:**
 ```
 # Step 1: Get line count
-Bash: wc -l audit/symbols.txt
+Bash: wc -l .supergraph/symbols.txt
 
 # Step 2: Read in parallel chunks of ~500 lines each (6 at a time)
 # In a SINGLE message, issue all Read calls simultaneously:
@@ -91,13 +91,13 @@ Read: offset=2501 limit=500
 
 ### 1a. Architecture layer (read first)
 
-Read `audit/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
+Read `.supergraph/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
 
 After this layer you understand the skeleton: what talks to what, what's central, what's peripheral.
 
 ### 1b. Source layer (read second — this is what 1M context enables)
 
-Read `audit/symbols.txt` in its entirety using the chunked parallel strategy above. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships.
+Read `.supergraph/symbols.txt` in its entirety using the chunked parallel strategy above. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships.
 
 This is the layer that transforms the review from "structural observations" to "I've read your code." Without it, you're guessing at intent from module names. With it, you can see:
 - What every function actually does — signatures, bodies, return types
@@ -298,7 +298,7 @@ Cross-cut what you've read for non-obvious connections:
 
 ## Phase 4: Write strategic brief
 
-Write `audit/strategic/brief.md`:
+Write `.supergraph/strategic/brief.md`:
 
 ```markdown
 # Strategic Brief: <project-name>
@@ -334,7 +334,7 @@ Full findings organized by dimension (architecture alignment, leverage,
 quality gradient, frontier opportunities, correlations).
 ```
 
-Write `audit/strategic/moves.md`:
+Write `.supergraph/strategic/moves.md`:
 
 ```markdown
 # Top Moves — Implementation Guide
@@ -384,8 +384,8 @@ Output the findings directly in chat using this format:
 
 ---
 
-Full brief: audit/strategic/brief.md
-Implementation guide: audit/strategic/moves.md
+Full brief: .supergraph/strategic/brief.md
+Implementation guide: .supergraph/strategic/moves.md
 
 Want me to implement any of the top moves?
 ```

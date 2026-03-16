@@ -223,7 +223,7 @@ export function compressExtDep(
 // ─── Load per-package map.json files ──────────────────────────────────────────
 
 /**
- * Reads all `audit/packages/<pkg>/json/map.json` files into a Map keyed by
+ * Reads all `.supergraph/packages/<pkg>/json/map.json` files into a Map keyed by
  * package short name.
  *
  * When `allowList` is provided, only directories whose names appear in the

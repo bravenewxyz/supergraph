@@ -24,11 +24,11 @@
  * No legends / headers repeated across sections.
  *
  * Reads:
- *   audit/packages/<pkg>/json/map.json  (per-package raw module graph)
- *   audit/superflows.json               (endpoints + hooks)
- *   audit/superschema.json              (zod, sql, redis, ts types)
+ *   .supergraph/packages/<pkg>/json/map.json  (per-package raw module graph)
+ *   .supergraph/superflows.json               (endpoints + hooks)
+ *   .supergraph/superschema.json              (zod, sql, redis, ts types)
  *
- * Writes: audit/supergraph.txt
+ * Writes: .supergraph/supergraph.txt
  * Usage:  bun superhigh.ts [--out <path>] [--fresh]
  */
 
@@ -57,8 +57,8 @@ import {
 } from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
-const AUDIT = resolve(ROOT, "audit");
-const PKGS = resolve(ROOT, "audit/packages");
+const AUDIT = resolve(ROOT, ".supergraph");
+const PKGS = resolve(ROOT, ".supergraph/packages");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -95,8 +95,8 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
 const outPath = resolveOutPath(
   args,
   FULL
-    ? resolve(ROOT, "audit/supergraph.txt")
-    : resolve(ROOT, "audit/supergraph-compact.txt"),
+    ? resolve(ROOT, ".supergraph/supergraph.txt")
+    : resolve(ROOT, ".supergraph/supergraph-compact.txt"),
 );
 
 console.log("Building superhigh…");

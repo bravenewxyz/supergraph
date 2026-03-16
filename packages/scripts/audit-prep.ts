@@ -671,7 +671,7 @@ if (!goOnly && !(explicitDirs.length > 0 && explicitTsDirs.length === 0)) {
   if (srcDirs.length > 0) {
     const targets: PkgTarget[] = srcDirs.map((srcDir) => {
       const pkgName = derivePkgName(srcDir);
-      const outDir = `audit/packages/${pkgName}`;
+      const outDir = `.supergraph/packages/${pkgName}`;
       return {
         srcDir,
         pkgName,
@@ -713,7 +713,7 @@ if (!skipGo) {
   if (goDirs.length > 0) {
     const goTargets: GoPkgTarget[] = goDirs.map((goDir) => {
       const pkgName = deriveGoPkgName(goDir);
-      const outDir = `audit/packages/${pkgName}`;
+      const outDir = `.supergraph/packages/${pkgName}`;
       return { goDir, pkgName, outDir, jsonDir: `${outDir}/json` };
     });
     console.log(`\nGo audit targets (${goTargets.length}):`);

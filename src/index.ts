@@ -102,8 +102,8 @@ Commands:
   superhigh               Generate unified supergraph.txt / supergraph-compact.txt
 
 The full pipeline also generates:
-  audit/supergraph.txt            Unified map: domains + schemas + modules + types
-  audit/supergraph-compact.txt    Compressed version for AI context windows
+  .supergraph/supergraph.txt            Unified map: domains + schemas + modules + types
+  .supergraph/supergraph-compact.txt    Compressed version for AI context windows
 
 Claude Code commands (installed automatically):
   /deep-audit             10-phase systematic package audit

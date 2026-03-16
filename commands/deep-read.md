@@ -6,7 +6,7 @@ Read the symbols-full.txt file to get a comprehensive, source-level understandin
 
 ## Instructions
 
-1. Find `audit/symbols-full.txt` in the current project. If it doesn't exist, run `supergraph --no-anim` to generate it.
+1. Find `.supergraph/symbols-full.txt` in the current project. If it doesn't exist, run `supergraph --no-anim` to generate it.
 2. Read the entire file — every line, no truncation, no skipping. It can be large (5-15MB). Read it in chunks using offset/limit parameters until you have consumed all of it.
 3. After reading, confirm: "Read symbols-full.txt — [N] lines, [M] modules." and nothing else unless the user asks a follow-up question or provided an argument.
 4. If the user provided an argument, immediately answer about that topic using the full context you just loaded.

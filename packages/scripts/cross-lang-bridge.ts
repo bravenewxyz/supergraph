@@ -11,8 +11,8 @@
  * Maps Go swagger definitions (storage.Admin, client.X) → TS model files.
  *
  * Writes:
- *   audit/cross-lang-bridge.txt   (human-readable report)
- *   audit/cross-lang-bridge.json  (machine-readable data)
+ *   .supergraph/cross-lang-bridge.txt   (human-readable report)
+ *   .supergraph/cross-lang-bridge.json  (machine-readable data)
  *
  * Usage: bun cross-lang-bridge.ts [--out <dir>] [--help]
  */
@@ -457,7 +457,7 @@ export interface CrossLangBridgeOptions {
 
 export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<void> {
   const t0 = Date.now();
-  const outDir = opts.outDir ?? resolve(opts.root, "audit");
+  const outDir = opts.outDir ?? resolve(opts.root, ".supergraph");
 
   const swaggerPath = resolve(opts.root, "go-packages/protocol/docs/swagger.json");
   const sdkPath = resolve(opts.root, "packages/internal/protocol/generated/api.ts");
@@ -544,7 +544,7 @@ async function main() {
     console.log(
       "Usage: bun cross-lang-bridge.ts [--out <dir>] [--help]\n\n" +
         "Detects Go ↔ TypeScript interface points.\n" +
-        "  --out <dir>   Output directory (default: audit/)\n",
+        "  --out <dir>   Output directory (default: .supergraph/)\n",
     );
     process.exit(0);
   }

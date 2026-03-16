@@ -32,10 +32,10 @@ Same as `/deep-strategic` — designed for **Claude Opus with the 1M context win
 
 ## Output directory
 
-All written output goes under `audit/strategic/`. Appends to, does not overwrite, the existing brief.
+All written output goes under `.supergraph/strategic/`. Appends to, does not overwrite, the existing brief.
 
 ```
-audit/strategic/
+.supergraph/strategic/
   brief.md              # Updated with new section
   moves.md              # Updated with new moves
   frontier.md           # NEW — the bold vision document
@@ -45,7 +45,7 @@ audit/strategic/
 
 ## Phase 0: Generate artifacts (if needed)
 
-Check if `audit/supergraph.txt` and `audit/symbols.txt` exist. If not, run `supergraph --no-anim`.
+Check if `.supergraph/supergraph.txt` and `.supergraph/symbols.txt` exist. If not, run `supergraph --no-anim`.
 
 ---
 
@@ -56,15 +56,15 @@ Load everything from the prior strategic review AND the current codebase state. 
 ### 1a. Prior analysis
 
 Read these in order:
-1. `audit/strategic/brief.md` — the strategic brief from `/deep-strategic`
-2. `audit/strategic/moves.md` — the implementation guide
-3. `audit/strategic/frontier.md` — if it exists from a prior `/deep-followup`
+1. `.supergraph/strategic/brief.md` — the strategic brief from `/deep-strategic`
+2. `.supergraph/strategic/moves.md` — the implementation guide
+3. `.supergraph/strategic/frontier.md` — if it exists from a prior `/deep-followup`
 
 ### 1b. Current codebase state
 
 Use the same chunked parallel reading strategy as `/deep-strategic`:
-1. `audit/supergraph.txt` — full module graph
-2. `audit/symbols.txt` — every symbol with tiered detail (use parallel chunked reads)
+1. `.supergraph/supergraph.txt` — full module graph
+2. `.supergraph/symbols.txt` — every symbol with tiered detail (use parallel chunked reads)
 3. Root `package.json`, `README.md`, `CLAUDE.md`
 
 ### 1c. Diff layer — what changed since the strategic review
@@ -84,10 +84,10 @@ Read any files that changed significantly since the strategic brief was written.
 ### 1d. Per-package analysis data
 
 Read the JSON analysis outputs that the pipeline now generates:
-- `audit/packages/*/json/logic-audit.json` — decision gaps, guard issues
-- `audit/packages/*/json/discovery.json` — invariant candidates, pure functions, hubs, duplicates
-- `audit/packages/*/json/taint.json` — taint analysis results
-- `audit/packages/*/json/map.json` — module graph (skim for structure)
+- `.supergraph/packages/*/json/logic-audit.json` — decision gaps, guard issues
+- `.supergraph/packages/*/json/discovery.json` — invariant candidates, pure functions, hubs, duplicates
+- `.supergraph/packages/*/json/taint.json` — taint analysis results
+- `.supergraph/packages/*/json/map.json` — module graph (skim for structure)
 
 These tell you what the tool finds when it analyzes ITSELF. Self-referential insights are gold — they show both the tool's power and its blind spots.
 
@@ -231,8 +231,8 @@ Based on scope:
 5. Present the diff and what it enables
 
 ### If the direction requires more than one session:
-1. Write `audit/strategic/frontier.md` with the full design document
-2. Update `audit/strategic/moves.md` with the new moves (append, don't replace)
+1. Write `.supergraph/strategic/frontier.md` with the full design document
+2. Update `.supergraph/strategic/moves.md` with the new moves (append, don't replace)
 3. Implement ONLY the first commit
 4. Present what's done and what's next
 

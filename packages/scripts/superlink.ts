@@ -21,11 +21,11 @@
  * Kolmogorov complexity, better LLM context efficiency than supergraph.txt.
  *
  * Reads:
- *   audit/packages/<pkg>/json/map.json  (raw per-package module data from audit-prep)
- *   audit/superflows.json               (endpoints + hooks, from superflow.ts)
- *   audit/superschema.json              (schemas + tables + redis, from superschema.ts)
+ *   .supergraph/packages/<pkg>/json/map.json  (raw per-package module data from audit-prep)
+ *   .supergraph/superflows.json               (endpoints + hooks, from superflow.ts)
+ *   .supergraph/superschema.json              (schemas + tables + redis, from superschema.ts)
  *
- * Writes: audit/superlink.txt  (configurable via config.json → superlink.output)
+ * Writes: .supergraph/superlink.txt  (configurable via config.json → superlink.output)
  *
  * Usage: bun superlink.ts [--out <path>] [--fresh]
  *   --fresh  Re-run the three source scripts before building the fused output.
@@ -55,8 +55,8 @@ import {
 } from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
-const AUDIT = resolve(ROOT, "audit");
-const PKGS = resolve(ROOT, "audit/packages");
+const AUDIT = resolve(ROOT, ".supergraph");
+const PKGS = resolve(ROOT, ".supergraph/packages");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
 
 const outPath = resolveOutPath(
   args,
-  resolve(ROOT, slCfg.output ?? "audit/superlink.txt"),
+  resolve(ROOT, slCfg.output ?? ".supergraph/superlink.txt"),
 );
 
 console.log("Building superlink…");

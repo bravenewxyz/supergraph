@@ -7,14 +7,14 @@
  *   2. Drizzle ORM  — PostgreSQL table definitions
  *   3. Redis keys   — key-value / JSON / search data store
  *
- * Config-driven via audit/config.json → superschema:
+ * Config-driven via .supergraph/config.json → superschema:
  *   zodDirs        — directories containing Zod schema .ts files
  *   drizzleFiles   — Drizzle ORM schema files (pgTable / pgEnum)
  *   redisModelDirs — directories with Redis model files (for key inference)
  *
  * Outputs:
- *   audit/datashape.txt      — full human-readable data model
- *   audit/datashape.map.txt  — compact one-line-per-schema map
+ *   .supergraph/datashape.txt      — full human-readable data model
+ *   .supergraph/datashape.map.txt  — compact one-line-per-schema map
  *
  * Usage: bun devtools/scripts/superschema.ts [--out <path>]
  */
@@ -2360,7 +2360,7 @@ const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
   console.log("Usage: bun superschema.ts [--out <path>]");
   console.log(
-    "  Generates audit/superschema.txt — full data model (Zod + PostgreSQL + Redis + TS types)",
+    "  Generates .supergraph/superschema.txt — full data model (Zod + PostgreSQL + Redis + TS types)",
   );
   process.exit(0);
 }
@@ -2369,7 +2369,7 @@ const outArg = args.indexOf("--out");
 const outPath =
   outArg !== -1
     ? resolve(process.cwd(), args[outArg + 1]!)
-    : resolve(ROOT, "audit/superschema.txt");
+    : resolve(ROOT, ".supergraph/superschema.txt");
 
 const cfg = await loadConfig(ROOT);
 
@@ -2465,7 +2465,7 @@ const htmlPath = outPath.replace(/\.txt$/, ".html");
 if (args.includes("--json")) {
   process.stdout.write(htmlData);
 } else {
-  await mkdir(resolve(ROOT, "audit"), { recursive: true });
+  await mkdir(resolve(ROOT, ".supergraph"), { recursive: true });
   await Promise.all([Bun.write(outPath, full), Bun.write(htmlPath, html)]);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   console.log(`\nDone in ${elapsed}s`);

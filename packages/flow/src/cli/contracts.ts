@@ -609,7 +609,7 @@ export async function runContracts(opts: ContractsOptions): Promise<string> {
   if (!feSrcDir) {
     const skipMsg = format === "json"
       ? JSON.stringify({ skipped: true, reason: "No frontend src dir configured or auto-detected" })
-      : "Skipped: no frontend src dir (pass feSrcDir, set frontend.src in audit/config.json, or ensure a recognizable FE directory exists)";
+      : "Skipped: no frontend src dir (pass feSrcDir, set frontend.src in .supergraph/config.json, or ensure a recognizable FE directory exists)";
     await writeOutput(skipMsg, opts.outFile);
     return skipMsg;
   }

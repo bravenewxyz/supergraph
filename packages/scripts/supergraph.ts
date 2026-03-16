@@ -1012,7 +1012,7 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   PROJECT_NAME = basename(root);
 
   const cfg = await loadConfig(root);
-  const auditDir = resolve(root, "audit/packages");
+  const auditDir = resolve(root, ".supergraph/packages");
   const packagesDir = cfg.workspace.packagesDir ?? "packages";
   EXT_ALIASES = cfg.supergraph.extAliases as [string, string][];
   PATH_SEGS = cfg.supergraph.pathSegments as [string, string][];
@@ -1030,9 +1030,9 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   if (data.stats.missing.length)
     console.log(`  ⚠  No data for: ${data.stats.missing.join(", ")}`);
 
-  const outPath = resolve(root, "audit/supergraph.html");
-  const issuesPath = resolve(root, "audit/issues.txt");
-  await mkdir(resolve(root, "audit"), { recursive: true });
+  const outPath = resolve(root, ".supergraph/supergraph.html");
+  const issuesPath = resolve(root, ".supergraph/issues.txt");
+  await mkdir(resolve(root, ".supergraph"), { recursive: true });
   const html = generateHtml(data);
   const issues = generateIssuesTxt(data);
 

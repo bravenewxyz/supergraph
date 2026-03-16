@@ -4,7 +4,7 @@ Read the supergraph-compact.txt file to get a high-level understanding of the en
 
 ## Instructions
 
-1. Find `audit/supergraph-compact.txt` in the current project. If it doesn't exist, run `supergraph --no-anim` to generate it.
+1. Find `.supergraph/supergraph-compact.txt` in the current project. If it doesn't exist, run `supergraph --no-anim` to generate it.
 2. Read the entire file — every line, no truncation, no skipping. Read it in chunks if needed until you have consumed all of it.
 3. After reading, confirm: "Read supergraph-compact.txt — [N] lines." and nothing else unless the user asks a follow-up question.
 4. You now have the full architectural context. Answer any follow-up questions using this knowledge.

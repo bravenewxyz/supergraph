@@ -32,13 +32,13 @@ This discovers all packages, runs every analysis tool in parallel, and generates
 
 | File | What | Size |
 |---|---|---|
-| `audit/supergraph.txt` | Unified map: domains, schemas, modules, types, edges | ~10KB |
-| `audit/supergraph-compact.txt` | Compressed version for AI context windows | ~8KB |
-| `audit/symbols.txt` | Every symbol with tiered detail (signatures + selective bodies) | ~2MB |
-| `audit/symbols-full.txt` | Every symbol with full source bodies | ~10MB |
-| `audit/supergraph.html` | Interactive graph visualization | |
-| `audit/packages/<name>/` | Per-package analysis (map, complexity, dead exports, logic audit) | |
-| `audit/packages/<name>/dashboard.html` | Interactive audit dashboard | |
+| `.supergraph/supergraph.txt` | Unified map: domains, schemas, modules, types, edges | ~10KB |
+| `.supergraph/supergraph-compact.txt` | Compressed version for AI context windows | ~8KB |
+| `.supergraph/symbols.txt` | Every symbol with tiered detail (signatures + selective bodies) | ~2MB |
+| `.supergraph/symbols-full.txt` | Every symbol with full source bodies | ~10MB |
+| `.supergraph/supergraph.html` | Interactive graph visualization | |
+| `.supergraph/packages/<name>/` | Per-package analysis (map, complexity, dead exports, logic audit) | |
+| `.supergraph/packages/<name>/dashboard.html` | Interactive audit dashboard | |
 
 ### Individual commands
 
@@ -61,7 +61,7 @@ All commands support `--format text|json`, `--out <file>`, and `--root <path>`.
 
 ## The output
 
-Running `supergraph` produces `audit/supergraph.txt` — a unified, domain-aware map of your entire codebase:
+Running `supergraph` produces `.supergraph/supergraph.txt` — a unified, domain-aware map of your entire codebase:
 
 ```
 SUPERGRAPH | myapp | 2026-03-05
@@ -88,7 +88,7 @@ GuildResponse { id:num name:str urlName:str roles:Role[] +6 }
 
 Domains, schemas, modules, types, and edges in one file. An agent reads it once and knows the entire architecture.
 
-For source-level detail, `audit/symbols-full.txt` contains every function body, every type definition, every signature — the complete codebase in one text file.
+For source-level detail, `.supergraph/symbols-full.txt` contains every function body, every type definition, every signature — the complete codebase in one text file.
 
 ## Claude Code commands
 

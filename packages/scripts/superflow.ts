@@ -6,10 +6,10 @@
  * extracts each endpoint, traces it through its handler → controller → ops,
  * and cross-references frontend mutation hooks.
  *
- * Configuration: audit/config.json → "superflows" section.
+ * Configuration: .supergraph/config.json → "superflows" section.
  * Portable: works on any Hono + Next.js monorepo by adjusting that config.
  *
- * Output: audit/superflows.txt  (configurable via superflows.output)
+ * Output: .supergraph/superflows.txt  (configurable via superflows.output)
  * Usage:  bun superflow.ts [--out <path>] [--verbose]
  */
 
@@ -20,7 +20,7 @@ import { findFiles, parseRootArg, readFile } from "./utils.js";
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 const VERBOSE = process.argv.includes("--verbose");
 
-// ─── Config (read from audit/config.json) ────────────────────────────────────
+// ─── Config (read from .supergraph/config.json) ────────────────────────────────────
 
 /**
  * JSON-serializable route source as stored in config.json.
@@ -55,7 +55,7 @@ type Config = {
   };
 };
 
-const CONFIG_PATH = resolve(ROOT, "audit/config.json");
+const CONFIG_PATH = resolve(ROOT, ".supergraph/config.json");
 const cfg: Config = JSON.parse((await readFile(CONFIG_PATH)) ?? "{}");
 const sfCfg = cfg.superflows ?? {};
 
@@ -1655,9 +1655,9 @@ const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
   console.log("Usage: bun superflow.ts [--out <path>] [--verbose]");
   console.log(
-    `  Generates ${sfCfg.output ?? "audit/superflows.txt"} by auto-discovering all endpoints and hooks.`,
+    `  Generates ${sfCfg.output ?? ".supergraph/superflows.txt"} by auto-discovering all endpoints and hooks.`,
   );
-  console.log("  Configuration: audit/config.json → superflows section");
+  console.log("  Configuration: .supergraph/config.json → superflows section");
   console.log("  --verbose  also dumps extracted controller function bodies");
   process.exit(0);
 }
@@ -1666,7 +1666,7 @@ const outArg = args.indexOf("--out");
 const outPath =
   outArg !== -1
     ? resolve(process.cwd(), args[outArg + 1])
-    : resolve(ROOT, sfCfg.output ?? "audit/superflows.txt");
+    : resolve(ROOT, sfCfg.output ?? ".supergraph/superflows.txt");
 
 console.log("Discovering flows...");
 const t0 = Date.now();
@@ -1677,7 +1677,7 @@ const exportJSON = buildExportJSON(data);
 if (args.includes("--json")) {
   process.stdout.write(JSON.stringify(exportJSON));
 } else {
-  await mkdir(resolve(ROOT, "audit"), { recursive: true });
+  await mkdir(resolve(ROOT, ".supergraph"), { recursive: true });
   const txt = generateFlowsTxt(data);
   const htmlPath = outPath.replace(/\.txt$/, ".html");
   const html = generateFlowsHTML(exportJSON);

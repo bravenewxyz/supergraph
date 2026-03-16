@@ -18,10 +18,10 @@ Perform a systematic, multi-pass audit of a TypeScript package. Finds duplicate 
 
 ## Output directory
 
-**ALL output goes under `audit/<package-name>/`.** Never write findings, plans, or any artifacts inside the source tree. The package name is derived from the argument path (e.g. `packages/orchestrator/src` → `orchestrator`).
+**ALL output goes under `.supergraph/<package-name>/`.** Never write findings, plans, or any artifacts inside the source tree. The package name is derived from the argument path (e.g. `packages/orchestrator/src` → `orchestrator`).
 
 ```
-audit/<package-name>/
+.supergraph/<package-name>/
   map.txt  deps.txt  imports.txt  complexity.txt  dead.txt
   findings.md  schema-match.txt  trace-boundaries.txt  logic-audit.txt
   invariants/   discovery.txt  invariants.json  tests/  README.md
@@ -57,13 +57,13 @@ supergraph --no-anim
 
 If `supergraph` is not installed: `brew install bravenewxyz/supergraph/supergraph`.
 
-The CLI automatically adds `audit/` to `.gitignore` if not already present. If for some reason it didn't, ensure `audit/` is gitignored before proceeding.
+The CLI automatically adds `.supergraph/` to `.gitignore` if not already present. If for some reason it didn't, ensure `.supergraph/` is gitignored before proceeding.
 
 Then focus the deep audit (Phases 1–10) on the requested packages.
 
 ## Phase 1: Read the map
 
-Read `audit/supergraph.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
+Read `.supergraph/supergraph.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
 - `+` exported, ` ` unexported | `fn` function | `L42-55` line range
 - `←` internal deps | `←ext` external deps | `━━━ module ━━━` separator
 
@@ -286,7 +286,7 @@ Rules for this file:
 
 Group findings into **1–12 plans** as coherent work sessions. Each plan references issues by their number. Order: Security → Correctness → Data integrity → Concurrency → Core pipeline → Infrastructure → Polish → Large refactors.
 
-Write to `audit/<package-name>/plans/`.
+Write to `.supergraph/<package-name>/plans/`.
 
 ### 8d. Plan format
 

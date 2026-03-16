@@ -702,7 +702,7 @@ export async function runPkgGraph(opts: PkgGraphOptions): Promise<void> {
     opts.root,
   );
 
-  const outPath = opts.outPath ?? resolve(opts.root, "audit/pkg-graph.html");
+  const outPath = opts.outPath ?? resolve(opts.root, ".supergraph/pkg-graph.html");
   await mkdir(dirname(outPath), { recursive: true });
   await Bun.write(outPath, generateHtml(data));
 

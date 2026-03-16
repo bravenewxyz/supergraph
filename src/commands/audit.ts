@@ -82,11 +82,11 @@ async function ensureGitignore(root: string): Promise<void> {
   try {
     const content = await readFile(gitignorePath, "utf-8");
     const lines = content.split("\n");
-    if (lines.some(l => l.trim() === "audit/" || l.trim() === "audit")) return;
-    await appendFile(gitignorePath, `${content.endsWith("\n") ? "" : "\n"}audit/\n`);
+    if (lines.some(l => l.trim() === ".supergraph/" || l.trim() === ".supergraph")) return;
+    await appendFile(gitignorePath, `${content.endsWith("\n") ? "" : "\n"}.supergraph/\n`);
   } catch {
     // No .gitignore exists — create one
-    await writeFile(gitignorePath, "audit/\n");
+    await writeFile(gitignorePath, ".supergraph/\n");
   }
 }
 
@@ -638,7 +638,7 @@ Usage:
 
   const devtoolsRoot = resolve(import.meta.dir, "../..");
 
-  // Ensure audit/ is in .gitignore
+  // Ensure .supergraph/ is in .gitignore
   await ensureGitignore(ROOT);
 
   // Filter out flags and their values to get explicit dirs
@@ -691,7 +691,7 @@ Usage:
     if (srcDirs.length > 0) {
       tsTargets = srcDirs.map((srcDir) => {
         const pkgName = derivePkgName(srcDir, tsDriver);
-        const outDir = `audit/packages/${pkgName}`;
+        const outDir = `.supergraph/packages/${pkgName}`;
         return {
           srcDir,
           pkgName,
@@ -721,7 +721,7 @@ Usage:
     if (goDirs.length > 0) {
       goTargets = goDirs.map((goDir) => {
         const pkgName = derivePkgName(goDir, goDriver);
-        const outDir = `audit/packages/${pkgName}`;
+        const outDir = `.supergraph/packages/${pkgName}`;
         return {
           srcDir: goDir,
           pkgName,
@@ -820,7 +820,7 @@ Usage:
   anim?.update("cross-package analysis...");
 
   // Clean stale top-level cross-package artifacts
-  const AUDIT_DIR = resolve(ROOT, "audit");
+  const AUDIT_DIR = resolve(ROOT, ".supergraph");
   const STALE_ARTIFACTS = [
     "supergraph.html", "pkg-graph.html",
     "supergraph.txt", "supergraph-compact.txt",
@@ -923,7 +923,7 @@ Usage:
   }
 
   const totalProblems = totalFailures + crossFailures.length + superhighFailures.length;
-  const supergraphHtml = resolve(ROOT, "audit/supergraph.html");
+  const supergraphHtml = resolve(ROOT, ".supergraph/supergraph.html");
   const htmlExists = await stat(supergraphHtml).then(() => true).catch(() => false);
 
   if (!anim) {
@@ -949,7 +949,7 @@ Usage:
         console.log(`  ${C.red}✗${C.reset}  ${shLabels[i]}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
       }
     }
-    console.log(`  ${C.dim}→ audit/${C.reset}`);
+    console.log(`  ${C.dim}→ .supergraph/${C.reset}`);
   }
 
   // -----------------------------------------------------------------------
@@ -991,7 +991,7 @@ Usage:
     console.log(`\n${C.dim}${"═".repeat(60)}${C.reset}`);
     console.log(`${C.green}${C.bold}All ${totalPkgs} package(s) audited successfully.${C.reset}`);
     if (htmlExists) {
-      console.log(`\n  ${C.cyan}open audit/supergraph.html${C.reset}`);
+      console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
     }
     console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
     process.exit(0);
@@ -1025,7 +1025,7 @@ Usage:
 
     console.log(`\n${C.yellow}${totalProblems} issue(s)${C.reset} across ${totalPkgs} package(s)`);
     if (htmlExists) {
-      console.log(`\n  ${C.cyan}open audit/supergraph.html${C.reset}`);
+      console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
     }
     console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
 

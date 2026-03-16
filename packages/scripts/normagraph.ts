@@ -907,7 +907,7 @@ export interface NormagraphOptions {
 export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
   const root = opts.root;
   const detail: DetailLevel = opts.detail ?? "brief";
-  const auditDir = resolve(root, "audit/packages");
+  const auditDir = resolve(root, ".supergraph/packages");
 
   const label = detail === "full" ? "symbols-full" : `symbols (${detail})`;
   console.log(`Building ${label}...`);
@@ -915,8 +915,8 @@ export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
   const data = await buildNormagraph(auditDir, root);
   const text = renderNormagraph(data, detail);
 
-  await mkdir(resolve(root, "audit"), { recursive: true });
-  const outFile = detail === "full" ? "audit/symbols-full.txt" : "audit/symbols.txt";
+  await mkdir(resolve(root, ".supergraph"), { recursive: true });
+  const outFile = detail === "full" ? ".supergraph/symbols-full.txt" : ".supergraph/symbols.txt";
   const outPath = resolve(root, outFile);
   await Bun.write(outPath, text);
 

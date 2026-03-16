@@ -17,7 +17,7 @@ If `supergraph` is not installed, install it first:
 curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash
 ```
 
-This produces `audit/packages/<pkg>/json/map.json` for each discovered package, plus cross-package graphs.
+This produces `.supergraph/packages/<pkg>/json/map.json` for each discovered package, plus cross-package graphs.
 
 If it fails (single-package repo with no `packages/`), identify the source directory and run:
 ```bash
@@ -26,14 +26,14 @@ bun ~/.local/lib/supergraph/scripts/audit-prep.ts <src-dir>
 
 ## Phase 2: Generate audit config
 
-If `audit/config.json` already exists, read it and ask the user whether to regenerate or keep it. If keeping, skip to Phase 3.
+If `.supergraph/config.json` already exists, read it and ask the user whether to regenerate or keep it. If keeping, skip to Phase 3.
 
 ### Gather signals
 
 Read these to understand the repo:
 
 1. **Root `package.json`** — `name` (→ project), `workspaces` (→ package locations)
-2. **All `audit/packages/*/json/map.json`** — module paths, imports, exports, external deps
+2. **All `.supergraph/packages/*/json/map.json`** — module paths, imports, exports, external deps
 3. **Search for patterns**:
    - Route files: `**/*.route.ts`, `**/*.routes.ts`, `**/routes/**/*.ts`, `**/app/api/**/*.ts`
    - Schema files: grep for imports from `zod`, `drizzle-orm`
@@ -45,7 +45,7 @@ Read these to understand the repo:
 
 ### Build config
 
-Generate `audit/config.json`:
+Generate `.supergraph/config.json`:
 
 ```json
 {
@@ -107,7 +107,7 @@ Omit config sections where nothing was detected.
 
 ### Present to user
 
-Show the generated config. Ask if they want to adjust anything. Write `audit/config.json` after confirmation.
+Show the generated config. Ask if they want to adjust anything. Write `.supergraph/config.json` after confirmation.
 
 ## Phase 3: Full audit
 
@@ -116,6 +116,6 @@ Run:
 supergraph --no-anim
 ```
 
-This generates `audit/supergraph.txt` (the unified map), `audit/symbols.txt` (tiered symbol reference), and `audit/symbols-full.txt` (complete source bodies).
+This generates `.supergraph/supergraph.txt` (the unified map), `.supergraph/symbols.txt` (tiered symbol reference), and `.supergraph/symbols-full.txt` (complete source bodies).
 
 When complete, report: "Supergraph initialized — N packages, M modules."
