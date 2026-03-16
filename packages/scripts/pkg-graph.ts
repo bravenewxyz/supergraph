@@ -4,6 +4,7 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { findFiles, parseRootArg, readFile } from "./utils.js";
+import type { BaseGraphOutput } from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 
@@ -21,17 +22,12 @@ type PackageNode = {
   r: number;
 };
 
-type GraphData = {
-  generated: string;
-  nodes: PackageNode[];
-  edges: { source: number; target: number }[];
-  stats: {
-    total: number;
-    edgeCount: number;
-    byGroup: Record<string, number>;
-    byCategory: Record<string, number>;
-  };
-};
+type GraphData = BaseGraphOutput<PackageNode, { source: number; target: number }, {
+  total: number;
+  edgeCount: number;
+  byGroup: Record<string, number>;
+  byCategory: Record<string, number>;
+}>;
 
 function deriveCategory(rel: string): string {
   if (

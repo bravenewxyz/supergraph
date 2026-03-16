@@ -9,6 +9,7 @@ import {
   compressExtDep as _compressExtDep,
   type RawModule as BaseRawModule,
   type RawMap as BaseRawMap,
+  type BaseGraphOutput,
 } from "./shared.js";
 
 const ROOT = parseRootArg(process.cwd());
@@ -54,20 +55,16 @@ type SuperNode = {
 
 type SuperEdge = { source: number; target: number; cross: boolean };
 
-type SuperGraph = {
-  generated: string;
-  nodes: SuperNode[];
-  edges: SuperEdge[];
+type SuperGraph = BaseGraphOutput<SuperNode, SuperEdge, {
+  totalModules: number;
+  totalEdges: number;
+  crossEdges: number;
+  internalEdges: number;
+  byPackage: Record<string, number>;
+  missing: string[];
+}> & {
   packages: { short: string; pkgName: string; moduleCount: number }[];
   issueData: Record<string, IssueFiles>;
-  stats: {
-    totalModules: number;
-    totalEdges: number;
-    crossEdges: number;
-    internalEdges: number;
-    byPackage: Record<string, number>;
-    missing: string[];
-  };
 };
 
 async function loadIssueFiles(dir: string): Promise<IssueFiles> {

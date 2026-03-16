@@ -290,42 +290,69 @@ Write `plans/README.md`:
 
 ## Phase 9: Present to user
 
+### 9a. Fixability triage
+
+Before presenting, classify every issue into one of two buckets:
+
+- **Fixable** — you can write the code change right now with high confidence it's correct. This includes: dead code removal, adding missing switch cases, replacing unsafe casts, swapping API calls, type refactors, adding validation, fixing logic bugs, and complexity refactors (splitting large functions).
+- **Excluded** — you cannot or should not fix it autonomously. Assign a reason from this list:
+  - `needs-research` — requires investigating an external API, library internals, or runtime behavior you don't have docs for
+  - `design-decision` — multiple valid approaches; the user needs to choose (e.g., portability strategy, abstraction style)
+  - `upstream` — the root cause is in a dependency or external system, not this codebase
+  - `harmless` — technically an issue but has no practical impact and "fixing" it risks breaking things (e.g., barrel self-import cycles)
+  - `standard-pattern` — follows an established TypeScript/language idiom that isn't worth changing (e.g., exhaustive switch `as never`)
+
+**Be aggressive about what you can fix.** If a function is complex but self-contained, you can split it. If a cast is unsafe, you can add a type guard. If an API is Bun-specific, you can swap it for `fs/promises`. Default to "fixable" unless there's a concrete reason you can't.
+
+### 9b. Output format
+
 Output **only this** — nothing else:
 
 For a **single package**:
 ```
-<package-name>: <file-count> files, <line-count> lines — <N> issues found
+<package-name>: <file-count> files, <line-count> lines — <N> issues found (<fixable-count> fixable)
+
+## Fixable
 
  #  | sev      | location        | description
 ----|----------|-----------------|--------------------------------------------
  1  | critical | file.ts:42-55   | Race condition in concurrent queue drain
- 2  | high     | file.ts:80      | Swallowed error in catch block
  3  | medium   | other.ts:12     | Dead export: unusedHelper
  ...
 
-I can fix <X> of these now. Which issues? (numbers, ranges like 1-5, or "all")
+## Excluded
+
+ #  | sev      | location        | reason           | description
+----|----------|-----------------|------------------|---------------------------
+ 2  | medium   | graph.ts:10-14  | upstream         | Graphology CJS/ESM interop cast
+ 5  | low      | logic.ts:8      | harmless         | Self-import barrel cycle
+ ...
+
+Which issues to fix? (numbers, ranges like 1-5, or "all")
 ```
 
-For **multiple packages**, use a single unified table with globally unique numbers and a `pkg` column:
+For **multiple packages**, add a `pkg` column to both tables:
 ```
-3 packages audited: 126 files, 39,931 lines — 43 issues found
+3 packages audited: 126 files, 39,931 lines — 43 issues found (31 fixable)
+
+## Fixable
 
  #  | pkg     | sev      | location              | description
 ----|---------|----------|-----------------------|-----------------------------
  1  | flow    | high     | sym-executor.ts:545   | Swallowed error in Z3 fallback
- 2  | flow    | high     | sym-executor.ts:1411  | Silent catch in proof loop
- ...
- 19 | graph   | high     | graph-store.ts:301    | Unsafe JSON deserialization
- ...
- 33 | scripts | high     | shared.ts:19-67       | Duplicated type hierarchy
  ...
 
-I can fix <X> of these now. Which issues? (numbers, ranges like 1-5, or "all")
+## Excluded
+
+ #  | pkg     | sev      | location              | reason           | description
+----|---------|----------|-----------------------|------------------|------------------
+ 9  | graph   | medium   | graph-store.ts:10-14  | upstream         | Graphology CJS/ESM cast
+ ...
+
+Which issues to fix? (numbers, ranges like 1-5, or "all")
 ```
 
-Show the **full numbered issue list** from `findings.md`. Every issue gets one row. Numbers are **globally unique across all packages** — no restarting at 1 per package.
-
-**Choosing what to offer**: count how many issues are small/medium effort to fix (based on your assessment during Phase 3–7). Offer to fix that number. For example: "I can fix 14 of these now." Don't offer to fix issues that require major architectural changes, external service changes, or decisions only the user can make — but do include them in the list so the user sees them.
+Show **every issue** from `findings.md` in one of the two tables. Numbers are **globally unique across all packages** — no restarting at 1 per package. The "Fixable" table contains only issues you will fix if asked. The "Excluded" table shows everything else with a short reason.
 
 ---
 
@@ -335,7 +362,9 @@ The user responds with issue numbers. Parse their input:
 - Individual numbers: `1, 3, 7`
 - Ranges: `1-5`
 - Mixed: `1-3, 7, 12-15`
-- `all` = every issue you offered to fix
+- `all` = every issue in the **Fixable** table
+
+If the user requests an excluded issue by number, explain why it was excluded and ask if they want you to attempt it anyway.
 
 ### 10a. Group selected issues into execution batches
 

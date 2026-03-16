@@ -9,22 +9,19 @@ import type {
   GraphRawMap as RawMap,
   GraphNode as NormaNode,
   GraphEdge as NormaEdge,
+  BaseGraphOutput,
 } from "./shared.js";
 
-type NormaGraph = {
-  generated: string;
-  nodes: NormaNode[];
-  edges: NormaEdge[];
+type NormaGraph = BaseGraphOutput<NormaNode, NormaEdge, {
+  totalModules: number;
+  totalSymbols: number;
+  totalEdges: number;
+  crossEdges: number;
+  tier1Count: number;
+  tier2Count: number;
+  tier3Count: number;
+}> & {
   packages: { short: string; pkgName: string; moduleCount: number }[];
-  stats: {
-    totalModules: number;
-    totalSymbols: number;
-    totalEdges: number;
-    crossEdges: number;
-    tier1Count: number;
-    tier2Count: number;
-    tier3Count: number;
-  };
 };
 
 // ---------------------------------------------------------------------------

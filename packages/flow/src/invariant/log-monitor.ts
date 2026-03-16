@@ -148,10 +148,10 @@ function compareValues(lhs: unknown, op: Comparator, rhs: unknown): boolean {
     case "!==": return lhs !== rhs;
     case "==":  return lhs == rhs;  // eslint-disable-line eqeqeq
     case "!=":  return lhs != rhs;  // eslint-disable-line eqeqeq
-    case ">":   return (lhs as number) > (rhs as number);
-    case ">=":  return (lhs as number) >= (rhs as number);
-    case "<":   return (lhs as number) < (rhs as number);
-    case "<=":  return (lhs as number) <= (rhs as number);
+    case ">":   return Number(lhs) > Number(rhs);
+    case ">=":  return Number(lhs) >= Number(rhs);
+    case "<":   return Number(lhs) < Number(rhs);
+    case "<=":  return Number(lhs) <= Number(rhs);
     default:    return false;
   }
 }

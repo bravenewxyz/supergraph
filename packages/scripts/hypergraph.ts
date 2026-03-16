@@ -10,19 +10,16 @@ import type {
   GraphRawMap as RawMap,
   GraphNode as HyperNode,
   GraphEdge as HyperEdge,
+  BaseGraphOutput,
 } from "./shared.js";
 
-type HyperGraph = {
-  generated: string;
-  nodes: HyperNode[];
-  edges: HyperEdge[];
+type HyperGraph = BaseGraphOutput<HyperNode, HyperEdge, {
+  totalModules: number;
+  totalSymbols: number;
+  totalEdges: number;
+  crossEdges: number;
+}> & {
   packages: { short: string; pkgName: string; moduleCount: number }[];
-  stats: {
-    totalModules: number;
-    totalSymbols: number;
-    totalEdges: number;
-    crossEdges: number;
-  };
 };
 
 // ---------------------------------------------------------------------------

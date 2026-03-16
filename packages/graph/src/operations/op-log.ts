@@ -103,6 +103,8 @@ export class OperationLog {
   /**
    * Read an NDJSON file and rebuild all indexes from it.
    * Existing in-memory entries are cleared first.
+   *
+   * Note: Uses Bun.file() API — requires Bun runtime.
    */
   async replay(filePath: string): Promise<void> {
     this.entries = [];
@@ -118,12 +120,17 @@ export class OperationLog {
     const text = await file.text();
     const lines = text.split("\n").filter((l) => l.trim().length > 0);
 
+    let skipped = 0;
     for (const line of lines) {
       const entry = JSON.parse(line);
       if (!entry?.id || !entry?.op || !entry?.agentId || typeof entry?.lamport !== "number") {
+        skipped++;
         continue;
       }
-      if (!entry.op.type) continue;
+      if (!entry.op.type) {
+        skipped++;
+        continue;
+      }
       if (typeof entry.batchId !== "string") entry.batchId = entry.id;
       if (!Array.isArray(entry.symbolIds)) entry.symbolIds = [];
       if (typeof entry.timestamp !== "number") entry.timestamp = 0;
@@ -133,6 +140,10 @@ export class OperationLog {
         this.lamport = entry.lamport;
       }
     }
+
+    if (skipped > 0) {
+      console.warn(`op-log replay: skipped ${skipped} malformed entries in ${filePath}`);
+    }
   }
 
   // --- Compaction ---
@@ -140,6 +151,8 @@ export class OperationLog {
   /**
    * Write a snapshot of the current graph state alongside the log.
    * This allows future replays to start from this checkpoint.
+   *
+   * Note: Uses Bun.write() API — requires Bun runtime.
    */
   async snapshot(graphStore: { export(): { nodes: unknown[]; edges: unknown[] } }): Promise<void> {
     if (!this.filePath) return;

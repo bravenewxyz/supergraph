@@ -306,10 +306,15 @@ export class GraphStore {
     if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
       throw new Error("Invalid SerializedGraph: expected { nodes: [], edges: [] }");
     }
+    const VALID_SYMBOL_KINDS = new Set(["module", "function", "method", "class", "interface", "type-alias", "enum", "enum-member", "variable", "parameter", "property", "test", "namespace"]);
+    const VALID_EDGE_KINDS = new Set(["contains", "calls", "imports", "extends", "implements", "references", "tests", "depends-on"]);
     for (let i = 0; i < data.nodes.length; i++) {
       const n = data.nodes[i];
       if (!n.id || !n.kind || !n.qualifiedName) {
         throw new Error(`Invalid SymbolNode at index ${i}: missing id, kind, or qualifiedName`);
+      }
+      if (!VALID_SYMBOL_KINDS.has(n.kind)) {
+        throw new Error(`Invalid SymbolKind "${n.kind}" at node index ${i}`);
       }
       if (typeof n.version !== "number") n.version = 0;
       if (!Array.isArray(n.modifiers)) n.modifiers = [];
@@ -320,6 +325,9 @@ export class GraphStore {
       const e = data.edges[i];
       if (!e.id || !e.kind || !e.sourceId || !e.targetId) {
         throw new Error(`Invalid SymbolEdge at index ${i}: missing id, kind, sourceId, or targetId`);
+      }
+      if (!VALID_EDGE_KINDS.has(e.kind)) {
+        throw new Error(`Invalid EdgeKind "${e.kind}" at edge index ${i}`);
       }
     }
     this.import(data as SerializedGraph);

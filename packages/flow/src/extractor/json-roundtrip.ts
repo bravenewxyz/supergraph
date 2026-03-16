@@ -201,6 +201,25 @@ function findJsonLosses(
         }
         break;
       }
+      // Leaf types — no sub-structure to recurse into when kinds match
+      case "primitive":
+      case "literal":
+      case "enum":
+      case "date":
+      case "regex":
+      case "function":
+      case "map":
+      case "set":
+      case "promise":
+      case "opaque":
+        break;
+      case "ref": {
+        const afterRef = afterJson as Extract<ShapeType, { kind: "ref" }>;
+        if (original.resolved && afterRef.resolved) {
+          findJsonLosses(original.resolved, afterRef.resolved, path, out);
+        }
+        break;
+      }
     }
     return;
   }

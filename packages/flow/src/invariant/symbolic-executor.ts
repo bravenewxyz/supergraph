@@ -551,9 +551,6 @@ function evalBinary(Z3: Z3Context, expr: ts.BinaryExpression, state: SymState): 
 
   // in operator
   if (op === ts.SyntaxKind.InKeyword) {
-    if (right.kind === "object" && left.kind === "z3" && left.sort === "string") {
-      return { kind: "concrete", value: undefined };
-    }
     return { kind: "concrete", value: undefined };
   }
 
@@ -581,11 +578,11 @@ function evalCompoundAssignment(Z3: Z3Context, expr: ts.BinaryExpression, op: ts
       case ts.SyntaxKind.PercentEqualsToken: result = { kind: "z3", expr: left.expr.mod(right.expr), sort: "int" }; break;
     }
   }
-  if (op === ts.SyntaxKind.BarBarEqualsToken) {
+  else if (op === ts.SyntaxKind.BarBarEqualsToken) {
     const lb = toZ3Bool(Z3, left);
     result = lb ? left : right;
   }
-  if (op === ts.SyntaxKind.QuestionQuestionEqualsToken) {
+  else if (op === ts.SyntaxKind.QuestionQuestionEqualsToken) {
     result = (left.kind === "null" || left.kind === "undefined") ? right : left;
   }
 

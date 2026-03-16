@@ -82,6 +82,14 @@ export type GraphNode = {
 
 export type GraphEdge = { source: number; target: number; cross: boolean };
 
+/** Base shape shared by all graph output types (hypergraph, normagraph, supergraph, pkg-graph). */
+export type BaseGraphOutput<N, E, S extends Record<string, unknown>> = {
+  generated: string;
+  nodes: N[];
+  edges: E[];
+  stats: S;
+};
+
 // ─── Flow / endpoint types ────────────────────────────────────────────────────
 
 export type FlowEndpoint = {
@@ -236,13 +244,13 @@ export async function loadAllMaps(
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
       .sort();
-  } catch {}
+  } catch { /* packages dir unreadable */ }
   for (const short of entries) {
     try {
       const raw = await readFile(join(pkgsDir, short, "json/map.json"));
       if (!raw) continue;
       result.set(short, { short, map: JSON.parse(raw) });
-    } catch {}
+    } catch { /* map.json unreadable or malformed — skip package */ }
   }
   return result;
 }
