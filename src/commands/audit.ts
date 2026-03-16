@@ -35,7 +35,6 @@ import { runInvariantDiscover } from "../../packages/flow/src/cli/invariant.js";
 import { runAggregate } from "../../packages/scripts/supergraph.js";
 import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
-import { runHypergraph } from "../../packages/scripts/hypergraph.js";
 import { runNormagraph } from "../../packages/scripts/normagraph.js";
 
 // UI
@@ -775,9 +774,9 @@ Usage:
   // Clean stale top-level cross-package artifacts
   const AUDIT_DIR = resolve(ROOT, "audit");
   const STALE_ARTIFACTS = [
-    "supergraph.txt", "supergraph.html", "pkg-graph.html",
-    "superhigh.txt", "superhigh-shortcut.txt",
-    "hypergraph.txt", "normagraph.txt", "issues.txt",
+    "supergraph.html", "pkg-graph.html",
+    "supergraph.txt", "supergraph-compact.txt",
+    "symbols-full.txt", "symbols.txt", "issues.txt",
   ];
   await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
 
@@ -787,8 +786,8 @@ Usage:
     withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph"),
     withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate"),
     withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
-    withTimeout(runHypergraph({ root: ROOT }), CROSS_TIMEOUT, "hypergraph"),
-    withTimeout(runNormagraph({ root: ROOT }), CROSS_TIMEOUT, "normagraph"),
+    withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph"),
+    withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph"),
   ]);
   unmuteCross();
 
@@ -836,7 +835,7 @@ Usage:
   // -----------------------------------------------------------------------
   // Tally failures (while animation still runs)
   // -----------------------------------------------------------------------
-  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph", "normagraph"];
+  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "symbols-full", "symbols"];
   const crossFailures: string[] = [];
   for (let i = 0; i < crossResults.length; i++) {
     const r = crossResults[i]!;
@@ -847,7 +846,7 @@ Usage:
   }
 
   const superhighFailures: string[] = [];
-  const superhighNames = ["superhigh --full", "superhigh shortcut"];
+  const superhighNames = ["supergraph.txt", "supergraph-compact.txt"];
   for (let i = 0; i < superhighResults.length; i++) {
     const r = superhighResults[i]!;
     if (r.status === "rejected") {
@@ -862,7 +861,7 @@ Usage:
 
   if (!anim) {
     console.log(`\n${C.dim}━━${C.reset} ${C.bold}cross-package${C.reset} ${C.dim}${"━".repeat(43)}${C.reset}`);
-    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "hypergraph", "normagraph"];
+    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "symbols-full", "symbols"];
     for (let i = 0; i < crossResults.length; i++) {
       const r = crossResults[i]!;
       const label = crossLabels[i]!;
@@ -873,7 +872,7 @@ Usage:
         console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
       }
     }
-    const shLabels = ["superhigh", "superhigh-shortcut"];
+    const shLabels = ["supergraph.txt", "supergraph-compact.txt"];
     for (let i = 0; i < superhighResults.length; i++) {
       const r = superhighResults[i]!;
       if (r.status === "fulfilled") {

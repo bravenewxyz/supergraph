@@ -113,12 +113,9 @@ Show the generated config. Ask if they want to adjust anything. Write `audit/con
 
 Run:
 ```bash
-bun ~/.local/lib/supergraph/scripts/superhigh.ts --root .
+supergraph --no-anim
 ```
 
-If superhigh.ts is not there, locate it:
-```bash
-ls "$(dirname "$(which supergraph)")/../lib/supergraph/scripts/superhigh.ts"
-```
+This generates `audit/supergraph.txt` (the unified map), `audit/symbols.txt` (tiered symbol reference), and `audit/symbols-full.txt` (complete source bodies).
 
 When complete, report: "Supergraph initialized — N packages, M modules."

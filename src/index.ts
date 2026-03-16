@@ -99,11 +99,11 @@ Commands:
   invariant <subcmd>      Invariant verification system
   aggregate               Build cross-package supergraph visualization
   pkg-graph               Build package dependency visualization
-  superhigh               Generate unified superhigh.txt / superhigh-shortcut.txt
+  superhigh               Generate unified supergraph.txt / supergraph-compact.txt
 
 The full pipeline also generates:
-  audit/superhigh.txt             Unified map: domains + schemas + modules + types
-  audit/superhigh-shortcut.txt    Compressed version for AI context windows
+  audit/supergraph.txt            Unified map: domains + schemas + modules + types
+  audit/supergraph-compact.txt    Compressed version for AI context windows
 
 Global options:
   --root <path>           Target repo root (default: cwd)

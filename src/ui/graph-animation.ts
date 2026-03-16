@@ -498,7 +498,7 @@ else if (import.meta.main) {
     [7.0, "tracing dependencies..."],
     [9.0, "detecting cross-package edges..."],
     [11.0, "compressing symbols..."],
-    [13.0, "writing superhigh.txt..."],
+    [13.0, "writing supergraph.txt..."],
     [15.0, "generating visualization..."],
     [17.0, "done — press enter to exit"],
   ] as const;

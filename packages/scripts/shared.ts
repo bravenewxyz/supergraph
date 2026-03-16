@@ -33,7 +33,7 @@ export type RawMap = {
 };
 
 // ─── Rich graph data types ───────────────────────────────────────────────────
-// Used by hypergraph.ts, normagraph.ts, and similar scripts that need full
+// Used by normagraph.ts (--detail sig/brief/full) and similar scripts that need full
 // symbol data (richer than the compact RawModule used by supergraph/superhigh).
 
 export type GraphRawSymbol = {
@@ -75,7 +75,7 @@ export type GraphNode = {
 
 export type GraphEdge = { source: number; target: number; cross: boolean };
 
-/** Base shape shared by all graph output types (hypergraph, normagraph, supergraph, pkg-graph). */
+/** Base shape shared by all graph output types (symbols-full, symbols, supergraph, pkg-graph). */
 export type BaseGraphOutput<N, E, S extends Record<string, unknown>> = {
   generated: string;
   nodes: N[];

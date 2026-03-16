@@ -34,7 +34,7 @@ Read these files **in their entirety** (never skim or chunk). Pass full content 
 
 | File | Contains |
 |---|---|
-| `superhigh.txt` | Unified monorepo map: domains, schemas, modules, types, edges |
+| `supergraph.txt` | Unified monorepo map: domains, schemas, modules, types, edges |
 | `map.txt` | Per-module symbols, functions, types, variables, comments, deps |
 | `deps.txt` | Full dependency graph — every module → its internal deps |
 | `imports.txt` | All modules sorted by inbound edge count |
@@ -63,7 +63,7 @@ Then focus the deep audit (Phases 1–10) on the requested packages.
 
 ## Phase 1: Read the map
 
-Read `audit/superhigh.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
+Read `audit/supergraph.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
 - `+` exported, ` ` unexported | `fn` function | `L42-55` line range
 - `←` internal deps | `←ext` external deps | `━━━ module ━━━` separator
 

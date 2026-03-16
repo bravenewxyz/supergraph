@@ -28,7 +28,7 @@
  *   audit/superflows.json               (endpoints + hooks)
  *   audit/superschema.json              (zod, sql, redis, ts types)
  *
- * Writes: audit/superhigh.txt
+ * Writes: audit/supergraph.txt
  * Usage:  bun superhigh.ts [--out <path>] [--fresh]
  */
 
@@ -68,10 +68,10 @@ if (args.includes("--help") || args.includes("-h")) {
   console.log("  Full unified audit: domain blocks + packages + TS types.");
   console.log("  --fresh  Re-run source scripts first.");
   console.log(
-    "  --full   Full paths + auto-grouped dirs → superhigh.txt  (default)",
+    "  --full   Full paths + auto-grouped dirs → supergraph.txt  (default)",
   );
   console.log(
-    "           Omit for compressed shortcut → superhigh-shortcut.txt",
+    "           Omit for compressed shortcut → supergraph-compact.txt",
   );
   process.exit(0);
 }
@@ -95,8 +95,8 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
 const outPath = resolveOutPath(
   args,
   FULL
-    ? resolve(ROOT, "audit/superhigh.txt")
-    : resolve(ROOT, "audit/superhigh-shortcut.txt"),
+    ? resolve(ROOT, "audit/supergraph.txt")
+    : resolve(ROOT, "audit/supergraph-compact.txt"),
 );
 
 console.log("Building superhigh…");

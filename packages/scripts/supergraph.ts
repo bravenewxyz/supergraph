@@ -6,7 +6,6 @@ import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
 import {
   compressPath as _compressPath,
-  compressExtDep as _compressExtDep,
   type RawModule as BaseRawModule,
   type RawMap as BaseRawMap,
   type BaseGraphOutput,
@@ -309,178 +308,6 @@ async function buildSupergraph(
   };
 }
 
-function generateTxt(data: SuperGraph): string {
-  const lines: string[] = [];
-  const bar = (ch: string, n = 64) => ch.repeat(n);
-
-  lines.push("MONOREPO SUPERGRAPH");
-  lines.push(`Generated: ${data.generated}`);
-  lines.push("");
-
-  lines.push("STATS");
-  lines.push(
-    `  ${data.stats.totalModules} modules  ·  ${data.stats.internalEdges} internal edges  ·  ${data.stats.crossEdges} cross-package edges`,
-  );
-  if (data.stats.missing.length) {
-    lines.push(`  ⚠  Missing audit data: ${data.stats.missing.join(", ")}`);
-  }
-  lines.push("");
-
-  lines.push(bar("─"));
-  lines.push("PACKAGES");
-  lines.push(bar("─"));
-  for (const p of data.packages) {
-    lines.push(
-      `  ${p.short.padEnd(32)} ${p.pkgName.padEnd(36)} ${p.moduleCount} modules`,
-    );
-  }
-  lines.push("");
-
-  lines.push(bar("─"));
-  lines.push("MODULES");
-  lines.push(bar("─"));
-
-  const nodesByPkg: Record<string, SuperNode[]> = {};
-  for (const n of data.nodes) {
-    if (!nodesByPkg[n.pkg]) nodesByPkg[n.pkg] = [];
-    nodesByPkg[n.pkg].push(n);
-  }
-
-  const importedBy: Record<number, number[]> = {};
-  const crossEdges: SuperEdge[] = [];
-  for (const e of data.edges) {
-    if (!importedBy[e.target]) importedBy[e.target] = [];
-    importedBy[e.target].push(e.source);
-    if (e.cross) crossEdges.push(e);
-  }
-
-  for (const pkg of data.packages) {
-    const mods = nodesByPkg[pkg.short] ?? [];
-    lines.push(`[${pkg.short}]  (${pkg.pkgName})`);
-    for (const n of mods) {
-      const expSymbols = n.symbols.filter((s) => s.exported);
-      const symStr =
-        expSymbols.length > 0
-          ? expSymbols
-              .slice(0, 8)
-              .map((s) => s.name)
-              .join(", ") +
-            (expSymbols.length > 8 ? ` …+${expSymbols.length - 8}` : "")
-          : "(no exports)";
-      const inb = importedBy[n.idx]?.length ?? 0;
-      const inbStr = inb > 0 ? `  ←${inb}` : "";
-      lines.push(
-        `  ${n.originalPath.replace(/^src\//, "").padEnd(52)} [${n.stats.exportedSymbols}/${n.stats.totalSymbols}]${inbStr}  ${symStr}`,
-      );
-      if (n.externalDeps.length > 0) {
-        lines.push(
-          `    ext: ${n.externalDeps.slice(0, 6).join(", ")}${n.externalDeps.length > 6 ? " …" : ""}`,
-        );
-      }
-    }
-    lines.push("");
-  }
-
-  lines.push(bar("─"));
-  lines.push("CROSS-PACKAGE DEPENDENCIES");
-  lines.push(bar("─"));
-
-  const crossBySrc: Record<string, string[]> = {};
-  for (const e of crossEdges) {
-    const src = data.nodes[e.source].path;
-    const tgt = data.nodes[e.target].path;
-    if (!crossBySrc[src]) crossBySrc[src] = [];
-    crossBySrc[src].push(tgt);
-  }
-  for (const [src, targets] of Object.entries(crossBySrc).sort()) {
-    lines.push(`  ${src}`);
-    for (const t of targets) lines.push(`    → ${t}`);
-  }
-  lines.push("");
-
-  lines.push(bar("─"));
-  lines.push("ISSUES");
-  lines.push(bar("─"));
-
-  let issueCount = 0;
-  for (const [pkg, files] of Object.entries(data.issueData)) {
-    const pkgIssues: string[] = [];
-
-    const td = files["trace-boundaries"] as
-      | {
-          boundaries?: {
-            filePath: string;
-            kind: string;
-            functionContext: string;
-            line: number;
-          }[];
-        }
-      | undefined;
-    for (const b of td?.boundaries ?? []) {
-      pkgIssues.push(
-        `  ${pkg}/${b.filePath.replace(/^.*src\//, "src/")}  [boundary:${b.kind}]  ${b.functionContext}  line ${b.line}`,
-      );
-    }
-
-    const sm = files["schema-match"] as
-      | {
-          results?: {
-            schemaFile: string;
-            schema: string;
-            mismatches?: { path: string; severity: string; message: string }[];
-          }[];
-        }
-      | undefined;
-    for (const r of sm?.results ?? []) {
-      for (const mm of r.mismatches ?? []) {
-        pkgIssues.push(
-          `  ${pkg}/${r.schemaFile.replace(/^.*src\//, "src/")}  [schema:${mm.severity}]  ${r.schema}.${mm.path}  ${mm.message}`,
-        );
-      }
-    }
-
-    const la = files["logic-audit"] as
-      | {
-          guards?: {
-            filePath: string;
-            confidence: string;
-            message: string;
-            line: number;
-          }[];
-        }
-      | undefined;
-    for (const g of la?.guards ?? []) {
-      pkgIssues.push(
-        `  ${pkg}/${g.filePath.replace(/^.*src\//, "src/")}  [guard:${g.confidence}]  ${g.message}  line ${g.line}`,
-      );
-    }
-
-    if (pkgIssues.length > 0) {
-      lines.push(...pkgIssues);
-      issueCount += pkgIssues.length;
-    }
-  }
-
-  if (issueCount === 0) lines.push("  (none)");
-  lines.push("");
-
-  if (data.stats.missing.length) {
-    lines.push(bar("─"));
-    lines.push("MISSING AUDIT DATA");
-    lines.push(bar("─"));
-    lines.push(
-      `  Run pnpm audit-prep to generate data for: ${data.stats.missing.join(", ")}`,
-    );
-    lines.push("");
-  }
-
-  return lines.join("\n");
-}
-
-function compressExtDep(dep: string): string {
-  return _compressExtDep(dep, EXT_ALIASES);
-}
-
 function compressPath(originalPath: string): string {
   return _compressPath(originalPath, PATH_SEGS);
 }
@@ -510,96 +337,6 @@ function buildLegend(data: SuperGraph): string[] {
   lines.push(EXT_ALIASES.map(([f, t]) => `${t}=${f}`).join("  "));
   lines.push("");
   return lines;
-}
-
-function generateMapTxt(data: SuperGraph): string {
-  const lines = buildLegend(data);
-
-  const importedBy: Record<number, number> = {};
-  for (const e of data.edges) {
-    importedBy[e.target] = (importedBy[e.target] ?? 0) + 1;
-  }
-
-  const nodesByPkg: Record<string, SuperNode[]> = {};
-  for (const n of data.nodes) {
-    if (!nodesByPkg[n.pkg]) nodesByPkg[n.pkg] = [];
-    nodesByPkg[n.pkg].push(n);
-  }
-
-  lines.push("# MODULES");
-  lines.push("# path [exp(/total-if-diff)]←importers(≥2) symbols | ext");
-  lines.push(
-    "# sym budget: ←0→none ←1→3 ←2..4→5 ←5+→8 | modules with 0 exports & 0 importers omitted",
-  );
-  lines.push("");
-
-  for (const pkg of data.packages) {
-    lines.push(`[${pkg.short}]`);
-    for (const n of nodesByPkg[pkg.short] ?? []) {
-      const inb = importedBy[n.idx] ?? 0;
-      const { exportedSymbols, totalSymbols } = n.stats;
-
-      // Skip truly dead modules — nothing exported, nothing imports them
-      if (exportedSymbols === 0 && inb === 0) continue;
-
-      const path = compressPath(n.originalPath);
-
-      // [exp] when all symbols exported; [exp/total] when partial
-      const statStr =
-        exportedSymbols === totalSymbols
-          ? `[${exportedSymbols}]`
-          : `[${exportedSymbols}/${totalSymbols}]`;
-
-      // Show ←N only when genuinely shared (≥2 importers)
-      const inbStr = inb >= 2 ? `←${inb}` : "";
-
-      // Adaptive symbol budget: more context for widely-imported modules
-      const maxSyms = inb >= 5 ? 8 : inb >= 2 ? 5 : inb >= 1 ? 3 : 0;
-      const expSyms = n.symbols
-        .filter((s) => s.exported && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(s.name))
-        .map((s) => s.name);
-      const symStr =
-        maxSyms > 0 && expSyms.length > 0
-          ? " " +
-            expSyms.slice(0, maxSyms).join(",") +
-            (expSyms.length > maxSyms ? `,+${expSyms.length - maxSyms}` : "")
-          : "";
-
-      const extStr =
-        n.externalDeps.length > 0
-          ? " | " + n.externalDeps.map(compressExtDep).join(",")
-          : "";
-
-      lines.push(`${path} ${statStr}${inbStr}${symStr}${extStr}`);
-    }
-    lines.push("");
-  }
-
-  const crossEdges = data.edges.filter((e) => e.cross);
-  lines.push("# CROSS-PKG");
-  const crossBySrc = new Map<number, number[]>();
-  for (const e of crossEdges) {
-    if (!crossBySrc.has(e.source)) crossBySrc.set(e.source, []);
-    crossBySrc.get(e.source)!.push(e.target);
-  }
-  const sortedSrc = [...crossBySrc.keys()].sort((a, b) => {
-    const na = data.nodes[a];
-    const nb = data.nodes[b];
-    return na.pkg.localeCompare(nb.pkg) || na.path.localeCompare(nb.path);
-  });
-  for (const si of sortedSrc) {
-    const sn = data.nodes[si];
-    const targets = crossBySrc
-      .get(si)!
-      .map((ti) => {
-        const tn = data.nodes[ti];
-        return `${tn.pkg}/${compressPath(tn.originalPath)}`;
-      })
-      .join(" ");
-    lines.push(`${sn.pkg}/${compressPath(sn.originalPath)} → ${targets}`);
-  }
-
-  return lines.join("\n");
 }
 
 function generateIssuesTxt(data: SuperGraph): string {
@@ -1294,17 +1031,13 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
     console.log(`  ⚠  No data for: ${data.stats.missing.join(", ")}`);
 
   const outPath = resolve(root, "audit/supergraph.html");
+  const issuesPath = resolve(root, "audit/issues.txt");
   await mkdir(resolve(root, "audit"), { recursive: true });
   const html = generateHtml(data);
-  const map = generateMapTxt(data);
   const issues = generateIssuesTxt(data);
-
-  const mapPath = outPath.replace(/\.html$/, ".txt");
-  const issuesPath = mapPath.replace(/supergraph\.txt$/, "issues.txt");
 
   await Promise.all([
     Bun.write(outPath, html),
-    Bun.write(mapPath, map),
     Bun.write(issuesPath, issues),
   ]);
 
@@ -1312,9 +1045,6 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   console.log(`\nDone in ${elapsed}s`);
   console.log(
     `  ${(html.length / 1024).toFixed(0)} KB → ${relative(root, outPath)}`,
-  );
-  console.log(
-    `  ${(map.length / 1024).toFixed(0)} KB → ${relative(root, mapPath)}`,
   );
   console.log(
     `  ${(issues.length / 1024).toFixed(0)} KB → ${relative(root, issuesPath)}`,

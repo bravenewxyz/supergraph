@@ -18,7 +18,7 @@
  * same domain via name-prefix heuristics.
  *
  * Result: 1 block per domain instead of 3 separate flat lists → lower
- * Kolmogorov complexity, better LLM context efficiency than superhigh.txt.
+ * Kolmogorov complexity, better LLM context efficiency than supergraph.txt.
  *
  * Reads:
  *   audit/packages/<pkg>/json/map.json  (raw per-package module data from audit-prep)
