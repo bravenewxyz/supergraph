@@ -109,10 +109,337 @@ function findFirstOfKind(node: SgNode, kind: string): SgNode | null {
 
 // ── Zod node parser ───────────────────────────────────────────────────────────
 
+type ZodResult = { shape: SS; optional: boolean };
+type ZodHandler = (args: SgNode[], seen: Set<string>, calleeText: string) => ZodResult;
+type ChainHandler = (
+  inner: ZodResult,
+  args: SgNode[],
+  seen: Set<string>,
+) => ZodResult;
+
+// ── Helpers for extracting keys from omit/pick argument objects ──────────────
+
+function extractKeySet(keysArg: SgNode): Set<string> {
+  return new Set(
+    keysArg
+      .children()
+      .filter(
+        (c) =>
+          c.kind() === "pair" ||
+          c.kind() === "shorthand_property_identifier_pattern",
+      )
+      .map(
+        (c) =>
+          (c.kind() === "pair" ? c.children()[0]?.text() : c.text()) ?? "",
+      )
+      .filter(Boolean),
+  );
+}
+
+// ── Chain modifier handlers (called on non-z receiver) ──────────────────────
+
+const CHAIN_HANDLERS: Record<string, ChainHandler> = {
+  optional: (inner) => ({ shape: inner.shape, optional: true }),
+
+  nullable: (inner) => ({
+    shape: { kind: "nullable", inner: inner.shape },
+    optional: inner.optional,
+  }),
+
+  default: (inner) => ({ ...inner, optional: true }),
+
+  nullish: (inner) => ({
+    shape: { kind: "nullable", inner: inner.shape },
+    optional: true,
+  }),
+
+  array: (inner) => ({
+    shape: { kind: "array", element: inner.shape },
+    optional: false,
+  }),
+
+  partial: (inner) => {
+    if (inner.shape.kind === "object") {
+      return {
+        shape: {
+          kind: "object",
+          fields: inner.shape.fields.map((f) => ({ ...f, optional: true })),
+          spreads: inner.shape.spreads,
+        },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  extend: (inner, args, seen) => {
+    const objArg = args[0];
+    if (objArg && inner.shape.kind === "object") {
+      const ext = extractObjectFields(objArg, seen);
+      return {
+        shape: {
+          kind: "object",
+          fields: [...inner.shape.fields, ...ext.fields],
+          spreads: [...inner.shape.spreads, ...ext.spreads],
+        },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  omit: (inner, args) => {
+    const keysArg = args[0];
+    if (keysArg && inner.shape.kind === "object") {
+      const omitKeys = extractKeySet(keysArg);
+      return {
+        shape: {
+          kind: "object",
+          fields: inner.shape.fields.filter((f) => !omitKeys.has(f.name)),
+          spreads: inner.shape.spreads,
+        },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  pick: (inner, args) => {
+    const keysArg = args[0];
+    if (keysArg && inner.shape.kind === "object") {
+      const pickKeys = extractKeySet(keysArg);
+      return {
+        shape: {
+          kind: "object",
+          fields: inner.shape.fields.filter((f) => pickKeys.has(f.name)),
+          spreads: inner.shape.spreads,
+        },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  merge: (inner, args, seen) => {
+    const otherArg = args[0];
+    if (otherArg) {
+      const other = parseZodNode(otherArg, seen);
+      if (inner.shape.kind === "object" && other.shape.kind === "object") {
+        return {
+          shape: {
+            kind: "object",
+            fields: [...inner.shape.fields, ...other.shape.fields],
+            spreads: [...inner.shape.spreads, ...other.shape.spreads],
+          },
+          optional: false,
+        };
+      }
+    }
+    return inner;
+  },
+
+  and: (inner, args, seen) => {
+    const otherArg = args[0];
+    if (otherArg) {
+      const other = parseZodNode(otherArg, seen);
+      return {
+        shape: { kind: "intersection", members: [inner.shape, other.shape] },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  or: (inner, args, seen) => {
+    const otherArg = args[0];
+    if (otherArg) {
+      const other = parseZodNode(otherArg, seen);
+      return {
+        shape: { kind: "union", members: [inner.shape, other.shape] },
+        optional: false,
+      };
+    }
+    return inner;
+  },
+
+  // Zod type-changing shortcut
+  datetime: () => ({ shape: { kind: "datetime" }, optional: false }),
+};
+
+// ── Direct z.xxx() handlers ─────────────────────────────────────────────────
+
+function handlePrimitive(ssKind: SS["kind"]): ZodHandler {
+  return () => ({ shape: { kind: ssKind } as SS, optional: false });
+}
+
+const ZOD_HANDLERS: Record<string, ZodHandler> = {
+  string: handlePrimitive("str"),
+  number: handlePrimitive("num"),
+  boolean: handlePrimitive("bool"),
+  null: handlePrimitive("null"),
+  undefined: handlePrimitive("undef"),
+  any: handlePrimitive("any"),
+  unknown: handlePrimitive("unknown"),
+  never: handlePrimitive("never"),
+  date: handlePrimitive("date"),
+  uuid: handlePrimitive("uuid"),
+  url: handlePrimitive("url"),
+  email: handlePrimitive("email"),
+
+  datetime: (_args, _seen, calleeText) => {
+    // z.iso.datetime() or z.string().datetime()
+    if (calleeText.includes(".iso.")) {
+      return { shape: { kind: "datetime" }, optional: false };
+    }
+    return { shape: { kind: "str" }, optional: false };
+  },
+
+  iso: () => ({ shape: { kind: "datetime" }, optional: false }),
+
+  literal: (args) => {
+    const arg = args[0];
+    if (!arg)
+      return { shape: { kind: "opaque", raw: "literal" }, optional: false };
+    const argText = arg.text().replace(/['"]/g, "");
+    if (arg.kind() === "member_expression") {
+      const parts = argText.split(".");
+      return {
+        shape: { kind: "literal", value: parts[parts.length - 1] ?? argText },
+        optional: false,
+      };
+    }
+    return { shape: { kind: "literal", value: argText }, optional: false };
+  },
+
+  enum: (args) => {
+    const arrArg = args[0];
+    if (!arrArg)
+      return { shape: { kind: "opaque", raw: "enum" }, optional: false };
+    const values = meaningfulChildren(arrArg)
+      .filter((c) => c.kind() === "string")
+      .map((c) => c.text().replace(/['"]/g, ""));
+    return { shape: { kind: "enum", values }, optional: false };
+  },
+
+  nativeEnum: (args) => {
+    const ref = args[0];
+    if (ref)
+      return { shape: { kind: "ref", name: ref.text() }, optional: false };
+    return { shape: { kind: "opaque", raw: "nativeEnum" }, optional: false };
+  },
+
+  object: (args, seen) => {
+    const objArg = args[0];
+    if (!objArg)
+      return {
+        shape: { kind: "object", fields: [], spreads: [] },
+        optional: false,
+      };
+    const extracted = extractObjectFields(objArg, seen);
+    return {
+      shape: {
+        kind: "object",
+        fields: extracted.fields,
+        spreads: extracted.spreads,
+      },
+      optional: false,
+    };
+  },
+
+  array: (args, seen) => {
+    const elementArg = args[0];
+    if (!elementArg)
+      return {
+        shape: { kind: "array", element: { kind: "unknown" } },
+        optional: false,
+      };
+    const inner = parseZodNode(elementArg, seen);
+    return {
+      shape: { kind: "array", element: inner.shape },
+      optional: false,
+    };
+  },
+
+  union: (args, seen) => {
+    const arrArg = args[0];
+    if (!arrArg)
+      return { shape: { kind: "union", members: [] }, optional: false };
+    const members = meaningfulChildren(arrArg).map(
+      (m) => parseZodNode(m, seen).shape,
+    );
+    return { shape: { kind: "union", members }, optional: false };
+  },
+
+  discriminatedUnion: (args, seen) => {
+    const membersArg = args[1];
+    if (!membersArg)
+      return {
+        shape: { kind: "union", members: [], discriminated: true },
+        optional: false,
+      };
+    const members = meaningfulChildren(membersArg).map(
+      (m) => parseZodNode(m, seen).shape,
+    );
+    return {
+      shape: { kind: "union", members, discriminated: true },
+      optional: false,
+    };
+  },
+
+  tuple: (args, seen) => {
+    const arrArg = args[0];
+    if (!arrArg)
+      return { shape: { kind: "tuple", elements: [] }, optional: false };
+    const elements = meaningfulChildren(arrArg).map(
+      (m) => parseZodNode(m, seen).shape,
+    );
+    return { shape: { kind: "tuple", elements }, optional: false };
+  },
+
+  record: (args, seen) => {
+    const keyArg = args[0];
+    const valArg = args[1];
+    const key = keyArg
+      ? parseZodNode(keyArg, seen).shape
+      : { kind: "str" as const };
+    const value = valArg
+      ? parseZodNode(valArg, seen).shape
+      : { kind: "unknown" as const };
+    return { shape: { kind: "record", key, value }, optional: false };
+  },
+
+  intersection: (args, seen) => {
+    const a = args[0]
+      ? parseZodNode(args[0], seen).shape
+      : { kind: "unknown" as const };
+    const b = args[1]
+      ? parseZodNode(args[1], seen).shape
+      : { kind: "unknown" as const };
+    return { shape: { kind: "intersection", members: [a, b] }, optional: false };
+  },
+
+  lazy: (args, seen) => {
+    const inner = args[0] ? parseZodNode(args[0], seen) : null;
+    return inner ?? { shape: { kind: "unknown" }, optional: false };
+  },
+
+  promise: (args, seen) => {
+    const inner = args[0] ? parseZodNode(args[0], seen) : null;
+    return inner ?? { shape: { kind: "unknown" }, optional: false };
+  },
+
+  coerce: () => {
+    // z.coerce.string() etc. — recurse into the chain
+    return { shape: { kind: "opaque", raw: "coerce" }, optional: false };
+  },
+};
+
+// ── Main parser ─────────────────────────────────────────────────────────────
+
 function parseZodNode(
   node: SgNode,
   seen: Set<string> = new Set(),
-): { shape: SS; optional: boolean } {
+): ZodResult {
   const kind = node.kind();
 
   if (kind === "identifier") {
@@ -150,161 +477,8 @@ function parseZodNode(
     if (!isDirectZ && obj && prop) {
       const inner = parseZodNode(obj, seen);
 
-      if (prop === "optional") return { shape: inner.shape, optional: true };
-      if (prop === "nullable")
-        return {
-          shape: { kind: "nullable", inner: inner.shape },
-          optional: inner.optional,
-        };
-      if (prop === "default") return { ...inner, optional: true };
-      if (prop === "nullish")
-        return {
-          shape: { kind: "nullable", inner: inner.shape },
-          optional: true,
-        };
-
-      if (prop === "array") {
-        return {
-          shape: { kind: "array", element: inner.shape },
-          optional: false,
-        };
-      }
-
-      if (prop === "partial") {
-        if (inner.shape.kind === "object") {
-          return {
-            shape: {
-              kind: "object",
-              fields: inner.shape.fields.map((f) => ({ ...f, optional: true })),
-              spreads: inner.shape.spreads,
-            },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      if (prop === "extend") {
-        const objArg = args[0];
-        if (objArg && inner.shape.kind === "object") {
-          const ext = extractObjectFields(objArg, seen);
-          return {
-            shape: {
-              kind: "object",
-              fields: [...inner.shape.fields, ...ext.fields],
-              spreads: [...inner.shape.spreads, ...ext.spreads],
-            },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      if (prop === "omit") {
-        const keysArg = args[0];
-        if (keysArg && inner.shape.kind === "object") {
-          const omitKeys = new Set(
-            keysArg
-              .children()
-              .filter(
-                (c) =>
-                  c.kind() === "pair" ||
-                  c.kind() === "shorthand_property_identifier_pattern",
-              )
-              .map(
-                (c) =>
-                  (c.kind() === "pair" ? c.children()[0]?.text() : c.text()) ??
-                  "",
-              )
-              .filter(Boolean),
-          );
-          return {
-            shape: {
-              kind: "object",
-              fields: inner.shape.fields.filter((f) => !omitKeys.has(f.name)),
-              spreads: inner.shape.spreads,
-            },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      if (prop === "pick") {
-        const keysArg = args[0];
-        if (keysArg && inner.shape.kind === "object") {
-          const pickKeys = new Set(
-            keysArg
-              .children()
-              .filter(
-                (c) =>
-                  c.kind() === "pair" ||
-                  c.kind() === "shorthand_property_identifier_pattern",
-              )
-              .map(
-                (c) =>
-                  (c.kind() === "pair" ? c.children()[0]?.text() : c.text()) ??
-                  "",
-              )
-              .filter(Boolean),
-          );
-          return {
-            shape: {
-              kind: "object",
-              fields: inner.shape.fields.filter((f) => pickKeys.has(f.name)),
-              spreads: inner.shape.spreads,
-            },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      if (prop === "merge") {
-        const otherArg = args[0];
-        if (otherArg) {
-          const other = parseZodNode(otherArg, seen);
-          if (inner.shape.kind === "object" && other.shape.kind === "object") {
-            return {
-              shape: {
-                kind: "object",
-                fields: [...inner.shape.fields, ...other.shape.fields],
-                spreads: [...inner.shape.spreads, ...other.shape.spreads],
-              },
-              optional: false,
-            };
-          }
-        }
-        return inner;
-      }
-
-      if (prop === "and") {
-        const otherArg = args[0];
-        if (otherArg) {
-          const other = parseZodNode(otherArg, seen);
-          return {
-            shape: { kind: "intersection", members: [inner.shape, other.shape] },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      if (prop === "or") {
-        const otherArg = args[0];
-        if (otherArg) {
-          const other = parseZodNode(otherArg, seen);
-          return {
-            shape: { kind: "union", members: [inner.shape, other.shape] },
-            optional: false,
-          };
-        }
-        return inner;
-      }
-
-      // Zod type-changing shortcuts
-      if (prop === "datetime")
-        return { shape: { kind: "datetime" }, optional: false };
+      const chainHandler = CHAIN_HANDLERS[prop];
+      if (chainHandler) return chainHandler(inner, args, seen);
 
       // All remaining Zod validation / transformation methods are pass-through
       // (they don't change the data type: min, max, regex, refine, trim, etc.)
@@ -323,189 +497,22 @@ function parseZodNode(
     method = callee.text();
   }
 
-  switch (method) {
-    case "string":
-      return { shape: { kind: "str" }, optional: false };
-    case "number":
-      return { shape: { kind: "num" }, optional: false };
-    case "boolean":
-      return { shape: { kind: "bool" }, optional: false };
-    case "null":
-      return { shape: { kind: "null" }, optional: false };
-    case "undefined":
-      return { shape: { kind: "undef" }, optional: false };
-    case "any":
-      return { shape: { kind: "any" }, optional: false };
-    case "unknown":
-      return { shape: { kind: "unknown" }, optional: false };
-    case "never":
-      return { shape: { kind: "never" }, optional: false };
-    case "date":
-      return { shape: { kind: "date" }, optional: false };
-    case "uuid":
-      return { shape: { kind: "uuid" }, optional: false };
-    case "url":
-      return { shape: { kind: "url" }, optional: false };
-    case "email":
-      return { shape: { kind: "email" }, optional: false };
+  const handler = ZOD_HANDLERS[method];
+  if (handler) return handler(args, seen, calleeText);
 
-    case "datetime":
-    case "iso": {
-      // z.iso.datetime() or z.string().datetime()
-      if (calleeText.includes(".iso.") || method === "iso") {
-        return { shape: { kind: "datetime" }, optional: false };
-      }
-      return { shape: { kind: "str" }, optional: false };
-    }
-
-    case "literal": {
-      const arg = args[0];
-      if (!arg)
-        return { shape: { kind: "opaque", raw: "literal" }, optional: false };
-      const argText = arg.text().replace(/['"]/g, "");
-      if (arg.kind() === "member_expression") {
-        const parts = argText.split(".");
-        return {
-          shape: { kind: "literal", value: parts[parts.length - 1] ?? argText },
-          optional: false,
-        };
-      }
-      return { shape: { kind: "literal", value: argText }, optional: false };
-    }
-
-    case "enum": {
-      const arrArg = args[0];
-      if (!arrArg)
-        return { shape: { kind: "opaque", raw: "enum" }, optional: false };
-      const values = meaningfulChildren(arrArg)
-        .filter((c) => c.kind() === "string")
-        .map((c) => c.text().replace(/['"]/g, ""));
-      return { shape: { kind: "enum", values }, optional: false };
-    }
-
-    case "nativeEnum": {
-      const ref = args[0];
-      if (ref)
-        return { shape: { kind: "ref", name: ref.text() }, optional: false };
-      return { shape: { kind: "opaque", raw: "nativeEnum" }, optional: false };
-    }
-
-    case "object": {
-      const objArg = args[0];
-      if (!objArg)
-        return {
-          shape: { kind: "object", fields: [], spreads: [] },
-          optional: false,
-        };
-      const extracted = extractObjectFields(objArg, seen);
-      return {
-        shape: {
-          kind: "object",
-          fields: extracted.fields,
-          spreads: extracted.spreads,
-        },
-        optional: false,
-      };
-    }
-
-    case "array": {
-      const elementArg = args[0];
-      if (!elementArg)
-        return {
-          shape: { kind: "array", element: { kind: "unknown" } },
-          optional: false,
-        };
-      const inner = parseZodNode(elementArg, seen);
-      return {
-        shape: { kind: "array", element: inner.shape },
-        optional: false,
-      };
-    }
-
-    case "union": {
-      const arrArg = args[0];
-      if (!arrArg)
-        return { shape: { kind: "union", members: [] }, optional: false };
-      const members = meaningfulChildren(arrArg).map(
-        (m) => parseZodNode(m, seen).shape,
-      );
-      return { shape: { kind: "union", members }, optional: false };
-    }
-
-    case "discriminatedUnion": {
-      const membersArg = args[1];
-      if (!membersArg)
-        return {
-          shape: { kind: "union", members: [], discriminated: true },
-          optional: false,
-        };
-      const members = meaningfulChildren(membersArg).map(
-        (m) => parseZodNode(m, seen).shape,
-      );
-      return {
-        shape: { kind: "union", members, discriminated: true },
-        optional: false,
-      };
-    }
-
-    case "tuple": {
-      const arrArg = args[0];
-      if (!arrArg)
-        return { shape: { kind: "tuple", elements: [] }, optional: false };
-      const elements = meaningfulChildren(arrArg).map(
-        (m) => parseZodNode(m, seen).shape,
-      );
-      return { shape: { kind: "tuple", elements }, optional: false };
-    }
-
-    case "record": {
-      const keyArg = args[0];
-      const valArg = args[1];
-      const key = keyArg
-        ? parseZodNode(keyArg, seen).shape
-        : { kind: "str" as const };
-      const value = valArg
-        ? parseZodNode(valArg, seen).shape
-        : { kind: "unknown" as const };
-      return { shape: { kind: "record", key, value }, optional: false };
-    }
-
-    case "intersection": {
-      const a = args[0]
-        ? parseZodNode(args[0], seen).shape
-        : { kind: "unknown" as const };
-      const b = args[1]
-        ? parseZodNode(args[1], seen).shape
-        : { kind: "unknown" as const };
-      return { shape: { kind: "intersection", members: [a, b] }, optional: false };
-    }
-
-    case "lazy":
-    case "promise": {
-      const inner = args[0] ? parseZodNode(args[0], seen) : null;
-      return inner ?? { shape: { kind: "unknown" }, optional: false };
-    }
-
-    case "coerce": {
-      // z.coerce.string() etc. — recurse into the chain
-      return { shape: { kind: "opaque", raw: "coerce" }, optional: false };
-    }
-
-    default:
-      // Detect z.iso.datetime(), z.string().datetime(), etc.
-      if (calleeText.includes("datetime"))
-        return { shape: { kind: "datetime" }, optional: false };
-      // For any other unrecognized z.* method, recurse on the receiver to get the base type
-      if (callee.kind() === "member_expression") {
-        const parts = callee.children();
-        const rcv = parts[0];
-        if (rcv) return parseZodNode(rcv, seen);
-      }
-      return {
-        shape: { kind: "opaque", raw: calleeText.slice(0, 40) },
-        optional: false,
-      };
+  // Fallback: detect z.iso.datetime(), z.string().datetime(), etc.
+  if (calleeText.includes("datetime"))
+    return { shape: { kind: "datetime" }, optional: false };
+  // For any other unrecognized z.* method, recurse on the receiver to get the base type
+  if (callee.kind() === "member_expression") {
+    const parts = callee.children();
+    const rcv = parts[0];
+    if (rcv) return parseZodNode(rcv, seen);
   }
+  return {
+    shape: { kind: "opaque", raw: calleeText.slice(0, 40) },
+    optional: false,
+  };
 }
 
 function extractObjectFields(

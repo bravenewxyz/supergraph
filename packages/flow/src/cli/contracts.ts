@@ -65,20 +65,23 @@ function extractRpcCalls(source: string, filePath: string, rpcClients: string[])
       continue;
     }
 
-    const client = m[1] as string;
+    const client = m[1];
+    if (!client) continue;
     const chunk = source.slice(start, start + 600);
     const methodMatch = /\.\$(get|post|put|delete|patch)\s*\(/i.exec(chunk);
     if (!methodMatch) continue;
 
     const chainPart = chunk.slice(0, methodMatch.index);
-    const httpMethod = (methodMatch[1] as string).toUpperCase();
+    const httpMethodGroup = methodMatch[1];
+    if (!httpMethodGroup) continue;
+    const httpMethod = httpMethodGroup.toUpperCase();
 
     const withoutClient = chainPart.replace(/^(honoClient|authHonoClient)/, "");
     const segmentRegex = /\.([a-zA-Z_$][\w$-]*)|(?:\["([^"]+)"\])/g;
     const segments: string[] = [];
     let sm: RegExpExecArray | null;
     while ((sm = segmentRegex.exec(withoutClient)) !== null) {
-      const seg = (sm[1] ?? sm[2]) as string | undefined;
+      const seg = sm[1] ?? sm[2];
       if (seg) segments.push(seg);
     }
 
@@ -146,7 +149,7 @@ function extractBalancedBlock(source: string, startIdx: number): string {
 function extractStringValue(block: string, key: string): string | null {
   const re = new RegExp(`\\b${key}\\s*:\\s*["'\`]([^"'\`]+)["'\`]`);
   const result = re.exec(block);
-  return result ? (result[1] as string) : null;
+  return result?.[1] ?? null;
 }
 
 function extractBackendRoutes(
@@ -303,9 +306,10 @@ function extractGenericApiCalls(source: string, filePath: string): RpcCall[] {
   const fetchRe = /\bfetch\s*\(\s*["'`](\/api\/[^"'`\s)]+)["'`]/g;
   let m: RegExpExecArray | null;
   while ((m = fetchRe.exec(source)) !== null) {
-    const apiPath = m[1] as string;
+    const apiPath = m[1];
+    if (!apiPath) continue;
     // Try to determine method from surrounding context
-    const chunk = source.slice(Math.max(0, m.index - 200), m.index + (m[0] as string).length + 300);
+    const chunk = source.slice(Math.max(0, m.index - 200), m.index + m[0].length + 300);
     let method = "GET";
     if (/method\s*:\s*["'`](POST|PUT|DELETE|PATCH)["'`]/i.exec(chunk)) {
       method = RegExp.$1.toUpperCase();
@@ -316,16 +320,19 @@ function extractGenericApiCalls(source: string, filePath: string): RpcCall[] {
   // 2. axios.get("/api/..."), axios.post("/api/..."), etc.
   const axiosRe = /\baxios\s*\.\s*(get|post|put|delete|patch)\s*\(\s*["'`](\/api\/[^"'`\s)]+)["'`]/gi;
   while ((m = axiosRe.exec(source)) !== null) {
-    const method = (m[1] as string).toUpperCase();
-    const apiPath = m[2] as string;
-    addUnique(method, apiPath, "axios", lineOf(m.index));
+    const axiosMethod = m[1];
+    const apiPath = m[2];
+    if (!axiosMethod || !apiPath) continue;
+    addUnique(axiosMethod.toUpperCase(), apiPath, "axios", lineOf(m.index));
   }
 
   // 3. trpc.<procedure>.useQuery() / useMutation()
   const trpcRe = /\btrpc\s*\.\s*([\w.]+)\s*\.\s*(useQuery|useMutation|useInfiniteQuery|useSuspenseQuery)\s*\(/g;
   while ((m = trpcRe.exec(source)) !== null) {
-    const procedurePath = "/" + (m[1] as string).replace(/\./g, "/");
-    const hook = m[2] as string;
+    const procedure = m[1];
+    const hook = m[2];
+    if (!procedure || !hook) continue;
+    const procedurePath = "/" + procedure.replace(/\./g, "/");
     const method = hook === "useMutation" ? "POST" : "GET";
     addUnique(method, procedurePath, "trpc", lineOf(m.index));
   }
@@ -333,8 +340,9 @@ function extractGenericApiCalls(source: string, filePath: string): RpcCall[] {
   // 4. useSWR("/api/...")
   const swrRe = /\buseSWR\s*\(\s*["'`](\/api\/[^"'`\s)]+)["'`]/g;
   while ((m = swrRe.exec(source)) !== null) {
-    const apiPath = m[1] as string;
-    addUnique("GET", apiPath, "useSWR", lineOf(m.index));
+    const swrPath = m[1];
+    if (!swrPath) continue;
+    addUnique("GET", swrPath, "useSWR", lineOf(m.index));
   }
 
   // 5. useQuery with fetch("/api/...") in queryFn
@@ -343,8 +351,8 @@ function extractGenericApiCalls(source: string, filePath: string): RpcCall[] {
     const block = source.slice(m.index, m.index + 600);
     const innerFetch = /fetch\s*\(\s*["'`](\/api\/[^"'`\s)]+)["'`]/.exec(block);
     if (innerFetch) {
-      const apiPath = innerFetch[1] as string;
-      addUnique("GET", apiPath, "useQuery+fetch", lineOf(m.index));
+      const apiPath = innerFetch[1];
+      if (apiPath) addUnique("GET", apiPath, "useQuery+fetch", lineOf(m.index));
     }
   }
 
@@ -368,8 +376,10 @@ function extractGenericBackendRoutes(
   const directRouteRe = /\b(?:app|router|server)\s*\.\s*(get|post|put|delete|patch|all)\s*\(\s*["'`](\/[^"'`\s)]+)["'`]/gi;
   let m: RegExpExecArray | null;
   while ((m = directRouteRe.exec(source)) !== null) {
-    const method = (m[1] as string).toUpperCase();
-    const path = m[2] as string;
+    const routeMethod = m[1];
+    const path = m[2];
+    if (!routeMethod || !path) continue;
+    const method = routeMethod.toUpperCase();
     addUnique(method === "ALL" ? "ALL" : method, path);
   }
 
@@ -410,8 +420,9 @@ async function extractPrefixMap(indexPath: string): Promise<Map<string, string>>
   const re = /\.route\(\s*["'`]([^"'`]+)["'`]\s*,\s*([a-zA-Z_$][\w$]*)\s*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(source)) !== null) {
-    const prefix = m[1] as string;
-    const varName = m[2] as string;
+    const prefix = m[1];
+    const varName = m[2];
+    if (!prefix || !varName) continue;
     if (prefix !== "/") {
       map.set(varName, prefix);
     }
@@ -444,12 +455,15 @@ async function collectCommonSchemas(
   let m: RegExpExecArray | null;
   const subModules: string[] = [];
   while ((m = moduleRe.exec(source)) !== null) {
-    subModules.push(m[1] as string);
+    const modName = m[1];
+    if (modName) subModules.push(modName);
   }
 
   const directRe = /export\s*\{([^}]+)\}/g;
   while ((m = directRe.exec(source)) !== null) {
-    const names = (m[1] as string)
+    const exportList = m[1];
+    if (!exportList) continue;
+    const names = exportList
       .split(",")
       .map((s) => s.trim().split(/\s+as\s+/).pop()?.trim() ?? "");
     for (const n of names) {
@@ -468,11 +482,14 @@ async function collectCommonSchemas(
     const exportRe = /export\s+(?:const|type|interface|function|class)\s+([A-Z][a-zA-Z]*Schema)\b/g;
     let em: RegExpExecArray | null;
     while ((em = exportRe.exec(modSource)) !== null) {
-      schemas.add(em[1] as string);
+      const schemaName = em[1];
+      if (schemaName) schemas.add(schemaName);
     }
     const reExportRe = /export\s*\{([^}]+)\}/g;
     while ((em = reExportRe.exec(modSource)) !== null) {
-      const names = (em[1] as string)
+      const reExportList = em[1];
+      if (!reExportList) continue;
+      const names = reExportList
         .split(",")
         .map((s) => s.trim().split(/\s+as\s+/).pop()?.trim() ?? "");
       for (const n of names) {
@@ -494,7 +511,8 @@ function extractSchemaNamesFromRoutes(
     const re = /schema\s*:\s*([A-Z][a-zA-Z]*Schema)\b/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(source)) !== null) {
-      schemas.add(m[1] as string);
+      const name = m[1];
+      if (name) schemas.add(name);
     }
   }
   return schemas;
@@ -607,7 +625,7 @@ export async function runContracts(opts: ContractsOptions): Promise<string> {
   const resolvedFe = resolve(feSrcDir);
   const resolvedBe = resolve(beSrcDir);
   const rpcClients = (feConf.rpcClients ?? []).length > 0 ? feConf.rpcClients! : ["honoClient"];
-  const primaryClient = rpcClients[0] as string;
+  const primaryClient = rpcClients[0] ?? "honoClient";
 
   const feFiles = await collectFiles(resolvedFe, [".ts", ".tsx", ".js", ".jsx"]);
   const genericApiPatterns = ["fetch(", "axios.", "trpc.", "useSWR(", "useQuery("];
@@ -800,10 +818,10 @@ async function main(): Promise<void> {
   let srcDir: string | undefined;
 
   if (positionals.length >= 2) {
-    feSrcDir = positionals[0] as string;
-    srcDir = positionals[1] as string;
+    feSrcDir = positionals[0];
+    srcDir = positionals[1];
   } else if (positionals.length === 1) {
-    srcDir = positionals[0] as string;
+    srcDir = positionals[0];
   }
   // When no positionals are given, auto-detection will kick in inside runContracts
 

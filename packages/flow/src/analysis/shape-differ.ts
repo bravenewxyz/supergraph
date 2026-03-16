@@ -152,6 +152,10 @@ function diffSameKind(
   path: string,
   opts: Required<DiffOptions>,
 ): ShapeMismatch[] {
+  // We know left.kind === right.kind (the caller checks this), but TypeScript
+  // cannot narrow both sides of a manual equality guard on two independent
+  // discriminated-union values.  The as-casts in each branch are safe because
+  // the switch already guarantees the kind matches.
   const mismatches: ShapeMismatch[] = [];
 
   switch (left.kind) {

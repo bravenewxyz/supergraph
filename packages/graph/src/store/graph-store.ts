@@ -82,6 +82,16 @@ export class GraphStore {
     return this.graph.mapNodes((_id: string, attrs: Attributes) => attrs as SymbolNode);
   }
 
+  getSymbolsByFile(fileKey: string): SymbolNode[] {
+    const ids = this.registry.getByFile(fileKey);
+    const result: SymbolNode[] = [];
+    for (const id of ids) {
+      const node = this.getSymbol(id);
+      if (node) result.push(node);
+    }
+    return result;
+  }
+
   // --- Edge operations ---
 
   addEdge(edge: SymbolEdge): void {
@@ -292,10 +302,16 @@ export class GraphStore {
     if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
       throw new Error("Invalid SerializedGraph: expected { nodes: [], edges: [] }");
     }
-    if (data.nodes.length > 0) {
-      const sample = data.nodes[0];
-      if (!sample.id || !sample.kind || !sample.qualifiedName) {
-        throw new Error("Invalid SymbolNode: missing id, kind, or qualifiedName");
+    for (let i = 0; i < data.nodes.length; i++) {
+      const n = data.nodes[i];
+      if (!n.id || !n.kind || !n.qualifiedName) {
+        throw new Error(`Invalid SymbolNode at index ${i}: missing id, kind, or qualifiedName`);
+      }
+    }
+    for (let i = 0; i < data.edges.length; i++) {
+      const e = data.edges[i];
+      if (!e.id || !e.kind || !e.sourceId || !e.targetId) {
+        throw new Error(`Invalid SymbolEdge at index ${i}: missing id, kind, sourceId, or targetId`);
       }
     }
     this.import(data as SerializedGraph);

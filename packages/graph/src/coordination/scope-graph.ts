@@ -174,14 +174,22 @@ export class ScopeGraph {
     const withoutExt = filePath.replace(/\.\w+$/, "");
     const moduleQN = withoutExt;
 
-    // Try to find the module by qualifiedName
+    // Try to find the module by qualifiedName (O(1) via registry)
     const moduleNode = this.graphStore.getSymbolByQualifiedName(moduleQN);
     if (moduleNode) {
       const children = this.graphStore.getChildSymbols(moduleNode.id);
       return [moduleNode.id, ...children.map((c) => c.id)];
     }
 
-    // Try basename match via qualified name (O(1) instead of O(n) scan)
+    // Try file-key lookup via the registry's byFile index (O(1))
+    // The registry keys files by the first segment of qualifiedName
+    const fileKey = withoutExt.split(".")[0] ?? withoutExt;
+    const fileSymbols = this.graphStore.getSymbolsByFile(fileKey);
+    if (fileSymbols.length > 0) {
+      return fileSymbols.map((s) => s.id);
+    }
+
+    // Try basename match via qualified name (O(1))
     const basename = withoutExt.split("/").pop() ?? withoutExt;
     const moduleByBasename = this.graphStore.getSymbolByQualifiedName(basename);
     if (moduleByBasename && moduleByBasename.kind === "module") {

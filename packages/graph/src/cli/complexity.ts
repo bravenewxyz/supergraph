@@ -215,12 +215,117 @@ const NON_NULL_RE = /\w![\.\[]/g;
 const TS_IGNORE_RE = /@ts-ignore/g;
 const TS_EXPECT_RE = /@ts-expect-error/g;
 
+/**
+ * Strip comments, string/template literals, and regex literals from source code
+ * so that escape-hatch regexes don't match occurrences inside them.
+ * Uses a single-pass state machine — good enough, not a full parser.
+ */
+function stripLiteralsAndComments(code: string): string {
+  const out: string[] = [];
+  let i = 0;
+  const len = code.length;
+
+  while (i < len) {
+    const ch = code[i]!;
+    const next = i + 1 < len ? code[i + 1] : "";
+
+    // Single-line comment
+    if (ch === "/" && next === "/") {
+      while (i < len && code[i] !== "\n") i++;
+      continue;
+    }
+
+    // Multi-line comment
+    if (ch === "/" && next === "*") {
+      i += 2;
+      while (i < len - 1 && !(code[i] === "*" && code[i + 1] === "/")) i++;
+      i += 2; // skip closing */
+      continue;
+    }
+
+    // String literals (' or ")
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      out.push(quote);
+      i++;
+      while (i < len && code[i] !== quote) {
+        if (code[i] === "\\") i++; // skip escaped char
+        i++;
+      }
+      if (i < len) i++; // skip closing quote
+      out.push(quote);
+      continue;
+    }
+
+    // Template literal
+    if (ch === "`") {
+      out.push("`");
+      i++;
+      let depth = 1;
+      while (i < len && depth > 0) {
+        if (code[i] === "\\" ) { i += 2; continue; }
+        if (code[i] === "`") { depth--; i++; continue; }
+        if (code[i] === "$" && i + 1 < len && code[i + 1] === "{") {
+          // skip template expression — just scan for matching }
+          i += 2;
+          let braces = 1;
+          while (i < len && braces > 0) {
+            if (code[i] === "{") braces++;
+            else if (code[i] === "}") braces--;
+            if (braces > 0) i++;
+          }
+          if (i < len) i++; // skip closing }
+          continue;
+        }
+        i++;
+      }
+      out.push("`");
+      continue;
+    }
+
+    // Regex literal — heuristic: / after certain tokens is likely regex
+    if (ch === "/") {
+      // Look back at the last non-whitespace char to decide if this is a regex
+      let j = out.length - 1;
+      while (j >= 0 && (out[j] === " " || out[j] === "\t" || out[j] === "\n" || out[j] === "\r")) j--;
+      const prev = j >= 0 ? out[j]! : "";
+      const isRegex = prev === "" || prev === "=" || prev === "(" || prev === "[" ||
+        prev === "!" || prev === "&" || prev === "|" || prev === "?" ||
+        prev === ":" || prev === "," || prev === ";" || prev === "{" ||
+        prev === "}" || prev === "\n";
+      if (isRegex) {
+        out.push("/");
+        i++;
+        while (i < len && code[i] !== "/" && code[i] !== "\n") {
+          if (code[i] === "\\") i++; // skip escaped char
+          i++;
+        }
+        // Emit a placeholder char so the regex isn't empty
+        out.push("x");
+        if (i < len && code[i] === "/") {
+          i++; // skip closing /
+          // consume flags
+          while (i < len && /[gimsuy]/.test(code[i]!)) i++;
+        }
+        out.push("/");
+        continue;
+      }
+    }
+
+    out.push(ch);
+    i++;
+  }
+
+  return out.join("");
+}
+
 function analyzeEscapeHatches(code: string, module: string): SafetyMetrics {
-  const anyCount = (code.match(ANY_RE) ?? []).length;
-  const castCount = (code.match(CAST_RE) ?? []).length;
-  const nonNullCount = (code.match(NON_NULL_RE) ?? []).length;
-  const ignoreCount = (code.match(TS_IGNORE_RE) ?? []).length;
-  const expectCount = (code.match(TS_EXPECT_RE) ?? []).length;
+  const strippedCode = stripLiteralsAndComments(code);
+  const anyCount = (strippedCode.match(ANY_RE) ?? []).length;
+  const castCount = (strippedCode.match(CAST_RE) ?? []).length;
+  const nonNullCount = (strippedCode.match(NON_NULL_RE) ?? []).length;
+  const ignoreCount = (strippedCode.match(TS_IGNORE_RE) ?? []).length;
+  const expectCount = (strippedCode.match(TS_EXPECT_RE) ?? []).length;
   return {
     module,
     any: anyCount,

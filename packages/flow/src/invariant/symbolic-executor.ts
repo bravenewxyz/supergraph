@@ -29,7 +29,7 @@ type Z3Context = any;
 
 // ── Public types ─────────────────────────────────────────────────────────
 
-export interface SymbolicProofResult {
+interface SymbolicProofResult {
   invariantName: string;
   status: "proven" | "counterexample" | "unknown" | "unsupported";
   counterexample?: Record<string, unknown>;
@@ -39,7 +39,7 @@ export interface SymbolicProofResult {
   error?: string;
 }
 
-export interface ProveOptions {
+interface ProveOptions {
   maxPaths?: number;
   timeoutMs?: number;
   maxLoopUnroll?: number;
@@ -84,7 +84,7 @@ async function getZ3(): Promise<Z3Context> {
   return z3Ctx;
 }
 
-export function resetZ3Context(): void {
+function resetZ3Context(): void {
   z3Ctx = null;
 }
 

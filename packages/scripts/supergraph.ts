@@ -7,6 +7,8 @@ import { parseRootArg, readFile } from "./utils.js";
 import {
   compressPath as _compressPath,
   compressExtDep as _compressExtDep,
+  type RawModule as BaseRawModule,
+  type RawMap as BaseRawMap,
 } from "./shared.js";
 
 const ROOT = parseRootArg(process.cwd());
@@ -21,20 +23,13 @@ type RawSymbol = {
   lines?: { startLine: number; endLine: number };
 };
 
-type RawModule = {
-  path: string;
+type RawModule = Omit<BaseRawModule, "symbols" | "imports"> & {
   symbols: RawSymbol[];
   imports: { module: string; raw?: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
 };
 
-type RawMap = {
-  package: string;
-  srcRoot: string;
+type RawMap = BaseRawMap & {
   modules: RawModule[];
-  dependencyGraph: Record<string, string[]>;
   mostImported?: { module: string; importers: number }[];
 };
 

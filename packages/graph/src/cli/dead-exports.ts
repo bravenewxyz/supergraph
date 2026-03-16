@@ -48,7 +48,10 @@ const ENTRY_POINTS = new Set(["index", "main", "cli", "server", "app", "run", "s
 
 function isEntryPoint(modulePath: string): boolean {
   const base = basename(modulePath);
-  return ENTRY_POINTS.has(base);
+  if (ENTRY_POINTS.has(base)) return true;
+  // CLI modules are standalone entry points by design
+  if (modulePath.startsWith("cli/") || modulePath.startsWith("src/cli/")) return true;
+  return false;
 }
 
 function strip(p: string): string {
@@ -94,18 +97,7 @@ async function analyzeDeadExports(
     for (const dep of mod.internalDeps) importedModules.add(dep);
   }
 
-  for (const mod of manifest.modules) {
-    const key = strip(mod.path);
-    if (!importedModules.has(mod.path) && !isEntryPoint(key)) {
-      const exports = collectExports(mod.symbols);
-      if (exports.length > 0) {
-        orphanModules.push({ module: key, exports });
-      }
-    }
-  }
-
-  // 2. Symbol-level: for non-orphan modules, find exports unused by importers
-  // Load all source files into memory (for text search)
+  // Collect dynamically imported modules
   const allFiles = await collectTsFiles(srcRoot);
   const fileContents = new Map<string, string>();
   await Promise.all(
@@ -114,6 +106,34 @@ async function analyzeDeadExports(
     }),
   );
 
+  const dynamicImportPattern = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+  const dynamicallyImported = new Set<string>();
+  for (const [, content] of fileContents) {
+    let m;
+    while ((m = dynamicImportPattern.exec(content)) !== null) {
+      const importPath = m[1]!;
+      // Normalize: strip .js extension and resolve relative paths
+      const normalized = importPath.replace(/\.js$/, "").replace(/^\.\.?\//, "");
+      dynamicallyImported.add(normalized);
+    }
+  }
+
+  for (const mod of manifest.modules) {
+    const key = strip(mod.path);
+    if (!importedModules.has(mod.path) && !isEntryPoint(key)) {
+      // Check if dynamically imported
+      const modBasename = key.replace(/^src\//, "");
+      const isDynamic = [...dynamicallyImported].some(d => modBasename.endsWith(d) || d.endsWith(modBasename));
+      if (isDynamic) continue;
+
+      const exports = collectExports(mod.symbols);
+      if (exports.length > 0) {
+        orphanModules.push({ module: key, exports });
+      }
+    }
+  }
+
+  // 2. Symbol-level: for non-orphan modules, find exports unused by importers
   // Build: module path → absolute file path
   const modToFile = new Map<string, string>();
   for (const f of allFiles) {
@@ -152,6 +172,8 @@ async function analyzeDeadExports(
       if (!sym.exported || sym.kind === "import" || !sym.name) continue;
       // Skip re-export groups and anonymous
       if (sym.name === "(anonymous)" || sym.name.startsWith("{")) continue;
+      // Skip likely parser artifacts (loop vars like i, j)
+      if (sym.name.length <= 2) continue;
       // Word-boundary check: is the name used in any importing file?
       const re = new RegExp(`\\b${escapeRegExp(sym.name)}\\b`);
       if (!re.test(importerContent)) {

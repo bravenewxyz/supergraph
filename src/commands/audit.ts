@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, join, resolve, relative } from "node:path";
 import { Glob } from "bun";
 
@@ -528,6 +528,8 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
     console.log(`\n${C.dim}━━${C.reset} ${C.bold}${t.pkgName}${C.reset}${langLabel} ${C.dim}${bar.slice(0, Math.max(1, 56 - t.pkgName.length))}${C.reset}`);
   }
 
+  // Clean previous outputs so stale artifacts don't persist across runs
+  await rm(t.outDir, { recursive: true, force: true });
   await mkdir(t.outDir, { recursive: true });
   await mkdir(t.invDir, { recursive: true });
   await mkdir(t.jsonDir, { recursive: true });
@@ -769,6 +771,15 @@ Usage:
   // Cross-package views
   // -----------------------------------------------------------------------
   anim?.update("cross-package analysis...");
+
+  // Clean stale top-level cross-package artifacts
+  const AUDIT_DIR = resolve(ROOT, "audit");
+  const STALE_ARTIFACTS = [
+    "supergraph.txt", "supergraph.html", "pkg-graph.html",
+    "superhigh.txt", "superhigh-shortcut.txt",
+    "hypergraph.txt", "normagraph.txt", "issues.txt",
+  ];
+  await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
 
   const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 120_000;

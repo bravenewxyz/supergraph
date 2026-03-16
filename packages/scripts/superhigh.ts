@@ -741,32 +741,48 @@ function autoGenerateExtAliases(maps: Map<string, PkgData>): [string, string][] 
   return result;
 }
 
-// ─── Generate output ──────────────────────────────────────────────────────────
+// ─── Generate output — extracted helpers ──────────────────────────────────────
 
-function generateOutput(): string {
-  const lines: string[] = [];
-  const date = new Date().toISOString().slice(0, 10);
-  const epCount = flows.endpoints.length;
-  const hkCount = flows.endpoints.reduce((n, ep) => n + ep.hooks.length, 0);
-  const totalMods = moduleByKey.size;
-  const tsCount = schemaData.stats?.ts ?? 0;
+/** Op-detail prefix defaults computed from endpoint data. */
+type OpDefaults = {
+  R_PFX: string[];
+  Π_PFX: string[];
+  P_PFX: string[];
+  E_PFX: string[];
+  I_DEFAULT_STR: string;
+};
 
-  // ── Compute op-detail defaults (prefix items common to ≥85% of endpoints) ──
-  const R_PFX = commonPfx(flows.endpoints.map((ep) => ep.redis));
-  const Π_PFX = commonPfx(flows.endpoints.map((ep) => ep.protocol));
-  const P_PFX = commonPfx(flows.endpoints.map((ep) => ep.pg));
-  const E_PFX = commonPfx(flows.endpoints.map((ep) => ep.analytics));
+/** Compute op-detail defaults (prefix items common to ≥85% of endpoints). */
+function computeOpDefaults(endpoints: FlowEndpoint[]): OpDefaults {
+  const R_PFX = commonPfx(endpoints.map((ep) => ep.redis));
+  const Π_PFX = commonPfx(endpoints.map((ep) => ep.protocol));
+  const P_PFX = commonPfx(endpoints.map((ep) => ep.pg));
+  const E_PFX = commonPfx(endpoints.map((ep) => ep.analytics));
   // I: default = most common integration set (compared as sorted join)
   const iFreq = new Map<string, number>();
-  for (const ep of flows.endpoints) {
+  for (const ep of endpoints) {
     const k = [...ep.integration].sort().join(",");
     iFreq.set(k, (iFreq.get(k) ?? 0) + 1);
   }
   const I_DEFAULT_STR =
     [...iFreq.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+  return { R_PFX, Π_PFX, P_PFX, E_PFX, I_DEFAULT_STR };
+}
 
-  // ── Header ────────────────────────────────────────────────────────────────
-  const projectName = cfg.project || schemaData?.project || basename(ROOT);
+/** Render the superhigh header: title, config summary, legend, abbreviations, op defaults. */
+function renderSuperhighHeader(
+  projectName: string,
+  date: string,
+  epCount: number,
+  hkCount: number,
+  totalMods: number,
+  tsCount: number,
+  effectivePathSegs: [string, string][],
+  effectiveExtAliases: [string, string][],
+  opDefaults: OpDefaults,
+): string[] {
+  const lines: string[] = [];
+
   lines.push(`SUPERHIGH | ${projectName} | ${date}`);
   const statParts: string[] = [];
   if (epCount) statParts.push(`${epCount}ep`);
@@ -786,14 +802,6 @@ function generateOutput(): string {
     );
   }
   lines.push("");
-
-  // Auto-generate path segments from module paths if none configured
-  const effectivePathSegs = PATH_SEGS.length ? PATH_SEGS : autoGeneratePathSegs(allMaps);
-  // Auto-generate ext dep aliases if none configured
-  const effectiveExtAliases = EXT_ALIASES.length ? EXT_ALIASES : autoGenerateExtAliases(allMaps);
-  // Set active aliases for compressPath/compressExtDep
-  activePathSegs = effectivePathSegs;
-  activeExtAliases = effectiveExtAliases;
 
   if (FULL) {
     if (effectiveExtAliases.length) {
@@ -848,11 +856,11 @@ function generateOutput(): string {
   // ── OP DEFAULTS legend (implied in ↳ lines — only deltas shown) ───────────
   {
     const defs: string[] = [];
-    if (R_PFX.length) defs.push(`R0=${R_PFX.join(",")}`);
-    if (Π_PFX.length) defs.push(`Π0=${Π_PFX.join(",")}`);
-    if (P_PFX.length) defs.push(`P0=${P_PFX.join(",")}`);
-    if (E_PFX.length) defs.push(`E0=${E_PFX.join(",")}`);
-    if (I_DEFAULT_STR) defs.push(`I∀=${I_DEFAULT_STR}`);
+    if (opDefaults.R_PFX.length) defs.push(`R0=${opDefaults.R_PFX.join(",")}`);
+    if (opDefaults.Π_PFX.length) defs.push(`Π0=${opDefaults.Π_PFX.join(",")}`);
+    if (opDefaults.P_PFX.length) defs.push(`P0=${opDefaults.P_PFX.join(",")}`);
+    if (opDefaults.E_PFX.length) defs.push(`E0=${opDefaults.E_PFX.join(",")}`);
+    if (opDefaults.I_DEFAULT_STR) defs.push(`I∀=${opDefaults.I_DEFAULT_STR}`);
     if (defs.length) {
       lines.push(
         "# OP DEFAULTS  (↳ omits these; only deltas printed; I∀ omitted when integration matches default)",
@@ -862,7 +870,407 @@ function generateOutput(): string {
     }
   }
 
-  // ── Domain blocks ────────────────────────────────────────────────────────
+  return lines;
+}
+
+/** Render the op-detail delta string for an endpoint (the ↳ content, or "" if nothing to show). */
+function renderEndpointOpDetail(ep: FlowEndpoint, opDefaults: OpDefaults): string {
+  const parts: string[] = [];
+  const rDelta = ep.redis.slice(opDefaults.R_PFX.length);
+  if (rDelta.length) parts.push(`R:${trunc(rDelta, 4)}`);
+  const piDelta = ep.protocol.slice(opDefaults.Π_PFX.length);
+  if (piDelta.length) parts.push(`Π:${trunc(piDelta, 3)}`);
+  const pgDelta = ep.pg.slice(opDefaults.P_PFX.length);
+  if (pgDelta.length) parts.push(`P:${trunc(pgDelta, 3)}`);
+  const eDelta = ep.analytics.slice(opDefaults.E_PFX.length);
+  if (eDelta.length) parts.push(`E:${trunc(eDelta, 3)}`);
+  const iKey = [...ep.integration].sort().join(",");
+  if (iKey !== opDefaults.I_DEFAULT_STR) {
+    if (ep.integration.length) parts.push(`I:${trunc(ep.integration, 3)}`);
+    else if (opDefaults.I_DEFAULT_STR) parts.push("I:∅");
+  }
+  if (ep.rateLimits.length) parts.push(`L:${trunc(ep.rateLimits, 2)}`);
+  return parts.join("  ");
+}
+
+/** Render a single endpoint line (the R line). */
+function renderEndpointLine(ep: FlowEndpoint): string {
+  const flags = opFlags(ep);
+  const auth = ep.auth !== "public" ? ` [${ep.auth}]` : "";
+  const ctrl = ep.ctrl.length ? ` ctrl:${trunc(ep.ctrl, 3)}` : "";
+  const svc = ep.service !== "backend" ? `  {${ep.service}}` : "";
+  const seenHooks = new Set<string>();
+  const hookParts = ep.hooks
+    .filter((h) => {
+      if (seenHooks.has(h.name)) return false;
+      seenHooks.add(h.name);
+      return true;
+    })
+    .map((h) => {
+      const inv = h.inv.length ? `·inv:${trunc(h.inv, 2)}` : "";
+      const set = h.set.length ? `·set:${trunc(h.set, 2)}` : "";
+      return `←${h.name}${inv}${set}`;
+    });
+  return [
+    `R  ${ep.method} ${ep.path}${auth}${ctrl}`,
+    flags || "",
+    svc,
+    ...hookParts,
+  ]
+    .filter(Boolean)
+    .join("  ");
+}
+
+/** Render the module listing for a domain block (key mods as M line, other mods as M+ lines). */
+function renderModuleListing(
+  keyMods: string[],
+  otherMods: string[],
+  modLookup: Map<string, { short: string; mod: RawModule }>,
+  importedByMap: Map<string, number>,
+): string[] {
+  const lines: string[] = [];
+
+  // Key modules (route/ctrl/model) — prominent display
+  if (keyMods.length) {
+    const modStrs = keyMods
+      .sort((a, b) => (importedByMap.get(b) ?? 0) - (importedByMap.get(a) ?? 0)
+        || (modLookup.get(a)?.mod.path ?? a).localeCompare(modLookup.get(b)?.mod.path ?? b))
+      .map(key => {
+        const { mod } = modLookup.get(key)!;
+        const { exportedSymbols, totalSymbols } = mod.stats;
+        const inb = importedByMap.get(key) ?? 0;
+        const statStr =
+          exportedSymbols === totalSymbols
+            ? `[${exportedSymbols}]`
+            : `[${exportedSymbols}/${totalSymbols}]`;
+        const inbStr = inb >= 2 ? `←${inb}` : "";
+        const extDeps = mod.externalDeps
+          .filter((d) => !d.startsWith("@/"))
+          .slice(0, 5)
+          .map(compressExtDep);
+        const extStr = extDeps.length ? ` | ${extDeps.join(",")}` : "";
+        return `${compressPath(mod.path)}${statStr}${inbStr}${extStr}`;
+      });
+    lines.push(`M  ${modStrs.join("  ")}`);
+  }
+
+  // Other domain modules (util, config, stable, middleware, etc.)
+  if (otherMods.length) {
+    const otherPaths = otherMods
+      .sort((a, b) => (importedByMap.get(b) ?? 0) - (importedByMap.get(a) ?? 0)
+        || (modLookup.get(a)?.mod.path ?? a).localeCompare(modLookup.get(b)?.mod.path ?? b))
+      .map(key => {
+        const { mod } = modLookup.get(key)!;
+        const inb = importedByMap.get(key) ?? 0;
+        const inbStr = inb >= 2 ? `←${inb}` : "";
+        return `${compressPath(mod.path)}${inbStr}`;
+      });
+    // Pack onto lines of ≤8 items
+    for (let i = 0; i < otherPaths.length; i += 8) {
+      lines.push(`M+ ${otherPaths.slice(i, i + 8).join("  ")}`);
+    }
+  }
+
+  return lines;
+}
+
+/** Render a single domain block (header, endpoints, modules, schemas, tables, enums, redis, types). */
+function renderDomainBlock(
+  domainName: string,
+  d: DomainBlock,
+  opDefaults: OpDefaults,
+  schema: SchemaJson,
+): string[] {
+  const lines: string[] = [];
+
+  const mut = d.endpoints.filter((e) => e.method !== "GET").length;
+  const allDomainMods = [...d.moduleKeys];
+  const keyMods = allDomainMods.filter((k) => {
+    const entry = moduleByKey.get(k);
+    return entry ? isKeyMod(entry.mod.path) : false;
+  });
+  const otherMods = allDomainMods.filter((k) => {
+    const entry = moduleByKey.get(k);
+    return entry ? !isKeyMod(entry.mod.path) : false;
+  });
+
+  const statParts = [
+    d.endpoints.length ? `${d.endpoints.length}ep` : "",
+    mut ? `${mut}mut` : "",
+    allDomainMods.length ? `${allDomainMods.length}mod` : "",
+    d.schemas.length ? `${d.schemas.length}sch` : "",
+    d.tables.length ? `${d.tables.length}tbl` : "",
+    d.enums.length ? `${d.enums.length}enum` : "",
+    d.redisKeys.length ? `${d.redisKeys.length}key` : "",
+    d.tsTypes.length ? `${d.tsTypes.length}ty` : "",
+  ].filter(Boolean);
+  lines.push(`## ${domainName}  ${statParts.join(" ")}`);
+
+  // If all endpoints in this domain share the same non-empty ↳, hoist it as ↳* (saves N-1 lines)
+  const allDetails = d.endpoints.map((ep) => renderEndpointOpDetail(ep, opDefaults));
+  const sharedDetail =
+    allDetails.length >= 2 &&
+    allDetails.every((s) => s === allDetails[0] && s !== "")
+      ? allDetails[0]!
+      : null;
+  if (sharedDetail) lines.push(`   ↳*${sharedDetail}`);
+
+  // Endpoints
+  for (const ep of d.endpoints) {
+    lines.push(renderEndpointLine(ep));
+
+    // Per-endpoint ↳ only when it differs from the hoisted shared detail
+    if (!sharedDetail) {
+      const detail = renderEndpointOpDetail(ep, opDefaults);
+      if (detail) lines.push(`   ↳${detail}`);
+    }
+  }
+
+  // Module listing
+  for (const l of renderModuleListing(keyMods, otherMods, moduleByKey, globalImportedBy)) {
+    lines.push(l);
+  }
+
+  // Full schema definitions (with diff notation for CRUD schema trios)
+  const schemaDiffs = buildSchemaDiffs(d.schemas);
+  for (const s of d.schemas) {
+    lines.push(`S  ${renderSchemaFull(s, schemaDiffs.get(s.n))}`);
+  }
+
+  // Tables
+  for (const t of d.tables) {
+    lines.push(`T  ${renderTableFull(t)}`);
+  }
+  for (const e of d.enums) {
+    lines.push(`E  ENUM ${e.n}  ${e.vals.join("|")}`);
+  }
+
+  // Redis keys
+  if (d.redisKeys.length) {
+    const keyStrs = d.redisKeys.map((k) => {
+      const ops = k.ops.join("/");
+      const hint = k.s ? `→${k.s}` : "";
+      const src = k.files.length ? ` (${k.files.join(",")})` : "";
+      return `${k.p}[${ops}]${hint}${src}`;
+    });
+    for (let i = 0; i < keyStrs.length; i += 3) {
+      lines.push(`K  ${keyStrs.slice(i, i + 3).join("  ")}`);
+    }
+  }
+
+  // RediSearch FT indexes
+  const ftIdx =
+    schema.redis?.idx?.filter(
+      (i) =>
+        inferDomainFromRedisKey(i.n) === domainName ||
+        (i.prefix && inferDomainFromRedisKey(i.prefix) === domainName),
+    ) ?? [];
+  for (const i of ftIdx) {
+    const pfx = i.prefix ? ` PREFIX:"${i.prefix}"` : "";
+    lines.push(`K  FT ${i.n}${pfx}`);
+  }
+
+  // Public controller/connector types — skip zero-entropy z.output<typeof XSchema> aliases
+  for (const t of d.tsTypes) {
+    if (isZodOutputAlias(t)) continue;
+    lines.push(`Ty ${renderTsType(t)}`);
+  }
+
+  lines.push("");
+  return lines;
+}
+
+/** Render the PACKAGES section (all non-domain modules, supergraph format). */
+function renderPackagesSection(
+  maps: Map<string, PkgData>,
+  assigned: Map<string, string>,
+  importedByMap: Map<string, number>,
+): string[] {
+  const lines: string[] = [];
+
+  const pkgHdr = FULL
+    ? "# PACKAGES  (all modules · format: path[exp/tot]←importers syms | extDeps · [dir/] = auto-grouped prefix)"
+    : "# PACKAGES  (all modules · format: path[exp/tot]←importers syms | extDeps)";
+  lines.push(pkgHdr);
+  if (!FULL) lines.push("# sym budget: ←0→none  ←1→3  ←2..4→5  ←5+→8");
+  lines.push("");
+
+  for (const [short, { map }] of maps) {
+    const unassigned = map.modules
+      .filter(m => !assigned.has(`${short}/${m.path}`))
+      .sort((a, b) => {
+        const aC = importedByMap.get(`${short}/${a.path}`) ?? 0;
+        const bC = importedByMap.get(`${short}/${b.path}`) ?? 0;
+        return bC - aC || a.path.localeCompare(b.path);
+      });
+    const npmName = map.package ?? short;
+    const total = map.modules.length;
+    if (total === 0) continue;
+
+    lines.push(
+      `[${short}=${npmName}  ${total}m  ${unassigned.length} unassigned]`,
+    );
+    const pkgModLines: string[] = [];
+    for (const mod of unassigned) {
+      const key = `${short}/${mod.path}`;
+      const importedBy = importedByMap.get(key) ?? 0;
+      if (mod.stats.exportedSymbols === 0 && importedBy === 0) continue;
+      if (!FULL && importedBy === 0) continue; // compressed: skip leaf modules nobody imports
+      pkgModLines.push(renderModLine(key, mod));
+    }
+    for (const l of FULL ? autoGroupLines(pkgModLines) : pkgModLines)
+      lines.push(l);
+    lines.push("");
+  }
+
+  return lines;
+}
+
+/** Render the TYPES section (all TS types from superschema). */
+function renderTypesSection(
+  tsTypes: TsType[],
+  pathAbbrevLine: string,
+): string[] {
+  const lines: string[] = [];
+
+  if (tsTypes.length === 0) return lines;
+
+  lines.push(`# TYPES  (${tsTypes.length} from superschema)`);
+  if (pathAbbrevLine) {
+    lines.push(
+      "# PATH ABBREVS  (schema file abbreviations used in [file] section headers)",
+    );
+    lines.push(pathAbbrevLine);
+    lines.push("");
+  }
+
+  // Group by file
+  const byFile = new Map<string, TsType[]>();
+  for (const t of tsTypes) {
+    const f = t.f ?? "unknown";
+    if (!byFile.has(f)) byFile.set(f, []);
+    byFile.get(f)!.push(t);
+  }
+
+  // SDK response types: skip verbatim (redundant with compressed form below)
+  const sdkApiFile = [...byFile.keys()].find(
+    (f) =>
+      f.includes("protocol/generated/api") ||
+      f.includes("protocol/generated/api.ts"),
+  );
+  const sdkTypes = sdkApiFile ? (byFile.get(sdkApiFile) ?? []) : [];
+
+  // Render all non-SDK types: skip private (·) internal types and z.output aliases
+  for (const f of [...byFile.keys()].sort()) {
+    if (f === sdkApiFile) continue; // SDK file rendered compressed-only below
+    const fileTypes = byFile.get(f)!.filter((t) => !isZodOutputAlias(t));
+    if (!fileTypes.length) continue;
+    lines.push(`[${f}]`);
+    for (const t of fileTypes) {
+      lines.push(renderTsType(t));
+    }
+  }
+
+  // SDK compressed (replaces the ~638-line verbatim section entirely)
+  if (sdkTypes.length > 0) {
+    lines.push("");
+    lines.push(
+      `# SDK  (${sdkTypes.length} types → 1 line per op  200→ReturnType  err:codes)`,
+    );
+    const compressed = compressSdkTypes(sdkTypes);
+    for (const l of compressed) lines.push(l);
+  }
+
+  return lines;
+}
+
+/** Deduplicate repeated ↳ op-detail lines into @N profile references (compressed mode only). */
+function deduplicateOpProfiles(lines: string[]): string {
+  // Collect all ↳ contents (stripped, excluding ↳* domain hoists)
+  const freq = new Map<string, number>();
+  for (const l of lines) {
+    const s = l.trimStart();
+    if (s.startsWith("↳") && !s.startsWith("↳*")) {
+      const delta = s.slice(1); // everything after ↳
+      freq.set(delta, (freq.get(delta) ?? 0) + 1);
+    }
+  }
+
+  // Build profiles for patterns that repeat
+  const profiles = new Map<string, string>(); // delta → @N
+  let idx = 1;
+  for (const [delta, count] of [...freq.entries()].sort(
+    (a, b) => b[1] - a[1],
+  )) {
+    if (count > 1) profiles.set(delta, `@${idx++}`);
+  }
+
+  if (profiles.size > 0) {
+    // Find insertion point: the empty line after the OP DEFAULTS block
+    let insertAt = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i]?.startsWith("# OP DEFAULTS")) {
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j] === "") {
+            insertAt = j + 1;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    const profileBlock = [
+      `# OP PROFILES  (${profiles.size} repeated ↳ patterns · ↳@N = look up profile N below)`,
+      ...[...profiles.entries()].map(([delta, id]) => `${id} ${delta}`),
+      "",
+    ];
+
+    const before = insertAt >= 0 ? lines.slice(0, insertAt) : lines;
+    const after = insertAt >= 0 ? lines.slice(insertAt) : [];
+
+    const deduped = [...before, ...profileBlock, ...after].map((l) => {
+      const s = l.trimStart();
+      if (s.startsWith("↳") && !s.startsWith("↳*")) {
+        const id = profiles.get(s.slice(1));
+        if (id) return `${l.slice(0, l.length - s.length)}↳${id}`;
+      }
+      return l;
+    });
+
+    return deduped.join("\n");
+  }
+
+  return lines.join("\n");
+}
+
+// ─── Generate output ──────────────────────────────────────────────────────────
+
+function generateOutput(): string {
+  const date = new Date().toISOString().slice(0, 10);
+  const epCount = flows.endpoints.length;
+  const hkCount = flows.endpoints.reduce((n, ep) => n + ep.hooks.length, 0);
+  const totalMods = moduleByKey.size;
+  const tsCount = schemaData.stats?.ts ?? 0;
+
+  // ── Compute op-detail defaults ──
+  const opDefaults = computeOpDefaults(flows.endpoints);
+
+  // ── Auto-generate abbreviations ──
+  const effectivePathSegs = PATH_SEGS.length ? PATH_SEGS : autoGeneratePathSegs(allMaps);
+  const effectiveExtAliases = EXT_ALIASES.length ? EXT_ALIASES : autoGenerateExtAliases(allMaps);
+  // Set active aliases for compressPath/compressExtDep
+  activePathSegs = effectivePathSegs;
+  activeExtAliases = effectiveExtAliases;
+
+  // ── Header ──
+  const projectName = cfg.project || schemaData?.project || basename(ROOT);
+  const lines: string[] = renderSuperhighHeader(
+    projectName, date, epCount, hkCount, totalMods, tsCount,
+    effectivePathSegs, effectiveExtAliases, opDefaults,
+  );
+
+  // ── Domain blocks ──
   const sortedNames = CONFIGURED_DOMAIN_ORDER
     ? [...domains.keys()].sort((a, b) => {
         const ai = CONFIGURED_DOMAIN_ORDER!.indexOf(a);
@@ -896,327 +1304,24 @@ function generateOutput(): string {
       if (!d.moduleKeys.size) continue;
     }
 
-    const mut = d.endpoints.filter((e) => e.method !== "GET").length;
-    const allDomainMods = [...d.moduleKeys];
-    const keyMods = allDomainMods.filter((k) => {
-      const entry = moduleByKey.get(k);
-      return entry ? isKeyMod(entry.mod.path) : false;
-    });
-    const otherMods = allDomainMods.filter((k) => {
-      const entry = moduleByKey.get(k);
-      return entry ? !isKeyMod(entry.mod.path) : false;
-    });
-
-    const statParts = [
-      d.endpoints.length ? `${d.endpoints.length}ep` : "",
-      mut ? `${mut}mut` : "",
-      allDomainMods.length ? `${allDomainMods.length}mod` : "",
-      d.schemas.length ? `${d.schemas.length}sch` : "",
-      d.tables.length ? `${d.tables.length}tbl` : "",
-      d.enums.length ? `${d.enums.length}enum` : "",
-      d.redisKeys.length ? `${d.redisKeys.length}key` : "",
-      d.tsTypes.length ? `${d.tsTypes.length}ty` : "",
-    ].filter(Boolean);
-    lines.push(`## ${domainName}  ${statParts.join(" ")}`);
-
-    // ── Op detail helper (returns the ↳ content string, or "" if nothing to show) ──
-    const epOpDetail = (ep: FlowEndpoint): string => {
-      const parts: string[] = [];
-      const rDelta = ep.redis.slice(R_PFX.length);
-      if (rDelta.length) parts.push(`R:${trunc(rDelta, 4)}`);
-      const piDelta = ep.protocol.slice(Π_PFX.length);
-      if (piDelta.length) parts.push(`Π:${trunc(piDelta, 3)}`);
-      const pgDelta = ep.pg.slice(P_PFX.length);
-      if (pgDelta.length) parts.push(`P:${trunc(pgDelta, 3)}`);
-      const eDelta = ep.analytics.slice(E_PFX.length);
-      if (eDelta.length) parts.push(`E:${trunc(eDelta, 3)}`);
-      const iKey = [...ep.integration].sort().join(",");
-      if (iKey !== I_DEFAULT_STR) {
-        if (ep.integration.length) parts.push(`I:${trunc(ep.integration, 3)}`);
-        else if (I_DEFAULT_STR) parts.push("I:∅");
-      }
-      if (ep.rateLimits.length) parts.push(`L:${trunc(ep.rateLimits, 2)}`);
-      return parts.join("  ");
-    };
-
-    // If all endpoints in this domain share the same non-empty ↳, hoist it as ↳* (saves N-1 lines)
-    const allDetails = d.endpoints.map(epOpDetail);
-    const sharedDetail =
-      allDetails.length >= 2 &&
-      allDetails.every((s) => s === allDetails[0] && s !== "")
-        ? allDetails[0]!
-        : null;
-    if (sharedDetail) lines.push(`   ↳*${sharedDetail}`);
-
-    // Endpoints
-    for (const ep of d.endpoints) {
-      const flags = opFlags(ep);
-      const auth = ep.auth !== "public" ? ` [${ep.auth}]` : "";
-      const ctrl = ep.ctrl.length ? ` ctrl:${trunc(ep.ctrl, 3)}` : "";
-      const svc = ep.service !== "backend" ? `  {${ep.service}}` : "";
-      const seenHooks = new Set<string>();
-      const hookParts = ep.hooks
-        .filter((h) => {
-          if (seenHooks.has(h.name)) return false;
-          seenHooks.add(h.name);
-          return true;
-        })
-        .map((h) => {
-          const inv = h.inv.length ? `·inv:${trunc(h.inv, 2)}` : "";
-          const set = h.set.length ? `·set:${trunc(h.set, 2)}` : "";
-          return `←${h.name}${inv}${set}`;
-        });
-      lines.push(
-        [
-          `R  ${ep.method} ${ep.path}${auth}${ctrl}`,
-          flags || "",
-          svc,
-          ...hookParts,
-        ]
-          .filter(Boolean)
-          .join("  "),
-      );
-
-      // Per-endpoint ↳ only when it differs from the hoisted shared detail
-      if (!sharedDetail) {
-        const detail = epOpDetail(ep);
-        if (detail) lines.push(`   ↳${detail}`);
-      }
-    }
-
-    // Key modules (route/ctrl/model) — prominent display
-    if (keyMods.length) {
-      const modStrs = keyMods
-        .sort((a, b) => (globalImportedBy.get(b) ?? 0) - (globalImportedBy.get(a) ?? 0)
-          || (moduleByKey.get(a)?.mod.path ?? a).localeCompare(moduleByKey.get(b)?.mod.path ?? b))
-        .map(key => {
-          const { mod } = moduleByKey.get(key)!;
-          const { exportedSymbols, totalSymbols } = mod.stats;
-          const inb = globalImportedBy.get(key) ?? 0;
-          const statStr =
-            exportedSymbols === totalSymbols
-              ? `[${exportedSymbols}]`
-              : `[${exportedSymbols}/${totalSymbols}]`;
-          const inbStr = inb >= 2 ? `←${inb}` : "";
-          const extDeps = mod.externalDeps
-            .filter((d) => !d.startsWith("@/"))
-            .slice(0, 5)
-            .map(compressExtDep);
-          const extStr = extDeps.length ? ` | ${extDeps.join(",")}` : "";
-          return `${compressPath(mod.path)}${statStr}${inbStr}${extStr}`;
-        });
-      lines.push(`M  ${modStrs.join("  ")}`);
-    }
-
-    // Other domain modules (util, config, stable, middleware, etc.)
-    if (otherMods.length) {
-      const otherPaths = otherMods
-        .sort((a, b) => (globalImportedBy.get(b) ?? 0) - (globalImportedBy.get(a) ?? 0)
-          || (moduleByKey.get(a)?.mod.path ?? a).localeCompare(moduleByKey.get(b)?.mod.path ?? b))
-        .map(key => {
-          const { mod } = moduleByKey.get(key)!;
-          const inb = globalImportedBy.get(key) ?? 0;
-          const inbStr = inb >= 2 ? `←${inb}` : "";
-          return `${compressPath(mod.path)}${inbStr}`;
-        });
-      // Pack onto lines of ≤8 items
-      for (let i = 0; i < otherPaths.length; i += 8) {
-        lines.push(`M+ ${otherPaths.slice(i, i + 8).join("  ")}`);
-      }
-    }
-
-    // Full schema definitions (with diff notation for CRUD schema trios)
-    const schemaDiffs = buildSchemaDiffs(d.schemas);
-    for (const s of d.schemas) {
-      lines.push(`S  ${renderSchemaFull(s, schemaDiffs.get(s.n))}`);
-    }
-
-    // Tables
-    for (const t of d.tables) {
-      lines.push(`T  ${renderTableFull(t)}`);
-    }
-    for (const e of d.enums) {
-      lines.push(`E  ENUM ${e.n}  ${e.vals.join("|")}`);
-    }
-
-    // Redis keys
-    if (d.redisKeys.length) {
-      const keyStrs = d.redisKeys.map((k) => {
-        const ops = k.ops.join("/");
-        const hint = k.s ? `→${k.s}` : "";
-        const src = k.files.length ? ` (${k.files.join(",")})` : "";
-        return `${k.p}[${ops}]${hint}${src}`;
-      });
-      for (let i = 0; i < keyStrs.length; i += 3) {
-        lines.push(`K  ${keyStrs.slice(i, i + 3).join("  ")}`);
-      }
-    }
-
-    // RediSearch FT indexes
-    const ftIdx =
-      schemaData.redis?.idx?.filter(
-        (i) =>
-          inferDomainFromRedisKey(i.n) === domainName ||
-          (i.prefix && inferDomainFromRedisKey(i.prefix) === domainName),
-      ) ?? [];
-    for (const i of ftIdx) {
-      const pfx = i.prefix ? ` PREFIX:"${i.prefix}"` : "";
-      lines.push(`K  FT ${i.n}${pfx}`);
-    }
-
-    // Public controller/connector types — skip zero-entropy z.output<typeof XSchema> aliases
-    for (const t of d.tsTypes) {
-      if (isZodOutputAlias(t)) continue;
-      lines.push(`Ty ${renderTsType(t)}`);
-    }
-
-    lines.push("");
-  }
-
-  // ── PACKAGES section ──────────────────────────────────────────────────────
-  const pkgHdr = FULL
-    ? "# PACKAGES  (all modules · format: path[exp/tot]←importers syms | extDeps · [dir/] = auto-grouped prefix)"
-    : "# PACKAGES  (all modules · format: path[exp/tot]←importers syms | extDeps)";
-  lines.push(pkgHdr);
-  if (!FULL) lines.push("# sym budget: ←0→none  ←1→3  ←2..4→5  ←5+→8");
-  lines.push("");
-
-  for (const [short, { map }] of allMaps) {
-    const unassigned = map.modules
-      .filter(m => !assignedModules.has(`${short}/${m.path}`))
-      .sort((a, b) => {
-        const aC = globalImportedBy.get(`${short}/${a.path}`) ?? 0;
-        const bC = globalImportedBy.get(`${short}/${b.path}`) ?? 0;
-        return bC - aC || a.path.localeCompare(b.path);
-      });
-    const npmName = map.package ?? short;
-    const total = map.modules.length;
-    if (total === 0) continue;
-
-    lines.push(
-      `[${short}=${npmName}  ${total}m  ${unassigned.length} unassigned]`,
-    );
-    const pkgModLines: string[] = [];
-    for (const mod of unassigned) {
-      const key = `${short}/${mod.path}`;
-      const importedBy = globalImportedBy.get(key) ?? 0;
-      if (mod.stats.exportedSymbols === 0 && importedBy === 0) continue;
-      if (!FULL && importedBy === 0) continue; // compressed: skip leaf modules nobody imports
-      pkgModLines.push(renderModLine(key, mod));
-    }
-    for (const l of FULL ? autoGroupLines(pkgModLines) : pkgModLines)
+    for (const l of renderDomainBlock(domainName, d, opDefaults, schemaData)) {
       lines.push(l);
-    lines.push("");
-  }
-
-  // ── TYPES section ─────────────────────────────────────────────────────────
-  const tsTypes = schemaData.ts ?? [];
-  if (tsTypes.length > 0) {
-    lines.push(`# TYPES  (${tsTypes.length} from superschema)`);
-    if (schemaPathAbbrevLine) {
-      lines.push(
-        "# PATH ABBREVS  (schema file abbreviations used in [file] section headers)",
-      );
-      lines.push(schemaPathAbbrevLine);
-      lines.push("");
-    }
-
-    // Group by file
-    const byFile = new Map<string, TsType[]>();
-    for (const t of tsTypes) {
-      const f = t.f ?? "unknown";
-      if (!byFile.has(f)) byFile.set(f, []);
-      byFile.get(f)!.push(t);
-    }
-
-    // SDK response types: skip verbatim (redundant with compressed form below)
-    const sdkApiFile = [...byFile.keys()].find(
-      (f) =>
-        f.includes("protocol/generated/api") ||
-        f.includes("protocol/generated/api.ts"),
-    );
-    const sdkTypes = sdkApiFile ? (byFile.get(sdkApiFile) ?? []) : [];
-
-    // Render all non-SDK types: skip private (·) internal types and z.output aliases
-    for (const f of [...byFile.keys()].sort()) {
-      if (f === sdkApiFile) continue; // SDK file rendered compressed-only below
-      const fileTypes = byFile.get(f)!.filter((t) => !isZodOutputAlias(t));
-      if (!fileTypes.length) continue;
-      lines.push(`[${f}]`);
-      for (const t of fileTypes) {
-        lines.push(renderTsType(t));
-      }
-    }
-
-    // SDK compressed (replaces the ~638-line verbatim section entirely)
-    if (sdkTypes.length > 0) {
-      lines.push("");
-      lines.push(
-        `# SDK  (${sdkTypes.length} types → 1 line per op  200→ReturnType  err:codes)`,
-      );
-      const compressed = compressSdkTypes(sdkTypes);
-      for (const l of compressed) lines.push(l);
     }
   }
 
-  // ── Op-profile deduplication (compressed mode only) ──────────────────────
-  // Replace repeated identical ↳ delta lines with @N profile references.
-  // Profile definitions are inserted after the OP DEFAULTS legend.
+  // ── PACKAGES section ──
+  for (const l of renderPackagesSection(allMaps, assignedModules, globalImportedBy)) {
+    lines.push(l);
+  }
+
+  // ── TYPES section ──
+  for (const l of renderTypesSection(schemaData.ts ?? [], schemaPathAbbrevLine)) {
+    lines.push(l);
+  }
+
+  // ── Op-profile deduplication (compressed mode only) ──
   if (!FULL) {
-    // Collect all ↳ contents (stripped, excluding ↳* domain hoists)
-    const freq = new Map<string, number>();
-    for (const l of lines) {
-      const s = l.trimStart();
-      if (s.startsWith("↳") && !s.startsWith("↳*")) {
-        const delta = s.slice(1); // everything after ↳
-        freq.set(delta, (freq.get(delta) ?? 0) + 1);
-      }
-    }
-
-    // Build profiles for patterns that repeat
-    const profiles = new Map<string, string>(); // delta → @N
-    let idx = 1;
-    for (const [delta, count] of [...freq.entries()].sort(
-      (a, b) => b[1] - a[1],
-    )) {
-      if (count > 1) profiles.set(delta, `@${idx++}`);
-    }
-
-    if (profiles.size > 0) {
-      // Find insertion point: the empty line after the OP DEFAULTS block
-      let insertAt = -1;
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i]?.startsWith("# OP DEFAULTS")) {
-          for (let j = i + 1; j < lines.length; j++) {
-            if (lines[j] === "") {
-              insertAt = j + 1;
-              break;
-            }
-          }
-          break;
-        }
-      }
-
-      const profileBlock = [
-        `# OP PROFILES  (${profiles.size} repeated ↳ patterns · ↳@N = look up profile N below)`,
-        ...[...profiles.entries()].map(([delta, id]) => `${id} ${delta}`),
-        "",
-      ];
-
-      const before = insertAt >= 0 ? lines.slice(0, insertAt) : lines;
-      const after = insertAt >= 0 ? lines.slice(insertAt) : [];
-
-      const deduped = [...before, ...profileBlock, ...after].map((l) => {
-        const s = l.trimStart();
-        if (s.startsWith("↳") && !s.startsWith("↳*")) {
-          const id = profiles.get(s.slice(1));
-          if (id) return `${l.slice(0, l.length - s.length)}↳${id}`;
-        }
-        return l;
-      });
-
-      return deduped.join("\n");
-    }
+    return deduplicateOpProfiles(lines);
   }
 
   return lines.join("\n");

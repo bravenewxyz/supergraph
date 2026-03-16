@@ -52,72 +52,98 @@ export class MergeEngine {
       }
     }
 
-    // Compare every pair of ops from DIFFERENT agents
-    for (let i = 0; i < allEntries.length; i++) {
-      for (let j = i + 1; j < allEntries.length; j++) {
-        const entryA = allEntries[i]!;
-        const entryB = allEntries[j]!;
-
-        // Skip ops from the same agent
-        if (entryA.agentId === entryB.agentId) continue;
-
-        const result = checkCommutativity(entryA.op, entryB.op);
-
-        if (result === "commutes") {
-          // Both stay in applied
-          continue;
+    // Build a map of symbolId -> entries that affect it.
+    // Only compare entries that share at least one symbol (different-symbol ops always commute).
+    const symbolToEntries = new Map<string, OperationEntry[]>();
+    for (const entry of allEntries) {
+      const symbolIds = getAffectedSymbolIds(entry.op);
+      for (const sid of symbolIds) {
+        let list = symbolToEntries.get(sid);
+        if (!list) {
+          list = [];
+          symbolToEntries.set(sid, list);
         }
+        list.push(entry);
+      }
+    }
 
-        if (result === "lww") {
-          const resolution = resolveLWW(entryA, entryB);
-          autoResolved.push({
-            winner: resolution.winner,
-            loser: resolution.loser,
-            strategy: "lww",
+    // Track which pairs we've already compared to avoid duplicate work
+    const comparedPairs = new Set<string>();
+
+    for (const [, entries] of symbolToEntries) {
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const entryA = entries[i]!;
+          const entryB = entries[j]!;
+
+          // Skip ops from the same agent
+          if (entryA.agentId === entryB.agentId) continue;
+
+          // Deduplicate pairs (an entry pair may share multiple symbols)
+          const pairKey = entryA.id < entryB.id
+            ? `${entryA.id}:${entryB.id}`
+            : `${entryB.id}:${entryA.id}`;
+          if (comparedPairs.has(pairKey)) continue;
+          comparedPairs.add(pairKey);
+
+          const result = checkCommutativity(entryA.op, entryB.op);
+
+          if (result === "commutes") {
+            // Both stay in applied
+            continue;
+          }
+
+          if (result === "lww") {
+            const resolution = resolveLWW(entryA, entryB);
+            autoResolved.push({
+              winner: resolution.winner,
+              loser: resolution.loser,
+              strategy: "lww",
+            });
+            // Remove loser from applied
+            applied.delete(resolution.loser.id);
+            excluded.add(resolution.loser.id);
+            continue;
+          }
+
+          if (result === "contract-dependent") {
+            // TODO: Contract drift checking will be implemented in graph-bridge.
+            // For now, treat as commutes — both ops stay in applied.
+            continue;
+          }
+
+          if (result === "idempotent") {
+            // Keep the one with higher Lamport (or either, they're equivalent)
+            const resolution = resolveLWW(entryA, entryB);
+            autoResolved.push({
+              winner: resolution.winner,
+              loser: resolution.loser,
+              strategy: "idempotent",
+            });
+            applied.delete(resolution.loser.id);
+            excluded.add(resolution.loser.id);
+            continue;
+          }
+
+          // conflict
+          const symbolsA = getAffectedSymbolIds(entryA.op);
+          const symbolsB = getAffectedSymbolIds(entryB.op);
+          const sharedSymbols = symbolsA.filter((s) => symbolsB.includes(s));
+          const symbolId = sharedSymbols[0] ?? "unknown";
+
+          conflicts.push({
+            opA: entryA,
+            opB: entryB,
+            symbolId,
+            reason: `${entryA.op.type} conflicts with ${entryB.op.type} on symbol ${symbolId}`,
           });
-          // Remove loser from applied
-          applied.delete(resolution.loser.id);
-          excluded.add(resolution.loser.id);
-          continue;
+
+          // Remove both from applied
+          applied.delete(entryA.id);
+          applied.delete(entryB.id);
+          excluded.add(entryA.id);
+          excluded.add(entryB.id);
         }
-
-        if (result === "contract-dependent") {
-          // TODO: Contract drift checking will be implemented in graph-bridge.
-          // For now, treat as commutes — both ops stay in applied.
-          continue;
-        }
-
-        if (result === "idempotent") {
-          // Keep the one with higher Lamport (or either, they're equivalent)
-          const resolution = resolveLWW(entryA, entryB);
-          autoResolved.push({
-            winner: resolution.winner,
-            loser: resolution.loser,
-            strategy: "idempotent",
-          });
-          applied.delete(resolution.loser.id);
-          excluded.add(resolution.loser.id);
-          continue;
-        }
-
-        // conflict
-        const symbolsA = getAffectedSymbolIds(entryA.op);
-        const symbolsB = getAffectedSymbolIds(entryB.op);
-        const sharedSymbols = symbolsA.filter((s) => symbolsB.includes(s));
-        const symbolId = sharedSymbols[0] ?? "unknown";
-
-        conflicts.push({
-          opA: entryA,
-          opB: entryB,
-          symbolId,
-          reason: `${entryA.op.type} conflicts with ${entryB.op.type} on symbol ${symbolId}`,
-        });
-
-        // Remove both from applied
-        applied.delete(entryA.id);
-        applied.delete(entryB.id);
-        excluded.add(entryA.id);
-        excluded.add(entryB.id);
       }
     }
 

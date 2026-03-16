@@ -195,6 +195,7 @@ function extractFunctions(
   for (const func of funcs) {
     if (isNestedInClass(func)) continue;
     if (isNestedInNamespace(func)) continue;
+    if (isNestedDeclaration(func)) continue;
 
     const name = func.field("name")?.text();
     if (!name) continue;
@@ -614,9 +615,9 @@ function extractVariables(
       ? "const"
       : "let";
 
-    const declarators = decl.findAll({
-      rule: { kind: "variable_declarator" },
-    });
+    const declarators = decl.children().filter(
+      (c) => c.kind() === "variable_declarator",
+    );
     for (const declarator of declarators) {
       const name = declarator.field("name")?.text();
       if (!name) continue;
@@ -731,6 +732,7 @@ function extractNamespaceMembers(
   // Functions inside namespace
   const funcs = nsBody.findAll({ rule: { kind: "function_declaration" } });
   for (const func of funcs) {
+    if (isNestedDeclaration(func)) continue;
     const name = func.field("name")?.text();
     if (!name) continue;
 
@@ -758,10 +760,13 @@ function extractNamespaceMembers(
   // Variables inside namespace
   const lexDecls = nsBody.findAll({ rule: { kind: "lexical_declaration" } });
   for (const decl of lexDecls) {
+    if (isNestedDeclaration(decl)) continue;
     const exported = isExported(decl);
     const declKind = decl.text().trimStart().startsWith("const") ? "const" : "let";
 
-    const declarators = decl.findAll({ rule: { kind: "variable_declarator" } });
+    const declarators = decl.children().filter(
+      (c) => c.kind() === "variable_declarator",
+    );
     for (const declarator of declarators) {
       const name = declarator.field("name")?.text();
       if (!name) continue;

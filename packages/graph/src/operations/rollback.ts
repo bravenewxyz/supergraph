@@ -180,6 +180,7 @@ export function rollbackAgent(
       const edge = graphStore.getEdge(inverse.edgeId);
       if (edge) {
         cascaded.push(inverse);
+        alreadyCascadedEdges.add(inverse.edgeId);
         removedEdgeEndpoints.add(edge.sourceId);
         removedEdgeEndpoints.add(edge.targetId);
         // Both endpoints may become orphaned

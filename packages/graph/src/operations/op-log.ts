@@ -123,6 +123,8 @@ export class OperationLog {
       if (!entry?.id || !entry?.op || !entry?.agentId || typeof entry?.lamport !== "number") {
         continue;
       }
+      if (!entry.op.type) continue;
+      if (typeof entry.batchId !== "string") entry.batchId = entry.id;
       if (!Array.isArray(entry.symbolIds)) entry.symbolIds = [];
       this.entries.push(entry as OperationEntry);
       this.indexEntry(entry as OperationEntry);

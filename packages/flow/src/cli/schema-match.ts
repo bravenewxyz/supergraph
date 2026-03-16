@@ -217,11 +217,10 @@ function formatJson(
       matches: results.length,
       mismatches: results.reduce((n, r) => n + r.mismatches.length, 0),
       enforcementGaps,
-      results: results.map((r) => ({
-        schema: r.schema.name,
-        library: r.schema.library,
-        schemaFile: r.schema.filePath,
-        schemaLine: r.schema.line,
+      results: results.map((r) => {
+        const { shape: _, raw: __, ...schema } = r.schema;
+        return {
+        schema,
         typeName: r.typeName,
         typeFile: r.typeFilePath,
         confidence: r.confidence,
@@ -233,10 +232,11 @@ function formatJson(
             enforcement: trace ?? null,
           };
         }),
-      })),
+        };
+      }),
       unmatched: allSchemas
         .filter((s) => !results.some((r) => r.schema.name === s.name))
-        .map((s) => ({ name: s.name, library: s.library, file: s.filePath, line: s.line })),
+        .map(({ shape: _, raw: __, ...rest }) => rest),
     },
     null,
     2,
