@@ -14,6 +14,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { collectSourceFiles, createProgram } from "../../extractor/typescript.js";
+import { getSharedProgram } from "../../analysis/shared-program.js";
 import { getArg, shortPath } from "../util.js";
 import { crossRepScan } from "./cross-rep.js";
 import { scanGuardConsistency, scanBroadGuardConsistency } from "./guards.js";
@@ -175,18 +176,10 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
     (f) => !f.includes("__tests__") && !f.includes(".test.") && !f.includes(".spec."),
   );
 
-  // Single program creation shared across all analyses.
-  // Auto-detect tsconfig.json so the checker can resolve node_modules types
-  // (needed for dataflow strategies that resolve .parse() return types).
-  const { existsSync } = await import("node:fs");
-  const tsConfigCandidates = [
-    resolve(resolvedDir, "tsconfig.json"),
-    resolve(resolvedDir, "..", "tsconfig.json"),
-    resolve(resolvedDir, "../..", "tsconfig.json"),
-  ];
-  const tsConfigPath = tsConfigCandidates.find((p) => existsSync(p));
-  const program = createProgram(nonTestFiles, tsConfigPath);
-  const checker = program.getTypeChecker();
+  // Use shared program cache for cross-tool reuse within the same audit run.
+  const shared = await getSharedProgram(resolvedDir);
+  const program = shared.program;
+  const checker = shared.checker;
 
   const crossRep = await crossRepScan(files, resolvedDir, { program, checker });
 

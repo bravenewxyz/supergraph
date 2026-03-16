@@ -32,7 +32,7 @@
  * Usage:  bun superhigh.ts [--out <path>] [--fresh]
  */
 
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
@@ -117,11 +117,45 @@ async function getSchemaPathAbbrevLine(): Promise<string> {
   }
 }
 
-const [allMaps, flowsRaw, schemaRaw, schemaPathAbbrevLine] = await Promise.all([
+// ─── Load per-package logic-audit.json and taint.json ─────────────────────────
+type DecisionTableEntry = {
+  functionName: string;
+  filePath: string;
+  line: number;
+  suspiciousCells: { verdictNote?: string; line: number }[];
+};
+type LogicAuditJson = { decisionTables?: DecisionTableEntry[] };
+type TaintJson = {
+  sources: number;
+  sinks: number;
+  flows: number;
+  unsanitizedFlows: number;
+  unsanitizedBySeverity?: { critical: number; high: number; medium: number };
+  details?: { severity: string; sinkKind: string; sinkFile: string; sinkLine: number; sourceKind: string; sourceFile: string; sourceLine: number }[];
+};
+
+async function loadPerPkgJson<T>(fileName: string): Promise<Map<string, T>> {
+  const result = new Map<string, T>();
+  try {
+    const entries = await readdir(PKGS, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      try {
+        const raw = await readFile(join(PKGS, e.name, "json", fileName));
+        if (raw) result.set(e.name, JSON.parse(raw) as T);
+      } catch {}
+    }
+  } catch {}
+  return result;
+}
+
+const [allMaps, flowsRaw, schemaRaw, schemaPathAbbrevLine, logicAuditData, taintData] = await Promise.all([
   loadAllMaps(PKGS),
   runForJson("superflow", ROOT),
   runForJson("superschema", ROOT),
   getSchemaPathAbbrevLine(),
+  loadPerPkgJson<LogicAuditJson>("logic-audit.json"),
+  loadPerPkgJson<TaintJson>("taint.json"),
 ]);
 
 const flows = JSON.parse(flowsRaw || "{}") as FlowsJson;
@@ -1317,6 +1351,59 @@ function generateOutput(): string {
   // ── TYPES section ──
   for (const l of renderTypesSection(schemaData.ts ?? [], schemaPathAbbrevLine)) {
     lines.push(l);
+  }
+
+  // ── DECISION GAPS section ──
+  {
+    const gapEntries: { functionName: string; filePath: string; line: number; verdictNote: string }[] = [];
+    for (const [_pkg, audit] of logicAuditData) {
+      for (const table of audit.decisionTables ?? []) {
+        for (const cell of table.suspiciousCells ?? []) {
+          if (cell.verdictNote) {
+            gapEntries.push({
+              functionName: table.functionName,
+              filePath: table.filePath,
+              line: cell.line || table.line,
+              verdictNote: cell.verdictNote,
+            });
+          }
+        }
+      }
+    }
+    if (gapEntries.length > 0) {
+      lines.push("");
+      lines.push("# DECISION GAPS");
+      lines.push("");
+      for (const entry of gapEntries.slice(0, 30)) {
+        lines.push(`${entry.functionName}  ${entry.filePath}:${entry.line}`);
+        lines.push(`  ${entry.verdictNote}`);
+      }
+    }
+  }
+
+  // ── TAINT section ──
+  {
+    const taintEntries: string[] = [];
+    for (const [pkg, taint] of taintData) {
+      if (taint.unsanitizedFlows > 0) {
+        const sev = taint.unsanitizedBySeverity;
+        const parts: string[] = [];
+        if (sev?.critical) parts.push(`${sev.critical} critical`);
+        if (sev?.high) parts.push(`${sev.high} high`);
+        if (sev?.medium) parts.push(`${sev.medium} medium`);
+        taintEntries.push(`${pkg}: ${taint.unsanitizedFlows} unsanitized flows (${parts.join(", ")})`);
+      } else if (taint.flows > 0) {
+        taintEntries.push(`${pkg}: ${taint.flows} flows, all sanitized`);
+      }
+    }
+    if (taintEntries.length > 0) {
+      lines.push("");
+      lines.push("# TAINT");
+      lines.push("");
+      for (const entry of taintEntries) {
+        lines.push(entry);
+      }
+    }
   }
 
   // ── Op-profile deduplication (compressed mode only) ──

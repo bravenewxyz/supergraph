@@ -3,6 +3,24 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { readFile } from "./utils.js";
+
+// ── Discovery JSON types ──────────────────────────────────────────────────────
+type DiscoveryFunction = {
+  name: string;
+  filePath: string;
+  line: number;
+  purityScore: number;
+};
+type DiscoveryDuplicate = {
+  functions: { name: string; filePath: string; line: number }[];
+  similarity: number;
+};
+type DiscoveryHub = { name: string; filePath: string; line: number; callers: number };
+type DiscoveryJson = {
+  functions?: DiscoveryFunction[];
+  duplicates?: DiscoveryDuplicate[];
+  callGraph?: { hubDetails?: DiscoveryHub[] };
+};
 import type {
   GraphRawSymbol as RawSymbol,
   GraphRawModule as RawModule,
@@ -24,6 +42,7 @@ type NormaGraph = BaseGraphOutput<NormaNode, NormaEdge, {
   tier3Count: number;
 }> & {
   packages: { short: string; pkgName: string; moduleCount: number }[];
+  discoveryData: Map<string, DiscoveryJson>;
 };
 
 // ---------------------------------------------------------------------------
@@ -172,11 +191,16 @@ async function buildNormagraph(auditDir: string, root: string): Promise<NormaGra
   } catch {}
 
   const pkgMaps: { short: string; map: RawMap }[] = [];
+  const discoveryData = new Map<string, DiscoveryJson>();
   for (const short of auditEntries) {
     try {
       const raw = await readFile(join(auditDir, short, "json/map.json"));
       if (!raw) continue;
       pkgMaps.push({ short, map: JSON.parse(raw) });
+    } catch {}
+    try {
+      const raw = await readFile(join(auditDir, short, "json/discovery.json"));
+      if (raw) discoveryData.set(short, JSON.parse(raw));
     } catch {}
   }
 
@@ -281,6 +305,7 @@ async function buildNormagraph(auditDir: string, root: string): Promise<NormaGra
       crossEdges: edges.filter((e) => e.cross).length,
       tier1Count: 0, tier2Count: 0, tier3Count: 0,
     },
+    discoveryData,
   };
 }
 
@@ -804,6 +829,42 @@ function renderBrief(data: NormaGraph): string {
     out.push(`${src} → ${targets.join(" ")}`);
   }
   out.push("");
+
+  // Invariant candidates from discovery.json
+  if (data.discoveryData.size > 0) {
+    const pureEntries: string[] = [];
+    const hubEntries: string[] = [];
+    const dupEntries: string[] = [];
+
+    for (const [_pkg, disc] of data.discoveryData) {
+      for (const fn of disc.functions ?? []) {
+        if (fn.purityScore >= 0.7) {
+          const sp = fn.filePath.includes("/src/") ? fn.filePath.slice(fn.filePath.indexOf("/src/") + 5) : fn.filePath;
+          pureEntries.push(`Pure: ${fn.name}  ${sp}:${fn.line}  purity=${fn.purityScore.toFixed(2)}`);
+        }
+      }
+      for (const hub of disc.callGraph?.hubDetails ?? []) {
+        if (hub.callers >= 5) {
+          const sp = hub.filePath.includes("/src/") ? hub.filePath.slice(hub.filePath.indexOf("/src/") + 5) : hub.filePath;
+          hubEntries.push(`Hub: ${hub.name}  (${hub.callers} callers)  ${sp}:${hub.line}`);
+        }
+      }
+      for (const dup of disc.duplicates ?? []) {
+        if (dup.functions.length >= 3) {
+          const names = dup.functions.map((f) => f.name).join(" \u2194 ");
+          dupEntries.push(`Dup: ${names} (similarity=${Math.round(dup.similarity * 100)}%)`);
+        }
+      }
+    }
+
+    if (pureEntries.length > 0 || hubEntries.length > 0 || dupEntries.length > 0) {
+      out.push(`${"═".repeat(4)} INVARIANT CANDIDATES ${"═".repeat(37)}`);
+      for (const e of pureEntries) out.push(e);
+      for (const e of hubEntries) out.push(e);
+      for (const e of dupEntries) out.push(e);
+      out.push("");
+    }
+  }
 
   // Backfill stats line
   data.stats.tier1Count = tier1;

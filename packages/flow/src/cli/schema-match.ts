@@ -15,6 +15,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { getArg, shortPath, writeOutput } from "./util.js";
 import { collectSourceFiles, createProgram, extractTypeShape } from "../extractor/typescript.js";
+import { getSharedProgram } from "../analysis/shared-program.js";
 import { createDefaultRegistry } from "../extractor/runtime-schema.js";
 import type { RuntimeSchemaInfo } from "../extractor/runtime-schema.js";
 import { matchSchemasToTypes } from "../analysis/schema-matcher.js";
@@ -79,9 +80,10 @@ export async function runSchemaMatch(opts: SchemaMatchOptions): Promise<string> 
   // Resolve cross-references between schemas (e.g. metricsSchema used inside responseSchema)
   resolveSchemaRefs(allSchemas);
 
-  // Match schemas to types
-  const program = createProgram(files);
-  const checker = program.getTypeChecker();
+  // Match schemas to types (use shared program cache for cross-tool reuse)
+  const shared = await getSharedProgram(resolvedDir);
+  const program = shared.program;
+  const checker = shared.checker;
   const matches = await matchSchemasToTypes(allSchemas, {
     srcDir: resolvedDir,
     program,

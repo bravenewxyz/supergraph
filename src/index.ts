@@ -47,7 +47,7 @@ if (!existsSync(setupDone)) {
   const claudeCmdDir = join(homedir(), ".claude", "commands");
   try {
     mkdirSync(claudeCmdDir, { recursive: true });
-    const commands = ["deep-audit.md", "deep-strategic.md", "high-level.md"];
+    const commands = ["deep-audit.md", "deep-strategic.md", "deep-followup.md", "high-level.md"];
     for (const cmd of commands) {
       const res = await fetch(`${BASE_URL}/${cmd}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {

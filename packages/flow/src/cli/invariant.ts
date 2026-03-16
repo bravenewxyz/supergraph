@@ -85,7 +85,10 @@ export async function runInvariantDiscover(opts: InvariantDiscoverOptions): Prom
     }));
     const callGraph = buildCallGraph(functions);
     const signatures = checkSignatures(functions);
-    const output = JSON.stringify({ functions: compact, duplicates, callGraph: { dead: callGraph.deadFunctions.length, hubs: callGraph.hubFunctions.length, singleCaller: callGraph.singleCallerFunctions.length }, signatures: { inconsistencies: signatures.inconsistencies.length, crossBoundary: signatures.crossBoundary.length } }, null, 2);
+    const hubDetails = callGraph.hubFunctions.map((h) => ({
+      name: h.name, filePath: h.filePath, line: h.line, callers: h.callers.length,
+    }));
+    const output = JSON.stringify({ functions: compact, duplicates, callGraph: { dead: callGraph.deadFunctions.length, hubs: callGraph.hubFunctions.length, singleCaller: callGraph.singleCallerFunctions.length, hubDetails }, signatures: { inconsistencies: signatures.inconsistencies.length, crossBoundary: signatures.crossBoundary.length } }, null, 2);
     if (opts.outFile) await writeOutput(output, opts.outFile);
     return output;
   }

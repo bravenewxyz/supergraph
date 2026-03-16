@@ -30,6 +30,7 @@ import { runTrace } from "../../packages/flow/src/cli/trace.js";
 import { runLogicAudit } from "../../packages/flow/src/cli/logic-audit/index.js";
 import { runContracts } from "../../packages/flow/src/cli/contracts.js";
 import { runInvariantDiscover } from "../../packages/flow/src/cli/invariant.js";
+import { clearProgramCache } from "../../packages/flow/src/analysis/shared-program.js";
 
 // Cross-package tools
 import { runAggregate } from "../../packages/scripts/supergraph.js";
@@ -266,6 +267,37 @@ function buildTsOnlyTools(t: PkgTarget): ToolRun[] {
       phase: "7",
       run: () => runInvariantDiscover({ srcDir, format: "json", suggestExtractions: true, outFile: `${jsonDir}/discovery.json` }).then(() => {}),
       checkFile: `${jsonDir}/discovery.json`,
+      json: true,
+    },
+    {
+      label: "taint analysis",
+      phase: "8",
+      run: async () => {
+        const { runTaintAnalysis } = await import("../../packages/flow/src/analysis/taint-tracker.js");
+        const analysis = await runTaintAnalysis(srcDir);
+        const output = JSON.stringify({
+          sources: analysis.sources.length,
+          sinks: analysis.sinks.length,
+          flows: analysis.flows.length,
+          unsanitizedFlows: analysis.unsanitizedFlows.length,
+          unsanitizedBySeverity: {
+            critical: analysis.unsanitizedFlows.filter((f: { severity: string }) => f.severity === "critical").length,
+            high: analysis.unsanitizedFlows.filter((f: { severity: string }) => f.severity === "high").length,
+            medium: analysis.unsanitizedFlows.filter((f: { severity: string }) => f.severity === "medium").length,
+          },
+          details: analysis.unsanitizedFlows.slice(0, 20).map((f: { severity: string; sink: { kind: string; filePath: string; line: number }; source: { kind: string; filePath: string; line: number } }) => ({
+            severity: f.severity,
+            sinkKind: f.sink.kind,
+            sinkFile: f.sink.filePath,
+            sinkLine: f.sink.line,
+            sourceKind: f.source.kind,
+            sourceFile: f.source.filePath,
+            sourceLine: f.source.line,
+          })),
+        }, null, 2);
+        await writeFile(`${jsonDir}/taint.json`, output);
+      },
+      checkFile: `${jsonDir}/taint.json`,
       json: true,
     },
   ];
@@ -747,6 +779,7 @@ Usage:
 
     for (const t of tsTargets) {
       totalFailures += await auditPackage(t, anim);
+      clearProgramCache(); // free TS Program memory between packages
     }
   }
 

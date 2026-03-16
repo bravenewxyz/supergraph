@@ -18,6 +18,7 @@ import { resolve } from "node:path";
 import { getArg, writeOutput } from "./util.js";
 import { GraphStore, parseTypeScript } from "@supergraph/graph";
 import { collectSourceFiles, createProgram, extractTypeShape } from "../extractor/typescript.js";
+import { getSharedProgram } from "../analysis/shared-program.js";
 import { createDefaultRegistry } from "../extractor/runtime-schema.js";
 import { detectBoundaries } from "../flow/boundary-detector.js";
 import { tracePipelines } from "../flow/pipeline-tracer.js";
@@ -84,8 +85,9 @@ export async function runTrace(opts: TraceOptions): Promise<string> {
     allSchemas.push(...registry.extractAll(source, filePath));
   }
 
-  const program = createProgram(files);
-  const checker = program.getTypeChecker();
+  const shared = await getSharedProgram(resolvedDir);
+  const program = shared.program;
+  const checker = shared.checker;
   const schemaMatches = await matchSchemasToTypes(allSchemas, {
     srcDir: resolvedDir,
     program,
