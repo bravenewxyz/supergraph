@@ -782,6 +782,23 @@ Usage:
   ];
   await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
 
+  // Clean stale per-package directories that don't belong to the current run.
+  // Without this, leftover directories from auditing a different project pollute
+  // the aggregate cross-package output (superhigh, supergraph, normagraph).
+  const PKGS_DIR = join(AUDIT_DIR, "packages");
+  const validPkgNames = new Set([
+    ...tsTargets.map(t => t.pkgName),
+    ...goTargets.map(t => t.pkgName),
+  ]);
+  try {
+    const existingDirs = await readdir(PKGS_DIR, { withFileTypes: true });
+    await Promise.all(
+      existingDirs
+        .filter(e => e.isDirectory() && !validPkgNames.has(e.name))
+        .map(e => rm(join(PKGS_DIR, e.name), { recursive: true, force: true })),
+    );
+  } catch { /* packages dir doesn't exist yet */ }
+
   const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 600_000;
   const crossResults = await Promise.allSettled([

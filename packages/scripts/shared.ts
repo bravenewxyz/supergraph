@@ -225,9 +225,15 @@ export function compressExtDep(
 /**
  * Reads all `audit/packages/<pkg>/json/map.json` files into a Map keyed by
  * package short name.
+ *
+ * When `allowList` is provided, only directories whose names appear in the
+ * set are loaded — this prevents stale artifact directories left over from
+ * previous runs (e.g. auditing a different project) from polluting the
+ * aggregate output.
  */
 export async function loadAllMaps(
   pkgsDir: string,
+  allowList?: ReadonlySet<string>,
 ): Promise<Map<string, PkgData>> {
   const result = new Map<string, PkgData>();
   let entries: string[] = [];
@@ -235,6 +241,7 @@ export async function loadAllMaps(
     const de = await readdir(pkgsDir, { withFileTypes: true });
     entries = de
       .filter((e) => e.isDirectory())
+      .filter((e) => !allowList || allowList.has(e.name))
       .map((e) => e.name)
       .sort();
   } catch { /* packages dir unreadable */ }

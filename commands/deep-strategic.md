@@ -56,15 +56,48 @@ If `supergraph` is not installed: `brew install bravenewxyz/supergraph/supergrap
 
 The order matters — start with the architectural overview, then drill into structural data, then load the actual source code. Each layer adds depth to your understanding.
 
+### Reading large files efficiently
+
+The Read tool has a **25,000 token limit per call**. For large files like `symbols.txt` (often 30K-55K+ lines), you MUST use a chunked reading strategy. Here's how to do it fast:
+
+1. **First, check the file size** — run `wc -l audit/symbols.txt` via Bash to know how many lines you're dealing with.
+2. **Read in large parallel batches** — use multiple Read calls in a SINGLE message, each with `offset` and `limit` parameters. This is critical for speed: 6 parallel reads complete in the same wall-clock time as 1 read.
+3. **Use Bash `cat` as a fallback for very large files** — when a file exceeds Read tool limits even with chunking, use `cat -n <file> | head -n X | tail -n Y` via the Bash tool. The Bash tool has higher output limits than Read.
+
+**Concrete strategy for `symbols.txt`:**
+```
+# Step 1: Get line count
+Bash: wc -l audit/symbols.txt
+
+# Step 2: Read in parallel chunks of ~500 lines each (6 at a time)
+# In a SINGLE message, issue all Read calls simultaneously:
+Read: offset=1    limit=500
+Read: offset=501  limit=500
+Read: offset=1001 limit=500
+Read: offset=1501 limit=500
+Read: offset=2001 limit=500
+Read: offset=2501 limit=500
+
+# Step 3: Continue with next batch of 6 until done
+# For a 10K line file, this takes 4 messages. For 50K lines, ~17 messages.
+```
+
+**Key rules:**
+- ALWAYS issue multiple Read calls in the SAME message for parallel execution
+- Use 500-line chunks — this stays safely under the 25K token limit for most code
+- If a chunk hits the token limit, reduce chunk size to 300 lines
+- For the module index section at the top of `symbols.txt`, use larger chunks (it's denser but lower tokens-per-line)
+- Do NOT narrate each read. Read silently, then proceed.
+
 ### 1a. Architecture layer (read first)
 
-Read `audit/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies.
+Read `audit/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
 
 After this layer you understand the skeleton: what talks to what, what's central, what's peripheral.
 
 ### 1b. Source layer (read second — this is what 1M context enables)
 
-Read `audit/symbols.txt` in its entirety. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships. Read it in chunks using offset/limit if needed, but read ALL of it.
+Read `audit/symbols.txt` in its entirety using the chunked parallel strategy above. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships.
 
 This is the layer that transforms the review from "structural observations" to "I've read your code." Without it, you're guessing at intent from module names. With it, you can see:
 - What every function actually does — signatures, bodies, return types
@@ -97,70 +130,105 @@ If any critical file is missing, note it in one line and continue with what you 
 
 ---
 
-## Phase 2: Strategic interview
+## Phase 2: Synthesize and present opportunities
 
-**You've now read the entire codebase.** Your questions should reflect this.
+**You've now read the entire codebase.** This phase is NOT a generic interview. You already know what the code does, how it's structured, and where the tensions are. Your job is to synthesize that understanding into concrete observations and opportunities, then check alignment with the user.
 
-Do NOT ask generic questions. Ask questions that are **informed by what you've already seen in the code**. Reference specific patterns, modules, or architectural decisions when relevant.
+### 2a. Synthesis (silent)
 
-Output this to the user, then **STOP and WAIT** for their response. Adapt the questions based on what you observed in Phase 1 — add specificity, drop questions that the code already answers, add questions about tensions or surprises you noticed:
+Before saying anything, form your own answers to these questions from the code alone:
+- What is this project trying to be? (The code tells you — module names, type shapes, API surface, README)
+- What's the strongest part? (Hub modules with clean abstractions, elegant algorithms, well-tested code)
+- What's the weakest part? (High complexity, dead exports, missing tests, orphaned abstractions)
+- What are the 3-5 highest-leverage moves? (Things that would have outsized impact for the effort)
+- What surprised you? (Unexpected sophistication, unexpected gaps, architectural tensions)
+
+### 2b. Present your read (output to user)
+
+Output a brief synthesis of what you've seen as a text message. This shows you've done the work and frames the questions that follow.
+
+The format should be:
 
 ```
-I've loaded the full codebase — <N> modules, <M> functions, <L> lines across <P> packages.
+I've loaded the full codebase — <N> modules, <M> functions across <P> packages.
 
-Before I synthesize, I need to understand your intent.
-Answer what resonates, skip what doesn't:
+**Here's what I see:**
 
-1. **What is this?** Elevator pitch — who uses it and why?
+<2-4 sentences describing what this project IS based on the code. Not the README —
+what the code actually does. Name specific modules, patterns, and capabilities.>
 
-2. **Where are you taking it?** What does the next major milestone look like?
-   (shipping to users / internal tool / open source / research prototype / selling it)
+**What stands out:**
 
-3. **What keeps you up at night?** What feels fragile, slow, or wrong?
-   What would you fix if you had infinite time?
-
-4. **What are you proud of?** What's the part you'd show another engineer?
-
-5. **What's the constraint?** Solo dev? Team? Time-boxed? Funding?
-   This changes what "good advice" looks like dramatically.
-
-6. **What would mass adoption require?** If 1000 people tried to use this
-   tomorrow, what would break first?
+- <Specific strength — cite module/pattern>
+- <Specific tension or gap — cite evidence>
+- <Specific opportunity — concrete, not vague>
 ```
 
-**Critical: augment the generic questions with specific observations.** For example:
+### 2c. Ask targeted questions via AskUserQuestion
 
-- If you noticed a module with 75 submodules: "I see `core/` has 75 modules — is this the heart of the system or has it become a dumping ground?"
-- If you noticed a cluster of dead exports: "There are 43 unused exports in `invariant/` — abandoned experiment or planned public API?"
-- If you noticed an impressive implementation: "The symbolic executor uses Z3 for formal verification — is this a differentiator you're investing in or a research spike?"
-- If you noticed architectural tension: "The `operations/` layer has a full CRDT-style merge engine but no persistence layer beyond NDJSON — is distributed operation a goal?"
+Immediately after the synthesis text, use the **AskUserQuestion tool** to ask 2-4 targeted questions. This is critical — it uses the IDE's built-in question UI where the user can select from options you suggest. You're not asking open-ended questions; you're proposing what you already think and letting the user curate.
 
-Add 1-3 of these specific observations as additional questions numbered 7+.
+**Each question MUST:**
+- Reference something specific you observed in the code
+- Provide 2-4 concrete options that reflect your best guesses
+- Put your recommended option first with "(Recommended)" suffix
+- The user can always select "Other" to provide custom input
 
-### Follow-up rounds (as many as needed)
+**Example AskUserQuestion call:**
 
-After each user response, assess your **confidence level** across these dimensions:
+```json
+{
+  "questions": [
+    {
+      "question": "The invariant module has Z3 symbolic execution and property-based test generation but nothing imports it yet. What's the intent?",
+      "header": "Invariant",
+      "options": [
+        { "label": "Next frontier (Recommended)", "description": "This is where I'm heading — wire it into CI and make it a differentiator" },
+        { "label": "Completed experiment", "description": "It proved the concept, but I'm not investing more here" },
+        { "label": "On hold", "description": "Valuable but not a priority right now" }
+      ],
+      "multiSelect": false
+    },
+    {
+      "question": "I see 3 areas that could use investment. Which matters most right now?",
+      "header": "Priority",
+      "options": [
+        { "label": "Test coverage", "description": "Thorough in schema/ but absent in operations/ and coordination/" },
+        { "label": "API surface cleanup", "description": "42 routes, some with overlapping concerns — tighten before more users" },
+        { "label": "Performance", "description": "Several O(n²) patterns in the graph traversal code" }
+      ],
+      "multiSelect": true
+    },
+    {
+      "question": "What's the deployment context?",
+      "header": "Context",
+      "options": [
+        { "label": "Solo dev, shipping (Recommended)", "description": "Move fast, pragmatic advice, skip enterprise patterns" },
+        { "label": "Small team", "description": "Need conventions and guardrails for collaboration" },
+        { "label": "Open source library", "description": "Public API stability and docs matter" },
+        { "label": "Internal tool", "description": "Works-for-us is good enough" }
+      ],
+      "multiSelect": false
+    }
+  ]
+}
+```
 
-| Dimension | What you need to know |
-|---|---|
-| **Intent** | What they're building, for whom, and why |
-| **Direction** | Where it's going next — what "done" looks like |
-| **Priorities** | What matters most vs what's negotiable |
-| **Constraints** | What limits the solution space (time, team, money, tech) |
-| **Blind spots** | What they don't realize about their own codebase |
+**Key principles:**
+- **Lead with YOUR synthesis as text**, then ask questions via AskUserQuestion. The user hired you to think, not to ask what they think.
+- **Every question must reference something specific from the code.** No "what keeps you up at night?" — instead, "The merger does git push in a catch-free block (actuator/merger:L796) — does this ever fail in practice?"
+- **Propose answers in the options.** The options ARE your analysis. The user is curating your thinking, not doing your thinking for you. If you noticed dead exports, don't ask "are there dead exports?" — propose "These 43 dead exports are: (a) abandoned experiment, (b) planned public API, (c) cleanup debt."
+- **2-4 questions max.** You already know 90% of what you need from the code. The questions fill the remaining 10%.
+- **Do NOT ask what the project is.** You just read it. If you can't tell what it is from the code, that itself is a finding worth reporting.
 
-**Keep asking follow-up questions until you are genuinely confident you can produce a strategic review that the user would find non-obvious and actionable.** There is no limit on rounds. Two rounds is typical. Five is fine if the project is complex or the user's answers reveal deeper tensions worth exploring.
+### 2d. Follow-up (one round max)
 
-Guidelines for follow-ups:
+After the user responds:
 
-- **If an answer is vague**, ask for specifics. "You said it feels fragile — which part? The federation layer? The agent lifecycle? The schema extraction?"
-- **If an answer surprises you** given what you've read in the code, say so and ask why. "You say federation is the priority, but the federation module has the fewest tests of any domain — is that intentional or a gap you're aware of?"
-- **If an answer conflicts with another answer**, probe the tension. "You want mass adoption but you're a solo dev — which would you sacrifice: scope or polish?"
-- **If the user reveals something that changes your analysis**, acknowledge it. "That changes things — if this is internal-only, half my concerns about error messages disappear."
-- **If the user skips questions**, respect that — it tells you something. Don't re-ask. But you can ask *different* questions that approach the same information from another angle.
-- **If you're confident**, say so and proceed. Don't ask questions for the sake of asking. "I have what I need — proceeding to analysis."
-
-**The quality of the strategic review is directly proportional to the quality of this conversation.** Rushing to Phase 3 with shallow understanding produces generic advice. Taking the time to truly understand produces advice the user couldn't have reached alone.
+- If their answers change your analysis, adjust silently and proceed.
+- If they selected "Other" with custom text, incorporate that signal.
+- If something contradicts what you see in the code, you may ask ONE more AskUserQuestion with 1-2 clarifying questions. Then proceed regardless.
+- **Proceed to Phase 3 immediately.** Don't ask questions for the sake of asking.
 
 ---
 
@@ -358,4 +426,4 @@ Launch agents in parallel for independent moves. Serialize moves that touch the 
 
 9. **Be specific about "what would break."** When identifying concerns, say exactly what would fail and under what conditions. You've read the implementation — you can be precise.
 
-10. **Your questions reveal your understanding.** The Phase 2 interview is your chance to show the user you've actually read their code. Generic questions waste the 1M context advantage. Specific questions — referencing real modules, real patterns, real tensions — build trust and surface the information you actually need.
+10. **Lead with synthesis, not questions.** Phase 2 is your chance to show the user you've actually read their code. Don't ask "what is this?" — tell them what you see, then ask the 3-5 things the code can't tell you. Generic questions waste the 1M context advantage and the user's time. Every question must reference a specific module, pattern, or tension you observed.
