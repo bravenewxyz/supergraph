@@ -133,6 +133,13 @@ type TaintJson = {
   unsanitizedBySeverity?: { critical: number; high: number; medium: number };
   details?: { severity: string; sinkKind: string; sinkFile: string; sinkLine: number; sourceKind: string; sourceFile: string; sourceLine: number }[];
 };
+type CompoundFinding = {
+  severity: "critical" | "high" | "medium";
+  category: string;
+  summary: string;
+  pkg: string;
+  evidence: Array<{ engine: string; detail: string; file: string; line: number }>;
+};
 
 async function loadPerPkgJson<T>(fileName: string): Promise<Map<string, T>> {
   const result = new Map<string, T>();
@@ -149,13 +156,14 @@ async function loadPerPkgJson<T>(fileName: string): Promise<Map<string, T>> {
   return result;
 }
 
-const [allMaps, flowsRaw, schemaRaw, schemaPathAbbrevLine, logicAuditData, taintData] = await Promise.all([
+const [allMaps, flowsRaw, schemaRaw, schemaPathAbbrevLine, logicAuditData, taintData, compoundData] = await Promise.all([
   loadAllMaps(PKGS),
   runForJson("superflow", ROOT),
   runForJson("superschema", ROOT),
   getSchemaPathAbbrevLine(),
   loadPerPkgJson<LogicAuditJson>("logic-audit.json"),
   loadPerPkgJson<TaintJson>("taint.json"),
+  loadPerPkgJson<CompoundFinding[]>("compound.json"),
 ]);
 
 const flows = JSON.parse(flowsRaw || "{}") as FlowsJson;
@@ -1401,6 +1409,28 @@ function generateOutput(): string {
       lines.push("# TAINT");
       lines.push("");
       for (const entry of taintEntries) {
+        lines.push(entry);
+      }
+    }
+  }
+
+  // ── COMPOUND section ──
+  {
+    const compoundEntries: string[] = [];
+    for (const [pkg, findings] of compoundData) {
+      if (!Array.isArray(findings) || findings.length === 0) continue;
+      for (const f of findings) {
+        compoundEntries.push(`${f.severity} ${f.category}: ${f.summary}`);
+        for (const ev of f.evidence) {
+          compoundEntries.push(`  [${ev.engine}] ${ev.detail}  ${ev.file}:${ev.line}`);
+        }
+      }
+    }
+    if (compoundEntries.length > 0) {
+      lines.push("");
+      lines.push("# COMPOUND");
+      lines.push("");
+      for (const entry of compoundEntries) {
         lines.push(entry);
       }
     }

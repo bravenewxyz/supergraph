@@ -300,6 +300,20 @@ function buildTsOnlyTools(t: PkgTarget): ToolRun[] {
       checkFile: `${jsonDir}/taint.json`,
       json: true,
     },
+    {
+      label: "compound analysis",
+      phase: "9",
+      run: async () => {
+        const { runCompoundAnalysis } = await import("../../packages/flow/src/analysis/compound-analysis.js");
+        const findings = await runCompoundAnalysis(t.pkgName, jsonDir);
+        if (findings.length > 0) {
+          const { writeFile } = await import("node:fs/promises");
+          await writeFile(`${jsonDir}/compound.json`, JSON.stringify(findings, null, 2));
+        }
+      },
+      checkFile: `${jsonDir}/compound.json`,
+      json: true,
+    },
   ];
 }
 
