@@ -3,7 +3,7 @@ import type { SgNode } from "@ast-grep/napi";
 import type {
   RuntimeSchemaExtractor,
   RuntimeSchemaInfo,
-} from "./runtime-schema.js";
+} from "./types.js";
 import type { ShapeType, ShapeField } from "../schema/shapes.js";
 
 /**

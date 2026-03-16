@@ -22,12 +22,23 @@ const VERBOSE = process.argv.includes("--verbose");
 
 // ─── Config (read from audit/config.json) ────────────────────────────────────
 
+/**
+ * JSON-serializable route source as stored in config.json.
+ * filePattern is a RegExp source string (no slashes/flags), e.g. "\\.ts$".
+ * mountPrefix maps basename → path prefix the router mounts that file at,
+ *   e.g. "guilds.route.ts" → "guilds" means paths in that file get /guilds prepended.
+ */
 type ConfigRouteSource = {
   service: string;
   pkg: string;
   dir: string;
-  filePattern: string; // RegExp source string (no slashes/flags)
+  filePattern: string;
   mountPrefix?: Record<string, string>;
+};
+
+/** Runtime version of ConfigRouteSource with filePattern compiled to RegExp. */
+type RouteSource = Omit<ConfigRouteSource, "filePattern"> & {
+  filePattern: RegExp;
 };
 
 type Config = {
@@ -47,22 +58,6 @@ type Config = {
 const CONFIG_PATH = resolve(ROOT, "audit/config.json");
 const cfg: Config = JSON.parse((await readFile(CONFIG_PATH)) || "{}");
 const sfCfg = cfg.superflows ?? {};
-
-// ─── Configuration ────────────────────────────────────────────────────────────
-
-/**
- * Each entry describes where a service's route files live.
- * filePattern: stored as a RegExp source string in config.json (e.g. "\\.ts$").
- * mountPrefix: maps basename → path prefix the router mounts that file at.
- *   e.g. "guilds.route.ts" → "guilds"  means paths in that file get /guilds prepended.
- */
-type RouteSource = {
-  service: string;
-  pkg: string;
-  dir: string;
-  filePattern: RegExp;
-  mountPrefix?: Record<string, string>;
-};
 
 const ROUTE_SOURCES: RouteSource[] = (sfCfg.services ?? []).map((s) => ({
   ...s,

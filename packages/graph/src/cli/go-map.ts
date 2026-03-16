@@ -463,7 +463,7 @@ function renderImportsText(manifest: PackageManifest): string {
 // Exported API
 // ---------------------------------------------------------------------------
 
-export interface GoMapOptions {
+interface GoMapOptions {
   srcRoot: string;
   format?: "json" | "text";
   outPath?: string;

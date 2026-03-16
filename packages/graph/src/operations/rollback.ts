@@ -146,6 +146,7 @@ export function rollbackAgent(
 
   // Track symbols that had edges removed during rollback
   const removedEdgeEndpoints = new Set<string>();
+  const alreadyCascadedEdges = new Set<string>();
 
   for (const entry of sorted) {
     // Compute inverse BEFORE applying it (uses current graph state)
@@ -163,6 +164,7 @@ export function rollbackAgent(
           edgeId: edge.id,
         };
         cascaded.push(removeEdgeOp);
+        alreadyCascadedEdges.add(edge.id);
         // Track the other end as potentially orphaned
         const otherId =
           edge.sourceId === inverse.symbolId ? edge.targetId : edge.sourceId;
@@ -174,7 +176,7 @@ export function rollbackAgent(
 
     // If this is removing an edge (inverse of AddEdge), track endpoints
     // for orphan detection and record as cascaded
-    if (inverse.type === "RemoveEdge") {
+    if (inverse.type === "RemoveEdge" && !alreadyCascadedEdges.has(inverse.edgeId)) {
       const edge = graphStore.getEdge(inverse.edgeId);
       if (edge) {
         cascaded.push(inverse);

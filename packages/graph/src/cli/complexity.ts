@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { join, relative, resolve, basename, dirname } from "node:path";
 import * as ts from "typescript";
 import { collectTsFiles } from "./utils.js";
+import type { ComplexityOptions } from "./lang/types.js";
 
 // ---------------------------------------------------------------------------
 // AST helpers
@@ -640,13 +641,6 @@ function renderText(
 // ---------------------------------------------------------------------------
 // Exported API
 // ---------------------------------------------------------------------------
-
-export interface ComplexityOptions {
-  srcRoot: string;
-  outPath?: string;
-  topN?: number;
-  minComplexity?: number;
-}
 
 export async function runComplexity(opts: ComplexityOptions): Promise<string> {
   const srcRoot = opts.srcRoot;

@@ -181,21 +181,14 @@ export class ScopeGraph {
       return [moduleNode.id, ...children.map((c) => c.id)];
     }
 
-    // Fallback: check all symbols whose qualifiedName starts with a matching prefix
-    // This handles cases where the file path and qualifiedName don't perfectly align
-    const allSymbols = this.graphStore.getAllSymbols();
-    const matchingIds: string[] = [];
-
-    // Try matching the basename (last segment of path without extension)
+    // Try basename match via qualified name (O(1) instead of O(n) scan)
     const basename = withoutExt.split("/").pop() ?? withoutExt;
-    for (const sym of allSymbols) {
-      if (sym.kind === "module" && sym.qualifiedName === basename) {
-        matchingIds.push(sym.id);
-        const children = this.graphStore.getChildSymbols(sym.id);
-        matchingIds.push(...children.map((c) => c.id));
-      }
+    const moduleByBasename = this.graphStore.getSymbolByQualifiedName(basename);
+    if (moduleByBasename && moduleByBasename.kind === "module") {
+      const children = this.graphStore.getChildSymbols(moduleByBasename.id);
+      return [moduleByBasename.id, ...children.map((c) => c.id)];
     }
 
-    return matchingIds;
+    return [];
   }
 }

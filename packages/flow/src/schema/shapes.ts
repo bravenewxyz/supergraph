@@ -23,7 +23,7 @@ export type ShapeType =
   | { kind: "ref"; name: string; resolved?: ShapeType }
   | { kind: "opaque"; raw: string };
 
-export type PrimitiveType =
+type PrimitiveType =
   | "string"
   | "number"
   | "boolean"

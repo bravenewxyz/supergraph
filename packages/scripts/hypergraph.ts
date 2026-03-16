@@ -4,56 +4,13 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { readFile } from "./utils.js";
-
-// ---------------------------------------------------------------------------
-// Types — richer than supergraph.ts to capture full symbol data
-// ---------------------------------------------------------------------------
-
-type RawSymbol = {
-  name: string;
-  qualifiedName: string;
-  kind: string;
-  signature: string;
-  typeText: string;
-  body: string;
-  exported: boolean;
-  modifiers: string[];
-  lines: { startLine: number; endLine: number } | null;
-  children?: RawSymbol[];
-};
-
-type RawModule = {
-  path: string;
-  relativePath: string;
-  symbols: RawSymbol[];
-  imports: { module: string; raw?: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-};
-
-type RawMap = {
-  package: string;
-  srcRoot: string;
-  modules: RawModule[];
-  dependencyGraph: Record<string, string[]>;
-};
-
-type HyperNode = {
-  idx: number;
-  path: string;
-  pkg: string;
-  pkgName: string;
-  originalPath: string;
-  symbols: RawSymbol[];
-  imports: RawModule["imports"];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-  source: string;
-};
-
-type HyperEdge = { source: number; target: number; cross: boolean };
+import type {
+  GraphRawSymbol as RawSymbol,
+  GraphRawModule as RawModule,
+  GraphRawMap as RawMap,
+  GraphNode as HyperNode,
+  GraphEdge as HyperEdge,
+} from "./shared.js";
 
 type HyperGraph = {
   generated: string;

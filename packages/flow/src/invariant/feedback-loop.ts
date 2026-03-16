@@ -7,7 +7,7 @@ import type {
   RefinementStep,
 } from "./types.js";
 
-export interface RefineOptions {
+interface RefineOptions {
   maxIterations?: number;
   verify: (
     postcondition: string
@@ -33,7 +33,7 @@ Either:
 Important: Do NOT weaken the invariant just to make it pass. If you believe the
 function should satisfy the original invariant, say "bug".`;
 
-export async function refineInvariant(
+async function refineInvariant(
   invariant: Invariant,
   counterexample: unknown,
   func: DiscoveredFunction,

@@ -32,6 +32,56 @@ export type RawMap = {
   dependencyGraph: Record<string, string[]>;
 };
 
+// ─── Rich graph data types ───────────────────────────────────────────────────
+// Used by hypergraph.ts, normagraph.ts, and similar scripts that need full
+// symbol data (richer than the compact RawModule used by supergraph/superhigh).
+
+export type GraphRawSymbol = {
+  name: string;
+  qualifiedName: string;
+  kind: string;
+  signature: string;
+  typeText: string;
+  body: string;
+  exported: boolean;
+  modifiers: string[];
+  lines: { startLine: number; endLine: number } | null;
+  children?: GraphRawSymbol[];
+};
+
+export type GraphRawModule = {
+  path: string;
+  relativePath: string;
+  symbols: GraphRawSymbol[];
+  imports: { module: string; raw?: string; typeOnly?: boolean }[];
+  internalDeps: string[];
+  externalDeps: string[];
+  stats: { totalSymbols: number; exportedSymbols: number };
+};
+
+export type GraphRawMap = {
+  package: string;
+  srcRoot: string;
+  modules: GraphRawModule[];
+  dependencyGraph: Record<string, string[]>;
+};
+
+export type GraphNode = {
+  idx: number;
+  path: string;
+  pkg: string;
+  pkgName: string;
+  originalPath: string;
+  symbols: GraphRawSymbol[];
+  imports: GraphRawModule["imports"];
+  internalDeps: string[];
+  externalDeps: string[];
+  stats: { totalSymbols: number; exportedSymbols: number };
+  source: string;
+};
+
+export type GraphEdge = { source: number; target: number; cross: boolean };
+
 // ─── Flow / endpoint types ────────────────────────────────────────────────────
 
 export type FlowEndpoint = {

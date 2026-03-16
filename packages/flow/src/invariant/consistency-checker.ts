@@ -1,6 +1,6 @@
 import type { ConsistencyInput, ConsistencyVerdict } from "./types.js";
 
-export async function checkConsistency(
+async function checkConsistency(
   input: ConsistencyInput,
   llmCheck: (prompt: string) => Promise<ConsistencyVerdict[]>
 ): Promise<ConsistencyVerdict[]> {
@@ -8,7 +8,7 @@ export async function checkConsistency(
   return llmCheck(prompt);
 }
 
-export function buildConsistencyPrompt(input: ConsistencyInput): string {
+function buildConsistencyPrompt(input: ConsistencyInput): string {
   const { func, jsdoc, inlineComments, invariants, specDescription } = input;
   const jsdocText = jsdoc ?? "None";
   const commentsText =
@@ -60,7 +60,7 @@ Respond with a JSON array of verdicts. Each verdict is one of:
 
 const JSDOC_RE = /\/\*\*[\s\S]*?\*\//;
 
-export function extractJSDoc(sourceText: string): string | null {
+function extractJSDoc(sourceText: string): string | null {
   const match = sourceText.match(JSDOC_RE);
   if (!match) return null;
   const raw = match[0];
@@ -72,7 +72,7 @@ export function extractJSDoc(sourceText: string): string | null {
   return trimmed || null;
 }
 
-export function extractInlineComments(sourceText: string): string[] {
+function extractInlineComments(sourceText: string): string[] {
   const bodyStart = sourceText.indexOf("{");
   if (bodyStart < 0) return [];
   const body = sourceText.slice(bodyStart);

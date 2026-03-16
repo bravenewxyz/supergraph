@@ -10,7 +10,7 @@ import type {
 import type { ExtractorRegistry } from "../extractor/runtime-schema.js";
 import { collectSourceFiles } from "../extractor/typescript.js";
 
-export interface BoundaryPattern {
+interface BoundaryPattern {
   kind: BoundaryKind;
   patterns: string[];
   library?: string;
@@ -52,7 +52,7 @@ const BUILTIN_PATTERNS: BoundaryPattern[] = [
 
 const TYPE_ASSERTION_PATTERN = "$EXPR as $TYPE";
 
-export interface BoundaryDetectorOptions {
+interface BoundaryDetectorOptions {
   srcDir: string;
   extractorRegistry?: ExtractorRegistry;
   additionalPatterns?: BoundaryPattern[];

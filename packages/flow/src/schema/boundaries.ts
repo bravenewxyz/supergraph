@@ -27,13 +27,13 @@ export interface DataBoundary {
   errorHandler: ErrorPathInfo | null;
 }
 
-export interface ResolvedTypeInfo {
+interface ResolvedTypeInfo {
   name: string;
   shape: ShapeType;
   source: "typescript";
 }
 
-export interface RuntimeSchemaRef {
+interface RuntimeSchemaRef {
   library: string;
   schemaName: string;
   shape: ShapeType;

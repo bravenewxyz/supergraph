@@ -5,6 +5,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 import goLang from "@ast-grep/lang-go";
 import { parse, registerDynamicLanguage } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
+import type { ComplexityOptions } from "./lang/types.js";
 
 let goRegistered = false;
 function ensureGo(): void {
@@ -239,14 +240,7 @@ function renderText(
 // Exported API
 // ---------------------------------------------------------------------------
 
-export interface GoComplexityOptions {
-  srcRoot: string;
-  outPath?: string;
-  topN?: number;
-  minComplexity?: number;
-}
-
-export async function runGoComplexity(opts: GoComplexityOptions): Promise<string> {
+export async function runGoComplexity(opts: ComplexityOptions): Promise<string> {
   const srcRoot = opts.srcRoot;
   const outPath = opts.outPath;
   const topN = opts.topN ?? 30;

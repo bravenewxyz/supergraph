@@ -4,6 +4,7 @@ export class SymbolRegistry {
   private byQualifiedName = new Map<string, string>();
   private byModule = new Map<string, Set<string>>();
   private byFile = new Map<string, Set<string>>();
+  private byNodeToFile = new Map<string, string>(); // nodeId -> fileKey
 
   add(node: SymbolNode): void {
     this.byQualifiedName.set(node.qualifiedName, node.id);
@@ -28,6 +29,7 @@ export class SymbolRegistry {
           this.byFile.set(fileKey, ids);
         }
         ids.add(node.id);
+        this.byNodeToFile.set(node.id, fileKey);
       }
     }
   }
@@ -43,9 +45,14 @@ export class SymbolRegistry {
       }
     }
 
-    for (const [key, ids] of this.byFile) {
-      ids.delete(node.id);
-      if (ids.size === 0) this.byFile.delete(key);
+    const fileKey = this.byNodeToFile.get(node.id);
+    if (fileKey) {
+      const ids = this.byFile.get(fileKey);
+      if (ids) {
+        ids.delete(node.id);
+        if (ids.size === 0) this.byFile.delete(fileKey);
+      }
+      this.byNodeToFile.delete(node.id);
     }
   }
 

@@ -182,45 +182,36 @@ export class GraphStore {
         this.removeSymbol(op.symbolId);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       case "ModifyBody": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        node.body = op.newBody;
-        node.updatedAt = Date.now();
-        node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const node = { ...existing, body: op.newBody, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
       case "ModifySignature": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        node.signature = op.newSignature;
-        node.typeText = op.newTypeText;
-        node.updatedAt = Date.now();
-        node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const node = { ...existing, signature: op.newSignature, typeText: op.newTypeText, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
       case "RenameSymbol": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        const oldQn = node.qualifiedName;
-        node.name = op.newName;
-        const parts = node.qualifiedName.split(".");
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const oldQn = existing.qualifiedName;
+        const parts = existing.qualifiedName.split(".");
         parts[parts.length - 1] = op.newName;
-        node.qualifiedName = parts.join(".");
-        node.updatedAt = Date.now();
-        node.version++;
+        const newQn = parts.join(".");
+        const node = { ...existing, name: op.newName, qualifiedName: newQn, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
-        this.registry.updateQualifiedName(oldQn, node.qualifiedName, node.id);
+        this.registry.updateQualifiedName(oldQn, newQn, node.id);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
       case "MoveSymbol": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        const oldParentId = node.parentId;
-        node.parentId = op.newParentId;
-        node.updatedAt = Date.now();
-        node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const oldParentId = existing.parentId;
+        const node = { ...existing, parentId: op.newParentId, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         this.registry.updateParent(node.id, oldParentId, op.newParentId);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
@@ -236,45 +227,38 @@ export class GraphStore {
         this.removeEdge(op.edgeId);
         return { applied: true, operationType: op.type };
       case "SetExported": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        node.exported = op.exported;
-        node.updatedAt = Date.now();
-        node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const node = { ...existing, exported: op.exported, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
       case "AddModifier": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        if (!node.modifiers.includes(op.modifier)) {
-          node.modifiers.push(op.modifier);
-          node.updatedAt = Date.now();
-          node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        if (!existing.modifiers.includes(op.modifier)) {
+          const node = { ...existing, modifiers: [...existing.modifiers, op.modifier], updatedAt: Date.now(), version: existing.version + 1 };
           this.graph.replaceNodeAttributes(op.symbolId, node);
           return { applied: true, operationType: op.type, symbolId: op.symbolId };
         }
         return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "modifier already present" };
       }
       case "RemoveModifier": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        const idx = node.modifiers.indexOf(op.modifier);
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const idx = existing.modifiers.indexOf(op.modifier);
         if (idx !== -1) {
-          node.modifiers.splice(idx, 1);
-          node.updatedAt = Date.now();
-          node.version++;
+          const newModifiers = existing.modifiers.filter((_, i) => i !== idx);
+          const node = { ...existing, modifiers: newModifiers, updatedAt: Date.now(), version: existing.version + 1 };
           this.graph.replaceNodeAttributes(op.symbolId, node);
           return { applied: true, operationType: op.type, symbolId: op.symbolId };
         }
         return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "modifier not present" };
       }
       case "ModifyDecorators": {
-        const node = this.getSymbol(op.symbolId);
-        if (!node) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
-        node.decorators = [...op.newDecorators];
-        node.updatedAt = Date.now();
-        node.version++;
+        const existing = this.getSymbol(op.symbolId);
+        if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
+        const node = { ...existing, decorators: [...op.newDecorators], updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
@@ -307,6 +291,12 @@ export class GraphStore {
     const data = JSON.parse(json);
     if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
       throw new Error("Invalid SerializedGraph: expected { nodes: [], edges: [] }");
+    }
+    if (data.nodes.length > 0) {
+      const sample = data.nodes[0];
+      if (!sample.id || !sample.kind || !sample.qualifiedName) {
+        throw new Error("Invalid SymbolNode: missing id, kind, or qualifiedName");
+      }
     }
     this.import(data as SerializedGraph);
   }

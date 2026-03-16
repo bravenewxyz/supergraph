@@ -3,56 +3,13 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { readFile } from "./utils.js";
-
-// ---------------------------------------------------------------------------
-// Types (same as hypergraph — reads from map.json)
-// ---------------------------------------------------------------------------
-
-type RawSymbol = {
-  name: string;
-  qualifiedName: string;
-  kind: string;
-  signature: string;
-  typeText: string;
-  body: string;
-  exported: boolean;
-  modifiers: string[];
-  lines: { startLine: number; endLine: number } | null;
-  children?: RawSymbol[];
-};
-
-type RawModule = {
-  path: string;
-  relativePath: string;
-  symbols: RawSymbol[];
-  imports: { module: string; raw?: string; typeOnly?: boolean }[];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-};
-
-type RawMap = {
-  package: string;
-  srcRoot: string;
-  modules: RawModule[];
-  dependencyGraph: Record<string, string[]>;
-};
-
-type NormaNode = {
-  idx: number;
-  path: string;
-  pkg: string;
-  pkgName: string;
-  originalPath: string;
-  symbols: RawSymbol[];
-  imports: RawModule["imports"];
-  internalDeps: string[];
-  externalDeps: string[];
-  stats: { totalSymbols: number; exportedSymbols: number };
-  source: string;
-};
-
-type NormaEdge = { source: number; target: number; cross: boolean };
+import type {
+  GraphRawSymbol as RawSymbol,
+  GraphRawModule as RawModule,
+  GraphRawMap as RawMap,
+  GraphNode as NormaNode,
+  GraphEdge as NormaEdge,
+} from "./shared.js";
 
 type NormaGraph = {
   generated: string;

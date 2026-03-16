@@ -6,7 +6,7 @@ import { diffShapes } from "../analysis/shape-differ.js";
  * Model what JSON.stringify() → JSON.parse() does to a shape.
  * Returns the transformed shape after a full JSON roundtrip.
  */
-export function jsonSerialize(shape: ShapeType): ShapeType {
+function jsonSerialize(shape: ShapeType): ShapeType {
   switch (shape.kind) {
     case "primitive":
       switch (shape.value) {

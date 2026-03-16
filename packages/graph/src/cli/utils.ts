@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-export const SKIP_DIRS = new Set([
+const SKIP_DIRS = new Set([
   "__tests__",
   "__test__",
   "test",
