@@ -97,6 +97,7 @@ Commands:
   logic-audit <src-dir>   Detect decision-logic bugs
   contracts [options]     FE↔BE contract verification
   invariant <subcmd>      Invariant verification system
+  apply <ops.json>        Apply graph operations with CRDT coordination
   aggregate               Build cross-package supergraph visualization
   pkg-graph               Build package dependency visualization
   superhigh               Generate unified supergraph.txt / supergraph-compact.txt
@@ -157,6 +158,11 @@ Global options:
     case "invariant": {
       const { runInvariantCommand } = await import("./commands/invariant.js");
       await runInvariantCommand(restArgs);
+      break;
+    }
+    case "apply": {
+      const { runApplyCommand } = await import("./commands/apply.js");
+      await runApplyCommand(restArgs);
       break;
     }
     case "aggregate": {
