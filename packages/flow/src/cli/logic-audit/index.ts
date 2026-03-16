@@ -121,7 +121,15 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
   const resolvedDir = resolve(opts.srcDir);
   const files = await collectSourceFiles(resolvedDir);
 
-  const crossRep = await crossRepScan(files, resolvedDir);
+  const nonTestFiles = files.filter(
+    (f) => !f.includes("__tests__") && !f.includes(".test.") && !f.includes(".spec."),
+  );
+
+  // Single program creation shared across all analyses
+  const program = createProgram(nonTestFiles);
+  const checker = program.getTypeChecker();
+
+  const crossRep = await crossRepScan(files, resolvedDir, { program, checker });
 
   const guards: GuardInconsistency[] = [];
   const broadGuards: GuardInconsistency[] = [];
@@ -130,12 +138,6 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
     guards.push(...scanGuardConsistency(source, filePath));
     broadGuards.push(...scanBroadGuardConsistency(source, filePath));
   }
-
-  const nonTestFiles = files.filter(
-    (f) => !f.includes("__tests__") && !f.includes(".test.") && !f.includes(".spec."),
-  );
-  const program = createProgram(nonTestFiles);
-  const checker = program.getTypeChecker();
 
   const statusFunctions = scanStatusFunctions(program, checker, nonTestFiles, resolvedDir);
 

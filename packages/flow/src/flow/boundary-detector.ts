@@ -57,6 +57,7 @@ interface BoundaryDetectorOptions {
   extractorRegistry?: ExtractorRegistry;
   additionalPatterns?: BoundaryPattern[];
   includeTypeAssertions?: boolean;
+  fileContents?: Map<string, string>;
 }
 
 export async function detectBoundaries(
@@ -67,6 +68,7 @@ export async function detectBoundaries(
     extractorRegistry,
     additionalPatterns = [],
     includeTypeAssertions = true,
+    fileContents,
   } = options;
 
   const allPatterns: BoundaryPattern[] = [...BUILTIN_PATTERNS, ...additionalPatterns];
@@ -77,11 +79,13 @@ export async function detectBoundaries(
     }
   }
 
-  const files = await collectSourceFiles(srcDir);
+  const files = fileContents
+    ? [...fileContents.keys()]
+    : await collectSourceFiles(srcDir);
   const boundaries: DataBoundary[] = [];
 
   for (const filePath of files) {
-    const source = await readFile(filePath, "utf-8");
+    const source = fileContents?.get(filePath) ?? await readFile(filePath, "utf-8");
     const tree = parse(Lang.TypeScript, source);
     const root = tree.root();
     const relPath = relative(srcDir, filePath);

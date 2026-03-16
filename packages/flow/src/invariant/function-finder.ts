@@ -74,14 +74,16 @@ export async function discoverFunctions(
     const moduleLevelNames = collectModuleLevelBindings(sourceFile);
 
     ts.forEachChild(sourceFile, (node) => {
-      const extracted = tryExtractFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
-      if (extracted) discovered.push(extracted);
-    });
+      // Try exported first
+      const exported = tryExtractFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
+      if (exported) {
+        discovered.push(exported);
+        return;
+      }
 
-    // Second pass: discover non-exported but interesting (pure helper) functions
-    ts.forEachChild(sourceFile, (node) => {
-      const extracted = tryExtractInternalFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
-      if (extracted) discovered.push(extracted);
+      // Then try internal (non-exported pure helpers)
+      const internal = tryExtractInternalFunction(node, sourceFile, checker, fileImports, moduleLevelNames);
+      if (internal) discovered.push(internal);
     });
   }
 

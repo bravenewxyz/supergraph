@@ -595,7 +595,7 @@
         <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
       </div>
     </div>
-    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span> and <span class="hl">/high-level</span> for Claude Code.</p>
+    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span>, <span class="hl">/deep-read</span>, and <span class="hl">/high-level</span> for Claude Code.</p>
   </div>
 </section>
 
@@ -654,9 +654,9 @@
       <div class="feature-desc">Zod schemas, SQL tables, and TS types with field definitions inline. No separate lookup needed.</div>
     </div>
     <div class="feature-item">
-      <div class="feature-icon">shortcut</div>
-      <div class="feature-title">Two Versions</div>
-      <div class="feature-desc">supergraph.txt (full) and supergraph-compact.txt (compressed paths, abbreviated deps) for context-constrained agents.</div>
+      <div class="feature-icon">layers</div>
+      <div class="feature-title">Three Detail Levels</div>
+      <div class="feature-desc">supergraph.txt (architecture), symbols.txt (tiered signatures), symbols-full.txt (complete source bodies). Plus supergraph-compact.txt for tight context windows.</div>
     </div>
   </div>
 </section>
@@ -669,7 +669,7 @@
     <div class="section-num">02 &mdash; Deep Audit</div>
     <h2>/deep-audit <span class="accent">pkg/src</span></h2>
     <p class="section-sub">
-      Claude Code slash command. Point it at a package, it reads the superhigh map, audits source files across 10 phases, writes findings and fix plans to disk. Say "do all" and it executes them.
+      Claude Code slash command. Point it at a package, it reads the supergraph map, audits source files across 10 phases, writes findings and fix plans to disk. Say "do all" and it executes them.
     </p>
   </div>
 
@@ -734,6 +734,32 @@
 
   <div class="callout" style="margin-top: 24px;">
     <strong>Output:</strong> <code class="inline">audit/&lt;pkg&gt;/findings.md</code> + <code class="inline">audit/&lt;pkg&gt;/plans/</code>. No subagent delegation during analysis &mdash; full cross-file context throughout.
+  </div>
+</section>
+
+<hr class="section-divider" />
+
+<!-- ─── Deep Read ────────────────────────────────────────────── -->
+<section id="deep-read">
+  <div class="section-header">
+    <div class="section-num">02b &mdash; Deep Read</div>
+    <h2>/deep-read <span class="accent">topic</span></h2>
+    <p class="section-sub">
+      Loads <code class="inline">symbols-full.txt</code> &mdash; every function body, every type definition, every signature in the entire codebase. Then answers implementation questions with full source context.
+    </p>
+  </div>
+
+  <div class="features-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="feature-item">
+      <div class="feature-icon">/high-level</div>
+      <div class="feature-title">Architecture (~8KB)</div>
+      <div class="feature-desc">Loads supergraph-compact.txt. Module names, import counts, domain grouping. Fast. "How is this organized?"</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">/deep-read</div>
+      <div class="feature-title">Source-Level (~10MB)</div>
+      <div class="feature-desc">Loads symbols-full.txt. Every function body, every signature. Complete. "How does X work? Is there a bug in Y?"</div>
+    </div>
   </div>
 </section>
 

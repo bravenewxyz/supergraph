@@ -353,7 +353,7 @@ async function runTools(tools: ToolRun[], muted: boolean, concurrency = 3): Prom
         const idx = nextIdx++;
         const tool = tools[idx]!;
         const t0 = Date.now();
-        const TOOL_TIMEOUT = 120_000;
+        const TOOL_TIMEOUT = 600_000;
         try {
           await withTimeout(tool.run(), TOOL_TIMEOUT, tool.label);
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
@@ -781,7 +781,7 @@ Usage:
   await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
 
   const unmuteCross = muteConsole();
-  const CROSS_TIMEOUT = 120_000;
+  const CROSS_TIMEOUT = 600_000;
   const crossResults = await Promise.allSettled([
     withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph"),
     withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate"),
@@ -802,7 +802,7 @@ Usage:
     ? [process.execPath, "superhigh"]  // compiled: call self with subcommand
     : ["bun", superhighScript];         // dev: run script directly
 
-  const SPAWN_TIMEOUT = 120_000;
+  const SPAWN_TIMEOUT = 600_000;
   const superhighResults = await Promise.allSettled([
     withTimeout((async () => {
       const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {

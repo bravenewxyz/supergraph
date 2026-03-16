@@ -46,10 +46,19 @@ export async function runTrace(opts: TraceOptions): Promise<string> {
 
   const registry = createDefaultRegistry();
 
-  // Detect boundaries
+  // Read all source files once into a cache to avoid redundant I/O
+  const files = await collectSourceFiles(resolvedDir);
+  const fileContents = new Map<string, string>();
+  for (const filePath of files) {
+    const source = await readFile(filePath, "utf-8");
+    fileContents.set(filePath, source);
+  }
+
+  // Detect boundaries (pass cache to avoid re-reading files)
   const boundaries = await detectBoundaries({
     srcDir: resolvedDir,
     extractorRegistry: registry,
+    fileContents,
   });
 
   if (boundariesOnly) {
@@ -60,22 +69,18 @@ export async function runTrace(opts: TraceOptions): Promise<string> {
     return output;
   }
 
-  // Build graph for pipeline tracing
+  // Build graph and extract schemas in a single pass over cached content
   const graphStore = new GraphStore();
-  const files = await collectSourceFiles(resolvedDir);
-  for (const filePath of files) {
-    const source = await readFile(filePath, "utf-8");
+  const allSchemas = [];
+  for (const [filePath, source] of fileContents) {
+    // Build graph
     const result = parseTypeScript(source, filePath);
     for (const node of result.nodes) graphStore.addSymbol(node);
     for (const edge of result.edges) {
       try { graphStore.addEdge(edge); } catch { /* skip edges to external/missing nodes */ }
     }
-  }
 
-  // Extract schemas and match to types
-  const allSchemas = [];
-  for (const filePath of files) {
-    const source = await readFile(filePath, "utf-8");
+    // Extract schemas
     allSchemas.push(...registry.extractAll(source, filePath));
   }
 

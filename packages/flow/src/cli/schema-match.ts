@@ -13,7 +13,7 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { getArg, shortPath, writeOutput, escapeRegex } from "./util.js";
+import { getArg, shortPath, writeOutput } from "./util.js";
 import { collectSourceFiles, createProgram, extractTypeShape } from "../extractor/typescript.js";
 import { createDefaultRegistry } from "../extractor/runtime-schema.js";
 import type { RuntimeSchemaInfo } from "../extractor/runtime-schema.js";
@@ -89,6 +89,8 @@ export async function runSchemaMatch(opts: SchemaMatchOptions): Promise<string> 
   });
 
   // Diff each match and trace enforcement
+  // Build enforcement index once — single pass over all files
+  const enforcementIndex = await buildEnforcementIndex(files);
   const results: MatchResult[] = [];
   for (const match of matches) {
     const schemaShape = match.schema.shape;
@@ -100,7 +102,11 @@ export async function runSchemaMatch(opts: SchemaMatchOptions): Promise<string> 
 
     const enforcement = new Map<string, EnforcementTrace>();
     for (const m of mismatches) {
-      enforcement.set(m.path, await traceEnforcement(m.path, files));
+      const leaf = m.path.includes(".") ? m.path.split(".").pop()! : m.path;
+      enforcement.set(
+        m.path,
+        enforcementIndex.get(leaf) ?? { level: "silent-ignore", detail: "no checks found" },
+      );
     }
 
     results.push({
@@ -278,12 +284,23 @@ function resolveSchemaRefs(schemas: RuntimeSchemaInfo[]): void {
 
 const SKIP_PATTERN = /\.(test|spec)\.[tj]sx?$|\.md$|\.d\.ts$|prompts?\//;
 
-async function traceEnforcement(
-  fieldName: string,
+/**
+ * Read every source file once and build a map of fieldName → EnforcementTrace.
+ * This replaces the old per-mismatch traceEnforcement() which re-read all files
+ * for every single mismatch — O(mismatches × files) → now O(files).
+ */
+async function buildEnforcementIndex(
   files: string[],
-): Promise<EnforcementTrace> {
-  const leaf = fieldName.includes(".") ? fieldName.split(".").pop()! : fieldName;
-  const fieldRe = new RegExp(`\\b${escapeRegex(leaf)}\\b`);
+): Promise<Map<string, EnforcementTrace>> {
+  const index = new Map<string, EnforcementTrace>();
+
+  // Priority: hard-fail > warn > default-sub. We keep the strongest per field.
+  const LEVEL_PRIORITY: Record<EnforcementLevel, number> = {
+    "hard-fail": 3,
+    "warn": 2,
+    "default-sub": 1,
+    "silent-ignore": 0,
+  };
 
   for (const filePath of files) {
     if (SKIP_PATTERN.test(filePath)) continue;
@@ -295,32 +312,50 @@ async function traceEnforcement(
     }
 
     const lines = content.split("\n");
+    // Collect all identifiers that appear in enforcement-relevant contexts
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!;
-      if (!fieldRe.test(line)) continue;
+      // Skip type/interface declarations and imports — same filters as before
       if (/^\s*(export\s+)?(interface|type)\s/.test(line)) continue;
       if (/^\s*import\s/.test(line)) continue;
+
+      // Extract all word-boundary identifiers from the line
+      const identifiers = line.match(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g);
+      if (!identifiers) continue;
 
       const window = lines
         .slice(Math.max(0, i - 1), Math.min(lines.length, i + 4))
         .join("\n");
 
+      // Determine the enforcement level from the surrounding window
+      let trace: EnforcementTrace | null = null;
+
       if (/throw\b|reject\(|return\s+.*\berr(or)?\b/i.test(window)) {
         const snippet = window.match(/(throw\b.*|reject\(.*|return\s+.*\berr(or)?\b.*)/i);
-        return { level: "hard-fail", detail: snippet?.[1]?.trim().slice(0, 60) ?? "throw/reject" };
-      }
-      if (/\b(logger|console)\.(warn|error)\b/.test(window)) {
+        trace = { level: "hard-fail", detail: snippet?.[1]?.trim().slice(0, 60) ?? "throw/reject" };
+      } else if (/\b(logger|console)\.(warn|error)\b/.test(window)) {
         const snippet = window.match(/\b(logger|console)\.(warn|error)\b/);
-        return { level: "warn", detail: snippet?.[0] ?? "warn" };
-      }
-      if (/\?\?\s|\.default\(/.test(window)) {
+        trace = { level: "warn", detail: snippet?.[0] ?? "warn" };
+      } else if (/\?\?\s|\.default\(/.test(window)) {
         const snippet = window.match(/(\?\?\s*\S+|\.default\([^)]*\))/);
-        return { level: "default-sub", detail: snippet?.[1]?.trim().slice(0, 40) ?? "?? default" };
+        trace = { level: "default-sub", detail: snippet?.[1]?.trim().slice(0, 40) ?? "?? default" };
+      }
+
+      if (!trace) continue;
+
+      // Map each identifier on this line to the enforcement trace,
+      // keeping the strongest enforcement level seen so far
+      const unique = new Set(identifiers);
+      for (const id of unique) {
+        const existing = index.get(id);
+        if (!existing || LEVEL_PRIORITY[trace.level] > LEVEL_PRIORITY[existing.level]) {
+          index.set(id, trace);
+        }
       }
     }
   }
 
-  return { level: "silent-ignore", detail: "no checks found" };
+  return index;
 }
 
 if (import.meta.main) {

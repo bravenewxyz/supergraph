@@ -1,7 +1,6 @@
 // ── 1. Cross-representation scan (schema vs type) ──────────────────
 
 import { readFile } from "node:fs/promises";
-import { createProgram } from "../../extractor/typescript.js";
 import { ExtractorRegistry } from "../../extractor/runtime-schema.js";
 import type { RuntimeSchemaInfo } from "../../extractor/runtime-schema.js";
 import { ZodExtractor } from "../../extractor/zod.js";
@@ -9,6 +8,7 @@ import { matchSchemasToTypes } from "../../analysis/schema-matcher.js";
 import { diffShapes } from "../../analysis/shape-differ.js";
 import type { ShapeType, ShapeField } from "../../schema/shapes.js";
 import type { CrossRepField, CrossRepMismatch } from "./types.js";
+import type ts from "typescript";
 
 function resolveRefs(
   shape: ShapeType,
@@ -32,6 +32,7 @@ function resolveRefs(
 export async function crossRepScan(
   files: string[],
   resolvedDir: string,
+  shared?: { program: ts.Program; checker: ts.TypeChecker },
 ): Promise<CrossRepMismatch[]> {
   const registry = new ExtractorRegistry();
   registry.register(new ZodExtractor());
@@ -50,9 +51,11 @@ export async function crossRepScan(
     schema.shape = resolveRefs(schema.shape, byName);
   }
 
-  const program = createProgram(files);
-  const checker = program.getTypeChecker();
-  const matches = await matchSchemasToTypes(allSchemas, { srcDir: resolvedDir, program, checker });
+  const matches = await matchSchemasToTypes(allSchemas, {
+    srcDir: resolvedDir,
+    program: shared?.program,
+    checker: shared?.checker,
+  });
 
   const mismatches: CrossRepMismatch[] = [];
 

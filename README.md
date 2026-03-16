@@ -12,7 +12,7 @@ supergraph analyzes your monorepo and generates a compact, structured text map o
 brew install bravenewxyz/supergraph/supergraph
 ```
 
-**Shell script** (also installs `/deep-audit` for Claude Code):
+**Shell script** (also installs Claude Code slash commands):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash
@@ -30,11 +30,15 @@ supergraph
 
 This discovers all packages, runs every analysis tool in parallel, and generates:
 
-- `audit/packages/<name>/` — per-package text + JSON results
-- `audit/packages/<name>/dashboard.html` — interactive audit dashboard
-- `audit/supergraph.txt` — cross-package module graph
-- `audit/supergraph.html` — interactive graph visualization
-- `audit/pkg-graph.html` — package dependency visualization
+| File | What | Size |
+|---|---|---|
+| `audit/supergraph.txt` | Unified map: domains, schemas, modules, types, edges | ~10KB |
+| `audit/supergraph-compact.txt` | Compressed version for AI context windows | ~8KB |
+| `audit/symbols.txt` | Every symbol with tiered detail (signatures + selective bodies) | ~2MB |
+| `audit/symbols-full.txt` | Every symbol with full source bodies | ~10MB |
+| `audit/supergraph.html` | Interactive graph visualization | |
+| `audit/packages/<name>/` | Per-package analysis (map, complexity, dead exports, logic audit) | |
+| `audit/packages/<name>/dashboard.html` | Interactive audit dashboard | |
 
 ### Individual commands
 
@@ -49,7 +53,7 @@ supergraph trace <src-dir>           Data flow through serialization boundaries
 supergraph logic-audit <src-dir>     Decision-logic bug detection
 supergraph contracts <be-src-dir>    FE/BE contract verification
 supergraph invariant discover <dir>  Invariant discovery + property-based testing
-supergraph aggregate                 Cross-package supergraph visualization
+supergraph aggregate                 Cross-package graph visualization
 supergraph pkg-graph                 Package dependency visualization
 ```
 
@@ -57,36 +61,49 @@ All commands support `--format text|json`, `--out <file>`, and `--root <path>`.
 
 ## The output
 
-Running `supergraph` produces `audit/supergraph.txt` — a structured, compressed map of your entire module graph:
+Running `supergraph` produces `audit/supergraph.txt` — a unified, domain-aware map of your entire codebase:
 
 ```
-MYAPP SUPERGRAPH | 2026-03-05
-365m · 852ie · 209xe
+SUPERGRAPH | myapp | 2026-03-05
+365mods
 
-# PACKAGES  (short=npm,modules)
-core=@myapp/core,14m  api=@myapp/api,23m  ui=@myapp/ui,85m
+# PART 1 — DOMAINS
 
-# MODULES
-# path [exp(/total)]<-importers symbols | ext-deps
+[guild]
+r/guild GET /v2/guilds/:id  cache:60s
+c/guild createGuild,updateGuild,deleteGuild
+z/GuildSchema id:str name:str urlName:str? imageUrl:str? +8
+t/guilds id:int name:varchar url_name:varchar +12
+
+# PART 2 — PACKAGES
 
 [core]
 types [69/71]<-47 Config,UserState,AppContext,+61 | zod
 utils/validation [4]<-12 validateInput,sanitize,parseDate,isValid
 
-[api]
-routes/auth [3/8]<-2 login,logout,refresh | express,jsonwebtoken
-    | @myapp/core
+# PART 3 — TYPES
 
-# CROSS-PACKAGE DEPENDENCIES
-api/routes/auth -> core/types core/utils/validation
-ui/components/login -> core/types api/client
+GuildResponse { id:num name:str urlName:str roles:Role[] +6 }
 ```
 
-~500 lines for a full monorepo. Every module shows exported vs total symbols, importer count, symbol names, and external dependencies. Cross-package edges are listed explicitly.
+Domains, schemas, modules, types, and edges in one file. An agent reads it once and knows the entire architecture.
 
-## /deep-audit
+For source-level detail, `audit/symbols-full.txt` contains every function body, every type definition, every signature — the complete codebase in one text file.
 
-The install script adds `/deep-audit` as a Claude Code slash command — a 10-phase systematic code audit:
+## Claude Code commands
+
+The install script adds these slash commands for Claude Code:
+
+| Command | What it does |
+|---|---|
+| `/deep-audit` | 10-phase systematic code audit with parallel fix execution |
+| `/deep-read` | Loads `symbols-full.txt` for source-level codebase understanding |
+| `/high-level` | Loads `supergraph-compact.txt` for architecture overview |
+| `/init-supergraph` | Bootstrap supergraph on a new repository |
+
+### /deep-audit
+
+Point it at a package, it reads the full map, audits source files across 10 phases, writes findings and fix plans to disk. Say "do all" and it executes them via parallel subagents.
 
 0. **Generate artifacts** — runs all supergraph tools
 1. **Read the map** — loads all generated artifacts
