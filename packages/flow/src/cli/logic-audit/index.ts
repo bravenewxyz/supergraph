@@ -30,12 +30,62 @@ export function formatText(result: LogicAuditResult, resolvedDir: string, minCon
   const o: string[] = [];
   const sp = (p: string) => shortPath(p, resolvedDir);
 
-  // Cross-representation — 1 line per mismatch
-  o.push(`## Cross-Rep Mismatches (${result.crossRep.length})`);
+  // Cross-representation — grouped by schema, sorted by severity
+  // Count by category for the header
+  const byCat = new Map<string, number>();
+  for (const m of result.crossRep) byCat.set(m.mismatchKind, (byCat.get(m.mismatchKind) ?? 0) + 1);
+  const catSummary = [...byCat.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${v} ${k.replace("schema-type-", "")}`)
+    .join(", ");
+
+  o.push(`## Cross-Rep Mismatches (${result.crossRep.length}${catSummary ? `: ${catSummary}` : ""})`);
+
+  // Group by schema name for compact output
+  const bySchema = new Map<string, typeof result.crossRep>();
   for (const m of result.crossRep) {
-    const s = m.field.schemaOptional ? "opt" : "req";
-    const t = m.field.typeOptional ? "opt" : "req";
-    o.push(`[${m.mismatchKind}] ${m.schemaName}.${m.field.fieldName} schema=${s} type=${t}`);
+    const key = `${m.schemaName}↔${m.typeName}`;
+    if (!bySchema.has(key)) bySchema.set(key, []);
+    bySchema.get(key)!.push(m);
+  }
+
+  // Priority: optionality > missing-field > type-mismatch > extra-field
+  const catPriority: Record<string, number> = {
+    "schema-type-optionality": 0,
+    "schema-type-missing-field": 1,
+    "schema-type-mismatch": 2,
+    "schema-type-extra-field": 3,
+  };
+
+  // Sort schema groups by worst severity
+  const sortedGroups = [...bySchema.entries()].sort(([, a], [, b]) => {
+    const worstA = Math.min(...a.map((m) => catPriority[m.mismatchKind] ?? 5));
+    const worstB = Math.min(...b.map((m) => catPriority[m.mismatchKind] ?? 5));
+    return worstA - worstB;
+  });
+
+  for (const [key, items] of sortedGroups) {
+    const [schemaName, typeName] = key.split("↔");
+    o.push(`${schemaName} ↔ ${typeName}`);
+
+    // Group items by category within each schema
+    const grouped = new Map<string, typeof items>();
+    for (const m of items) {
+      if (!grouped.has(m.mismatchKind)) grouped.set(m.mismatchKind, []);
+      grouped.get(m.mismatchKind)!.push(m);
+    }
+
+    for (const [kind, fields] of [...grouped.entries()].sort(([a], [b]) => (catPriority[a] ?? 5) - (catPriority[b] ?? 5))) {
+      const shortKind = kind.replace("schema-type-", "");
+      const fieldList = fields
+        .map((f) => {
+          const s = f.field.schemaOptional ? "opt" : "req";
+          const t = f.field.typeOptional ? "opt" : "req";
+          return s !== t ? `${f.field.fieldName}(${s}→${t})` : f.field.fieldName;
+        })
+        .join(", ");
+      o.push(`  ${shortKind}: ${fieldList}`);
+    }
   }
 
   // Decision tables — compact rows
@@ -125,8 +175,17 @@ export async function runLogicAudit(opts: LogicAuditOptions): Promise<string> {
     (f) => !f.includes("__tests__") && !f.includes(".test.") && !f.includes(".spec."),
   );
 
-  // Single program creation shared across all analyses
-  const program = createProgram(nonTestFiles);
+  // Single program creation shared across all analyses.
+  // Auto-detect tsconfig.json so the checker can resolve node_modules types
+  // (needed for dataflow strategies that resolve .parse() return types).
+  const { existsSync } = await import("node:fs");
+  const tsConfigCandidates = [
+    resolve(resolvedDir, "tsconfig.json"),
+    resolve(resolvedDir, "..", "tsconfig.json"),
+    resolve(resolvedDir, "../..", "tsconfig.json"),
+  ];
+  const tsConfigPath = tsConfigCandidates.find((p) => existsSync(p));
+  const program = createProgram(nonTestFiles, tsConfigPath);
   const checker = program.getTypeChecker();
 
   const crossRep = await crossRepScan(files, resolvedDir, { program, checker });

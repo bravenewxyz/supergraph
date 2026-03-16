@@ -118,13 +118,43 @@ export function extractTypeShape(
 ): ShapeField[] {
   if (depth > MAX_DEPTH) return [];
 
+  // Primitive types (string, number, boolean, etc.) have prototype methods
+  // from their wrapper objects (String, Number, Boolean). These are not
+  // data fields and must be excluded from structural comparison.
+  const flags = type.getFlags();
+  if (
+    flags & ts.TypeFlags.String ||
+    flags & ts.TypeFlags.Number ||
+    flags & ts.TypeFlags.Boolean ||
+    flags & ts.TypeFlags.BigInt ||
+    flags & ts.TypeFlags.ESSymbol ||
+    flags & ts.TypeFlags.Void ||
+    flags & ts.TypeFlags.Undefined ||
+    flags & ts.TypeFlags.Null ||
+    flags & ts.TypeFlags.Never ||
+    flags & ts.TypeFlags.StringLiteral ||
+    flags & ts.TypeFlags.NumberLiteral ||
+    flags & ts.TypeFlags.BooleanLiteral
+  ) {
+    return [];
+  }
+
   const fields: ShapeField[] = [];
   for (const prop of type.getProperties()) {
-    const propType = checker.getTypeOfSymbol(prop);
+    // Skip properties inherited from built-in prototypes (Object, Array, etc.)
+    // A property is "own" if it has at least one declaration in a non-lib file
     const declarations = prop.getDeclarations();
+    if (declarations && declarations.length > 0) {
+      const allFromLib = declarations.every((d) => d.getSourceFile().isDeclarationFile);
+      if (allFromLib) continue;
+    } else if (!declarations || declarations.length === 0) {
+      // Properties with no declarations are typically built-in (e.g., __proto__)
+      continue;
+    }
+
+    const propType = checker.getTypeOfSymbol(prop);
     const optional = declarations?.some(
-      (d) => !!(ts.getCombinedModifierFlags(d) & ts.ModifierFlags.None) &&
-        ts.isPropertySignature(d) && !!d.questionToken,
+      (d) => ts.isPropertySignature(d) && !!d.questionToken,
     ) ?? false;
 
     fields.push({

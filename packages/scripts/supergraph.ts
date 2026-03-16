@@ -376,7 +376,7 @@ function generateIssuesTxt(data: SuperGraph): string {
     for (const r of sm?.results ?? []) {
       for (const mm of r.mismatches ?? []) {
         pkgLines.push(
-          `${compressPath(r.schemaFile.replace(/^.*src\//, "src/"))} [sch:${mm.severity}] ${r.schema}.${mm.path}: ${mm.message}`,
+          `${compressPath((r.schemaFile ?? "").replace(/^.*src\//, "src/"))} [sch:${mm.severity}] ${r.schema ?? "?"}.${mm.path}: ${mm.message}`,
         );
       }
     }
