@@ -152,19 +152,45 @@ Append to `findings.md`.
 
 ---
 
-## Phase 7: Invariant verification
+## Phase 7: Semantic scan
 
-### 7a–b. Discover and generate
+Use the discovery data (`invariants/discovery.txt` and the per-package `json/discovery.json`) to find logic bugs, contract violations, and suspicious patterns that structural analysis cannot catch.
 
-Read `invariants/discovery.txt`. Select top 10–15 functions by purity score (≥0.7). Trace each step by step. Write invariants to `invariants/invariants.json`.
+### 7a. Load discovery data
 
-### 7c–e. Test and analyze
+Read `invariants/discovery.txt` in full. It contains:
+- **Signature inconsistencies** — functions with the same name in different files but different signatures. Focus on exported functions in related domains.
+- **Repeated patterns** — groups of 3+ structurally identical functions. These are abstraction candidates.
+- **Hub functions** — called by 10+ others. Breaking changes here have high blast radius.
 
-Generate tests, run them, analyze failures. Real bug or wrong invariant? Max 2 refinement rounds.
+### 7b. Semantic function pair analysis
 
-### 7f–g. Report
+For each **signature inconsistency** (same name, different signatures):
+1. Read both function bodies from source
+2. Determine: are they intentionally different (different layers/domains) or accidentally diverged (copy-paste drift)?
+3. If they're in the same domain and both exported — flag as a naming collision that confuses callers
 
-Write `invariants/README.md` with counts and tables. Append likely bugs to `findings.md`.
+For each **repeated pattern group** with 5+ members:
+1. Read 2-3 representative function bodies
+2. Assess: is this boilerplate that should be a generic helper? Or is the repetition intentional (each function handles domain-specific edge cases)?
+3. If a generic helper would work — flag as a refactoring opportunity with a suggested abstraction
+
+### 7c. Contract compatibility scan
+
+Read the discovery JSON (`json/discovery.json`). For functions that appear to form caller→callee chains (based on name patterns like `createTask` → `validateTask` → `saveTask`):
+1. Check return type of caller against parameter type of callee
+2. Look for optionality mismatches: function A returns `T | null`, function B expects `T`
+3. Look for error contract mismatches: function A throws on invalid input, function B returns null
+
+### 7d. Suspicious pattern detection
+
+Scan function bodies in the discovery data for:
+- **Error swallowing**: `catch (e) { }` or `catch { return fallback }` without logging
+- **Inconsistent null handling**: some functions in a module check for null, others don't
+- **Mixed async patterns**: `await` mixed with `.then()` callbacks in the same function
+- **Hardcoded values**: magic numbers, hardcoded URLs, embedded credentials
+
+Append verified findings to `findings.md`.
 
 ---
 

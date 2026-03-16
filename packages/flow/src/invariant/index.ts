@@ -9,3 +9,5 @@ export * from "./runtime-contracts.js";
 export * from "./log-monitor.js";
 export * from "./mutation-testing.js";
 export * from "./symbolic-executor.js";
+export * from "./call-graph.js";
+export * from "./signature-checker.js";

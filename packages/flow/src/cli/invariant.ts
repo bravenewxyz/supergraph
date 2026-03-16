@@ -20,6 +20,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { execSync } from "node:child_process";
 import { discoverFunctions } from "../invariant/function-finder.js";
+import { buildCallGraph, formatCallGraph } from "../invariant/call-graph.js";
+import { checkSignatures, formatSignatureAnalysis } from "../invariant/signature-checker.js";
 import { generateTestFile, generateTestSuite } from "../invariant/test-gen.js";
 import { invariantsToContracts, applyContracts, generateContractImport } from "../invariant/runtime-contracts.js";
 import { checkLogInvariants, formatLogReport } from "../invariant/log-monitor.js";
@@ -62,7 +64,28 @@ export async function runInvariantDiscover(opts: InvariantDiscoverOptions): Prom
   const functions = await discoverFunctions(resolve(opts.srcDir), { minPurity, suggestExtractions });
 
   if (format === "json") {
-    const output = JSON.stringify(functions, null, 2);
+    const duplicates = detectDuplicates(functions);
+    const compact = functions.map((f) => ({
+      name: f.name,
+      filePath: f.filePath,
+      line: f.line,
+      exportKind: f.exportKind,
+      params: f.params.map((p) => ({
+        name: p.name,
+        type: shapeToString(p.type),
+        optional: p.optional,
+      })),
+      returnType: shapeToString(f.returnType),
+      purityScore: f.purityScore,
+      purityFlags: f.purityFlags,
+      sourceText: f.sourceText,
+      signatureHash: f.signatureHash,
+      branchCount: countBranches(f.sourceText),
+      similarFunctions: f.similarFunctions,
+    }));
+    const callGraph = buildCallGraph(functions);
+    const signatures = checkSignatures(functions);
+    const output = JSON.stringify({ functions: compact, duplicates, callGraph: { dead: callGraph.deadFunctions.length, hubs: callGraph.hubFunctions.length, singleCaller: callGraph.singleCallerFunctions.length }, signatures: { inconsistencies: signatures.inconsistencies.length, crossBoundary: signatures.crossBoundary.length } }, null, 2);
     if (opts.outFile) await writeOutput(output, opts.outFile);
     return output;
   }
@@ -470,6 +493,127 @@ async function prove(args: string[]): Promise<void> {
   if (hasFailed) process.exit(1);
 }
 
+// ── duplicate detection ─────────────────────────────────────────────
+
+interface DuplicateGroup {
+  functions: { name: string; filePath: string; line: number }[];
+  similarity: number; // 0-1
+  bodyHash: string;
+}
+
+function normalizeBody(source: string): string {
+  // Extract and preserve string literals (they contain SQL, table names, etc.
+  // that distinguish structurally similar functions)
+  const strings: string[] = [];
+  const withPlaceholders = source
+    .replace(/\/\/.*$/gm, "")                          // strip line comments
+    .replace(/\/\*[\s\S]*?\*\//g, "")                  // strip block comments
+    .replace(/(["'`])(?:[^"'`\\]|\\.)*?\1/g, (match) => {
+      strings.push(match);
+      return `__STR${strings.length - 1}__`;
+    });
+
+  // Normalize identifiers but keep string content
+  const normalized = withPlaceholders
+    .replace(/\b[a-z_]\w*\b/gi, "_")                  // normalize identifiers
+    .replace(/\s+/g, " ")                               // collapse whitespace
+    .trim();
+
+  // Restore string literals
+  return normalized.replace(/__STR(\d+)__/g, (_, i) => strings[parseInt(i)]!);
+}
+
+function simpleHash(str: string): string {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  }
+  return h.toString(36);
+}
+
+function bodySimilarity(a: string, b: string): number {
+  if (a.length < 3 || b.length < 3) return a === b ? 1 : 0;
+  const trigramsA = new Set<string>();
+  const trigramsB = new Set<string>();
+  for (let i = 0; i <= a.length - 3; i++) trigramsA.add(a.slice(i, i + 3));
+  for (let i = 0; i <= b.length - 3; i++) trigramsB.add(b.slice(i, i + 3));
+  let intersection = 0;
+  for (const t of trigramsA) if (trigramsB.has(t)) intersection++;
+  const union = trigramsA.size + trigramsB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+function detectDuplicates(functions: DiscoveredFunction[]): DuplicateGroup[] {
+  // Only consider functions with >= 5 lines
+  const candidates = functions.filter((f) => f.sourceText.split("\n").length >= 5);
+
+  // Normalize and hash each body
+  const normalized = candidates.map((f) => {
+    const norm = normalizeBody(f.sourceText);
+    return { fn: f, norm, hash: simpleHash(norm), lineCount: f.sourceText.split("\n").length };
+  });
+
+  // Step 1: Group exact duplicates by hash
+  const hashGroups = new Map<string, typeof normalized>();
+  for (const entry of normalized) {
+    const group = hashGroups.get(entry.hash) ?? [];
+    group.push(entry);
+    hashGroups.set(entry.hash, group);
+  }
+
+  const groups: DuplicateGroup[] = [];
+  const inExactGroup = new Set<DiscoveredFunction>();
+
+  for (const [hash, members] of hashGroups) {
+    if (members.length < 2) continue;
+    groups.push({
+      functions: members.map((m) => ({ name: m.fn.name, filePath: m.fn.filePath, line: m.fn.line })),
+      similarity: 1,
+      bodyHash: hash,
+    });
+    for (const m of members) inExactGroup.add(m.fn);
+  }
+
+  // Step 2: Near-duplicate detection via trigram similarity
+  // Only compare functions not already in exact groups, and with similar line counts (within 2x)
+  const remaining = normalized.filter((e) => !inExactGroup.has(e.fn));
+  const inNearGroup = new Set<number>();
+
+  for (let i = 0; i < remaining.length; i++) {
+    if (inNearGroup.has(i)) continue;
+    const anchor = remaining[i]!;
+    const cluster: Array<(typeof normalized)[number]> = [anchor];
+
+    for (let j = i + 1; j < remaining.length; j++) {
+      if (inNearGroup.has(j)) continue;
+      const candidate = remaining[j]!;
+
+      // Skip if line counts differ by more than 2x
+      const ratio = anchor.lineCount / candidate.lineCount;
+      if (ratio > 2 || ratio < 0.5) continue;
+
+      const sim = bodySimilarity(anchor.norm, candidate.norm);
+      if (sim > 0.8) {
+        cluster.push(candidate);
+        inNearGroup.add(j);
+      }
+    }
+
+    if (cluster.length >= 2) {
+      inNearGroup.add(i);
+      // Compute pairwise similarity for the group label
+      const sim = bodySimilarity(cluster[0]!.norm, cluster[1]!.norm);
+      groups.push({
+        functions: cluster.map((m) => ({ name: m.fn.name, filePath: m.fn.filePath, line: m.fn.line })),
+        similarity: Math.round(sim * 100) / 100,
+        bodyHash: cluster[0]!.hash,
+      });
+    }
+  }
+
+  return groups;
+}
+
 // ── compact format ──────────────────────────────────────────────────
 
 const DISPATCH_KEYWORDS = /\b(dispatch|spawn|schedule|assign|enqueue|start|launch)\b/i;
@@ -574,8 +718,45 @@ function formatCompact(functions: DiscoveredFunction[]): string {
   }
   lines.push("");
 
+  // Duplicate/near-duplicate detection
+  const duplicateGroups = detectDuplicates(functions);
+  // Only show groups with 3+ members — pairs are often coincidental structural
+  // similarity (e.g., two getById functions), while larger groups indicate
+  // a genuine repeated pattern worth abstracting.
+  const significantGroups = duplicateGroups.filter((g) => g.functions.length >= 3);
+  lines.push(`## Repeated Patterns (${significantGroups.length} groups of 3+ functions, ${duplicateGroups.length} total)`);
+  lines.push("");
+  for (const group of significantGroups) {
+    const label = group.similarity === 1 ? "exact" : `${Math.round(group.similarity * 100)}%`;
+    const refs = group.functions.map((f) => `${f.name} (${shortPath(f.filePath)}:${f.line})`);
+    lines.push(`  [${label}] ${refs.join(" \u2194 ")}`);
+  }
+  lines.push("");
+
+  // Call graph analysis — only show hub functions (most reliable).
+  // Dead/single-caller detection is unreliable with regex-based call extraction
+  // (misses calls from route handlers, curried patterns, etc.).
+  const callGraphAnalysis = buildCallGraph(functions);
+  if (callGraphAnalysis.hubFunctions.length > 0) {
+    lines.push("");
+    lines.push(`## Hub Functions (${callGraphAnalysis.hubFunctions.length} — called by 10+ others)`);
+    for (const fn of callGraphAnalysis.hubFunctions) {
+      const sp = fn.filePath.includes("/src/") ? fn.filePath.slice(fn.filePath.indexOf("/src/") + 5) : fn.filePath;
+      lines.push(`  ${fn.name} (${fn.callers.length} callers) ${sp}:${fn.line}`);
+    }
+  }
+
+  // Signature consistency
+  const signatureAnalysis = checkSignatures(functions);
+  const signatureText = formatSignatureAnalysis(signatureAnalysis);
+  if (signatureText) {
+    lines.push("");
+    lines.push(signatureText);
+  }
+
+  lines.push("");
   lines.push("━━━ Summary ━━━");
-  lines.push(`Status functions: ${statusFns.length}  Dispatch functions: ${dispatchFns.length}  Pure: ${pure.length}  Async-pure: ${asyncPureFns.length}  Complex: ${complexFns.length}`);
+  lines.push(`Functions: ${functions.length}  Duplicates: ${duplicateGroups.length}  Hubs: ${callGraphAnalysis.hubFunctions.length}  Sig-inconsistencies: ${signatureAnalysis.inconsistencies.length}`);
 
   return lines.join("\n");
 }

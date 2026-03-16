@@ -36,6 +36,7 @@ import { runAggregate } from "../../packages/scripts/supergraph.js";
 import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
 import { runNormagraph } from "../../packages/scripts/normagraph.js";
+import { runTemporal } from "../../packages/scripts/temporal.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -777,6 +778,7 @@ Usage:
     "supergraph.html", "pkg-graph.html",
     "supergraph.txt", "supergraph-compact.txt",
     "symbols-full.txt", "symbols.txt", "issues.txt",
+    "temporal.txt",
   ];
   await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
 
@@ -788,6 +790,7 @@ Usage:
     withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
     withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph"),
     withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph"),
+    withTimeout(runTemporal({ root: ROOT }).then(txt => writeFile(join(AUDIT_DIR, "temporal.txt"), txt)), CROSS_TIMEOUT, "temporal"),
   ]);
   unmuteCross();
 
@@ -835,7 +838,7 @@ Usage:
   // -----------------------------------------------------------------------
   // Tally failures (while animation still runs)
   // -----------------------------------------------------------------------
-  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "symbols-full", "symbols"];
+  const crossToolNames = ["pkg-graph", "aggregate", "cross-lang-bridge", "symbols-full", "symbols", "temporal"];
   const crossFailures: string[] = [];
   for (let i = 0; i < crossResults.length; i++) {
     const r = crossResults[i]!;
@@ -861,7 +864,7 @@ Usage:
 
   if (!anim) {
     console.log(`\n${C.dim}━━${C.reset} ${C.bold}cross-package${C.reset} ${C.dim}${"━".repeat(43)}${C.reset}`);
-    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "symbols-full", "symbols"];
+    const crossLabels = ["pkg-graph", "supergraph", "cross-lang-bridge", "symbols-full", "symbols", "temporal"];
     for (let i = 0; i < crossResults.length; i++) {
       const r = crossResults[i]!;
       const label = crossLabels[i]!;
