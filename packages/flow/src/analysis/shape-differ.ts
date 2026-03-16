@@ -92,6 +92,38 @@ export function diffTypes(
 
   if (isOpaqueOrAny(left) || isOpaqueOrAny(right)) return mismatches;
 
+  // Strip `undefined` and `null` from unions before comparison. TypeScript adds
+  // these for optional fields, but optionality is already tracked separately in
+  // ShapeField.optional. Keeping them in the union breaks enum↔union matching
+  // and causes false type-mismatch reports.
+  const stripNullish = (shape: ShapeType): ShapeType => {
+    if (shape.kind !== "union") return shape;
+    const filtered = shape.members.filter(
+      (m) => !(m.kind === "primitive" && (m.value === "undefined" || m.value === "null")),
+    );
+    if (filtered.length === 0) return shape;
+    if (filtered.length === 1) return filtered[0]!;
+    if (filtered.length === shape.members.length) return shape;
+    return { kind: "union", members: filtered };
+  };
+
+  left = stripNullish(left);
+  right = stripNullish(right);
+
+  // Unresolved ref with a name matching a primitive — treat as that primitive.
+  // The TS extractor sometimes wraps primitives as ref("string") instead of
+  // primitive("string") when they come from type aliases.
+  const unwrapPrimitiveRef = (shape: ShapeType): ShapeType => {
+    if (shape.kind === "ref" && !shape.resolved) {
+      const primNames = ["string", "number", "boolean", "bigint", "symbol", "any", "unknown", "void", "undefined", "null", "never"];
+      if (primNames.includes(shape.name)) return { kind: "primitive", value: shape.name as any };
+    }
+    return shape;
+  };
+
+  left = unwrapPrimitiveRef(left);
+  right = unwrapPrimitiveRef(right);
+
   if (left.kind === right.kind) {
     return diffSameKind(left, right, path, opts);
   }
@@ -118,6 +150,20 @@ export function diffTypes(
   }
   if (left.kind === "enum" && right.kind === "union") {
     return diffTypes(right, left, path, { ...opts, leftLabel: opts.rightLabel, rightLabel: opts.leftLabel });
+  }
+
+  // Boolean ↔ union of boolean literals (true | false)
+  if (left.kind === "primitive" && left.value === "boolean" && right.kind === "union") {
+    const allBoolLiterals = right.members.every(
+      (m) => m.kind === "literal" && typeof m.value === "boolean",
+    );
+    if (allBoolLiterals) return mismatches;
+  }
+  if (right.kind === "primitive" && right.value === "boolean" && left.kind === "union") {
+    const allBoolLiterals = left.members.every(
+      (m) => m.kind === "literal" && typeof m.value === "boolean",
+    );
+    if (allBoolLiterals) return mismatches;
   }
 
   // Union on one side — check if the other side is a member

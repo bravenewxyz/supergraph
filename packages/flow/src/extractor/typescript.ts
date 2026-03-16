@@ -153,9 +153,15 @@ export function extractTypeShape(
     }
 
     const propType = checker.getTypeOfSymbol(prop);
-    const optional = declarations?.some(
-      (d) => ts.isPropertySignature(d) && !!d.questionToken,
-    ) ?? false;
+    // Check optionality via symbol flags (works for synthesized/inferred types too,
+    // not just explicit PropertySignature declarations with `?` tokens).
+    // Also treat `T | null` as optional — in SQL-backed types, null means absent.
+    let optional = !!(prop.flags & ts.SymbolFlags.Optional);
+    if (!optional && propType.isUnion()) {
+      optional = propType.types.some(
+        (t) => !!(t.getFlags() & ts.TypeFlags.Null),
+      );
+    }
 
     fields.push({
       name: prop.name,
