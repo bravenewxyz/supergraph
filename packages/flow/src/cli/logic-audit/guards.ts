@@ -13,6 +13,7 @@ export function scanGuardConsistency(
   const forPattern = /^\s*for\s*\(\s*(const|let|var)\s+(\w+)\s+(of|in)\s+/;
   const pushPattern = /(\w+(?:\.\w+)*)\s*\.\s*push\s*\(/;
   const ifPattern = /^\s*if\s*\(/;
+  const elsePattern = /}\s*else\s*(if\s*\()?\s*\{?/;
 
   let loopStart = -1;
   let loopVar = "";
@@ -24,6 +25,7 @@ export function scanGuardConsistency(
   let currentIfGuard: string | null = null;
   let currentIfLine = -1;
   let ifDepth = 0;
+  let inElseBranch = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -36,8 +38,21 @@ export function scanGuardConsistency(
       loopDepth = braceDepth;
       pushSites.length = 0;
       currentIfGuard = null;
+      inElseBranch = false;
     }
 
+    // Track else / else-if: when the if block closes and continues with
+    // "else", the subsequent block is the negation of the original guard.
+    // Mark pushes inside else branches so we can detect partition loops.
+    const elseMatch = line.match(elsePattern);
+    if (elseMatch && inLoop && currentIfGuard === null && ifDepth === 0) {
+      // We just exited an if block (currentIfGuard was reset to null by
+      // the closing brace). The "else" means the next block is the
+      // negation — mark it with a sentinel guard.
+      inElseBranch = true;
+    }
+
+    // Process braces AFTER checking for else (else comes after closing brace)
     for (const ch of line) {
       if (ch === "{") braceDepth++;
       if (ch === "}") {
@@ -50,17 +65,61 @@ export function scanGuardConsistency(
         if (ifDepth > 0 && braceDepth < ifDepth) {
           currentIfGuard = null;
           ifDepth = 0;
+          inElseBranch = false;
         }
       }
     }
 
     if (inLoop) {
       const ifMatch = line.match(ifPattern);
-      if (ifMatch) {
+      if (ifMatch && !elseMatch) {
         const guardText = line.replace(/^\s*if\s*\(/, "").replace(/\)\s*\{?\s*$/, "").trim();
         currentIfGuard = guardText;
         currentIfLine = i;
+        inElseBranch = false;
+        // Braceless single-line if: if the line has no opening brace,
+        // the guard applies to this line and the next line only (to handle
+        // `if (cond)\n  guarded();` patterns). After recording any push on
+        // this line, set a flag to also check the next line before resetting.
+        if (!line.includes("{")) {
+          const pushMatch = line.match(pushPattern);
+          if (pushMatch) {
+            pushSites.push({
+              collection: pushMatch[1]!,
+              line: i + 1,
+              guard: currentIfGuard,
+              guardLine: currentIfLine + 1,
+            });
+            // Push was on the same line — reset guard now
+            currentIfGuard = null;
+            ifDepth = 0;
+            continue;
+          }
+          // No push on the if-line — the guarded statement might be on
+          // the next line. Keep the guard active for one more line by NOT
+          // resetting here. Instead, mark it for single-line expiry: after
+          // the next line is processed (and any push recorded), reset.
+          ifDepth = -1; // sentinel: expire after next line
+          continue;
+        }
         ifDepth = braceDepth;
+      }
+
+      // Handle else/else-if: mark the guard as a negation so
+      // analyzePushSites can detect partition loops.
+      if (elseMatch && inLoop) {
+        const elseIfMatch = line.match(/}\s*else\s+if\s*\((.+)\)\s*\{?/);
+        if (elseIfMatch) {
+          currentIfGuard = elseIfMatch[1]!.replace(/\)\s*\{?\s*$/, "").trim();
+        } else {
+          // Plain "else" — use a sentinel that marks this as the else branch
+          currentIfGuard = "__else__";
+        }
+        currentIfLine = i;
+        inElseBranch = true;
+        if (line.includes("{")) {
+          ifDepth = braceDepth;
+        }
       }
 
       const pushMatch = line.match(pushPattern);
@@ -71,6 +130,13 @@ export function scanGuardConsistency(
           guard: currentIfGuard,
           guardLine: currentIfGuard ? currentIfLine + 1 : null,
         });
+      }
+
+      // Braceless if expiry: the guard was set for one continuation line.
+      // Now that we've processed this line (and recorded any push), reset.
+      if (ifDepth === -1) {
+        currentIfGuard = null;
+        ifDepth = 0;
       }
     }
   }
@@ -115,6 +181,15 @@ export function analyzePushSites(
         const gBase = g.collection.split(".").pop() ?? g.collection;
         if (OUTPUT_NAMES.test(uBase) && !OUTPUT_NAMES.test(gBase)) continue;
 
+        // Both collections are output-like names — two output buffers
+        // built with different conditions is normal, not a bug.
+        if (OUTPUT_NAMES.test(uBase) && OUTPUT_NAMES.test(gBase)) continue;
+
+        // Partition loop: if the guarded push is in an else/else-if branch,
+        // the two pushes are mutually exclusive partitions of the loop items.
+        // This is intentional — every item goes to exactly one list.
+        if (g.guard === "__else__" || (g.guard && g.guardLine === u.line)) continue;
+
         const confidence = scoreGuardConfidence(
           g.collection, u.collection, sourceLines,
         );
@@ -139,6 +214,11 @@ export function analyzePushSites(
   }
 }
 
+/** Split a camelCase or PascalCase identifier into word components. */
+function camelWords(name: string): string[] {
+  return name.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/[\s_]+/);
+}
+
 export function scoreGuardConfidence(
   guardedCol: string,
   unguardedCol: string,
@@ -152,8 +232,17 @@ export function scoreGuardConfidence(
   // "seen", "pending" are intentionally always-push accumulators that
   // track traversal state, while other collections selectively record
   // results. These are never guard bugs.
-  const ACCUMULATOR_NAMES = /^(path|stack|visited|seen|pending|queue|worklist|current|rolledBack)$/i;
+  const ACCUMULATOR_NAMES = /^(path|stack|visited|seen|pending|queue|worklist|current|rolledBack|decorators|nodes|tables|enums)$/i;
   if (ACCUMULATOR_NAMES.test(unguardedBase)) return "low";
+
+  // Different entity types: when the collection names share no camelCase
+  // word component, they're likely tracking different entity types
+  // (e.g., "nodes" vs "goDeps", "bridges" vs "unmatched"). The
+  // asymmetry is intentional, not a guard bug.
+  const gWords = camelWords(guardedBase);
+  const uWords = camelWords(unguardedBase);
+  const sharedWords = gWords.filter((w) => w.length > 2 && uWords.includes(w));
+  if (sharedWords.length === 0) return "low";
 
   const coConsumed = sourceLines.some(
     (line) => line.includes(guardedBase) && line.includes(unguardedBase),
@@ -205,6 +294,7 @@ export function scanForEachMapGuards(
   const forEachPattern = /(\w+(?:\.\w+)*)\s*\.\s*(forEach|map)\s*\(\s*(?:\(?\s*(\w+))/;
   const callPattern = /(\w+(?:\.\w+)*)\s*\(/;
   const ifPattern = /^\s*if\s*\(/;
+  const elsePattern = /}\s*else\s*(if\s*\()?\s*\{?/;
 
   let inCallback = false;
   let callbackStart = -1;
@@ -246,11 +336,23 @@ export function scanForEachMapGuards(
     }
 
     if (inCallback) {
+      const elseMatch = line.match(elsePattern);
       const ifMatch = line.match(ifPattern);
-      if (ifMatch) {
+      if (ifMatch && !elseMatch) {
         const guardText = line.replace(/^\s*if\s*\(/, "").replace(/\)\s*\{?\s*$/, "").trim();
         currentIfGuard = guardText;
+        // Braceless single-line if — guard applies to this + next line
+        if (!line.includes("{")) {
+          ifDepth = -1; // sentinel: expire after next line
+          continue;
+        }
         ifDepth = braceDepth;
+      }
+
+      // Handle else/else-if
+      if (elseMatch && inCallback) {
+        currentIfGuard = "__else__";
+        if (line.includes("{")) ifDepth = braceDepth;
       }
 
       // Look for function calls (but skip the forEach/map itself and control-flow keywords)
@@ -265,6 +367,12 @@ export function scanForEachMapGuards(
             guard: currentIfGuard,
           });
         }
+      }
+
+      // Braceless if expiry
+      if (ifDepth === -1) {
+        currentIfGuard = null;
+        ifDepth = 0;
       }
     }
   }
@@ -296,6 +404,17 @@ export function analyzeOpSites(
         const uTarget = u.op.split(".").slice(0, -1).pop() ?? u.op;
         const gTarget = g.op.split(".").slice(0, -1).pop() ?? g.op;
         if (OUTPUT_NAMES.test(uTarget) && !OUTPUT_NAMES.test(gTarget)) continue;
+
+        // Both targets are output-like — not a bug
+        if (OUTPUT_NAMES.test(uTarget) && OUTPUT_NAMES.test(gTarget)) continue;
+
+        // Partition: guarded op is in an else branch
+        if (g.guard === "__else__") continue;
+
+        // Collect-all pattern: targets starting with "all" (e.g.,
+        // allFunctions.push vs allAdapters.push) are intentionally
+        // collecting everything of different types.
+        if (/^all[A-Z]/.test(uTarget) && /^all[A-Z]/.test(gTarget)) continue;
 
         results.push({
           filePath,

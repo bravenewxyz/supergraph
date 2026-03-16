@@ -344,6 +344,26 @@ function diffSameKind(
       }
       break;
     }
+
+    case "date":
+    case "regex":
+      // Same kind, no substructure to diff
+      break;
+
+    case "opaque": {
+      const r = right as Extract<ShapeType, { kind: "opaque" }>;
+      if (left.raw !== r.raw) {
+        mismatches.push({
+          path,
+          expected: left,
+          actual: right,
+          severity: "warning",
+          message: `Opaque type mismatch: ${opts.leftLabel} is ${left.raw}, ${opts.rightLabel} is ${r.raw}`,
+          category: "type-mismatch",
+        });
+      }
+      break;
+    }
   }
 
   return mismatches;

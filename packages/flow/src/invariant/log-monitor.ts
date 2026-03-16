@@ -139,7 +139,7 @@ function evaluateSingle(data: unknown, expr: string): boolean {
   }
 
   // Nothing matched — reject
-  return false;
+  throw new Error(`Unrecognized invariant expression: ${trimmed}`);
 }
 
 function compareValues(lhs: unknown, op: Comparator, rhs: unknown): boolean {

@@ -542,7 +542,7 @@ function evalBinary(Z3: Z3Context, expr: ts.BinaryExpression, state: SymState): 
     const ls = toZ3String(Z3, left, state.intToStrCounter);
     const rs = toZ3String(Z3, right, state.intToStrCounter);
     if (ls && rs) {
-      try { return { kind: "z3", expr: ls.concat(rs), sort: "string" }; } catch { /* fall through */ }
+      try { return { kind: "z3", expr: ls.concat(rs), sort: "string" }; } catch { return { kind: "z3", expr: Z3.String.const(`__concat_${expr.pos}`), sort: "string" }; }
     }
   }
 
@@ -1408,7 +1408,7 @@ export async function proveInvariant(
       const r = await checkPostcondition(Z3, path, postcondExpr, inputValue, timeoutMs, intToStrCounter);
       if (r === "proven") proven++;
       else if (r !== "unknown") { failed++; if (!firstCx) firstCx = r.counterexample; }
-    } catch { /* solver error */ }
+    } catch { /* solver error — path counted as unknown (neither proven nor failed) */ }
   }
 
   const status: SymbolicProofResult["status"] =

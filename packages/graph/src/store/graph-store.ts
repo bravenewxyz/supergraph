@@ -272,6 +272,10 @@ export class GraphStore {
         this.graph.replaceNodeAttributes(op.symbolId, node);
         return { applied: true, operationType: op.type, symbolId: op.symbolId };
       }
+      default: {
+        const _exhaustive: never = op;
+        return { applied: false, operationType: (_exhaustive as any).type, reason: "Unknown operation type" };
+      }
     }
   }
 
@@ -307,6 +311,10 @@ export class GraphStore {
       if (!n.id || !n.kind || !n.qualifiedName) {
         throw new Error(`Invalid SymbolNode at index ${i}: missing id, kind, or qualifiedName`);
       }
+      if (typeof n.version !== "number") n.version = 0;
+      if (!Array.isArray(n.modifiers)) n.modifiers = [];
+      if (typeof n.exported !== "boolean") n.exported = false;
+      if (!Array.isArray(n.decorators)) n.decorators = [];
     }
     for (let i = 0; i < data.edges.length; i++) {
       const e = data.edges[i];

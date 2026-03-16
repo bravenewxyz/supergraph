@@ -175,6 +175,32 @@ function findJsonLosses(
         }
         break;
       }
+
+      case "tuple": {
+        const afterTuple = afterJson as Extract<ShapeType, { kind: "tuple" }>;
+        for (let i = 0; i < original.elements.length; i++) {
+          const afterElem = afterTuple.elements[i];
+          if (afterElem) {
+            findJsonLosses(original.elements[i]!.type, afterElem.type, `${path}[${i}]`, out);
+          }
+        }
+        break;
+      }
+      case "record": {
+        const afterRec = afterJson as Extract<ShapeType, { kind: "record" }>;
+        findJsonLosses(original.value, afterRec.value, `${path}[value]`, out);
+        break;
+      }
+      case "intersection": {
+        const afterInter = afterJson as Extract<ShapeType, { kind: "intersection" }>;
+        for (let i = 0; i < original.members.length; i++) {
+          const afterMember = afterInter.members[i];
+          if (afterMember) {
+            findJsonLosses(original.members[i]!, afterMember, path, out);
+          }
+        }
+        break;
+      }
     }
     return;
   }

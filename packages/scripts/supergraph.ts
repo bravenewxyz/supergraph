@@ -80,7 +80,7 @@ async function loadIssueFiles(dir: string): Promise<IssueFiles> {
   ] as const) {
     try {
       files[key] = JSON.parse(await readFile(join(dir, `json/${key}.json`)));
-    } catch {}
+    } catch { /* file may not exist — expected for optional issue types */ }
   }
   return files;
 }
@@ -105,7 +105,7 @@ async function buildSupergraph(
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
       .sort();
-  } catch {}
+  } catch { /* audit dir may not exist yet */ }
 
   const pkgMaps: { short: string; map: RawMap; issues: IssueFiles }[] = [];
   const auditDirsWithData = new Set<string>();
@@ -118,7 +118,9 @@ async function buildSupergraph(
       const issues = await loadIssueFiles(join(auditDir, short));
       pkgMaps.push({ short, map, issues });
       auditDirsWithData.add(short);
-    } catch {}
+    } catch (e) {
+      console.error(`  ⚠ skipping ${short}: ${e instanceof Error ? e.message : e}`);
+    }
   }
 
   const missing: string[] = [];

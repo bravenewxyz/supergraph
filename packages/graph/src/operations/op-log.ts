@@ -126,6 +126,7 @@ export class OperationLog {
       if (!entry.op.type) continue;
       if (typeof entry.batchId !== "string") entry.batchId = entry.id;
       if (!Array.isArray(entry.symbolIds)) entry.symbolIds = [];
+      if (typeof entry.timestamp !== "number") entry.timestamp = 0;
       this.entries.push(entry as OperationEntry);
       this.indexEntry(entry as OperationEntry);
       if (entry.lamport > this.lamport) {
