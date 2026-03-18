@@ -180,6 +180,30 @@ export function diffTypes(
     if (covered) return mismatches;
   }
 
+  // Serialization boundary: array/record/object ↔ string often indicates
+  // JSON.stringify() on one side and JSON.parse() on the other. Downgrade
+  // to warning instead of error since both representations can be correct
+  // at different layers (e.g., API input vs DB row).
+  const isStringPrimitive = (s: ShapeType) =>
+    s.kind === "primitive" && s.value === "string";
+  const isStructured = (s: ShapeType) =>
+    s.kind === "array" || s.kind === "record" || s.kind === "object";
+
+  if (
+    (isStringPrimitive(left) && isStructured(right)) ||
+    (isStructured(left) && isStringPrimitive(right))
+  ) {
+    mismatches.push({
+      path,
+      expected: left,
+      actual: right,
+      severity: "warning",
+      message: `Possible serialization boundary: ${opts.leftLabel} has ${shapeToString(left)}, ${opts.rightLabel} has ${shapeToString(right)} (may use JSON.stringify/parse)`,
+      category: "type-mismatch",
+    });
+    return mismatches;
+  }
+
   mismatches.push({
     path,
     expected: left,
