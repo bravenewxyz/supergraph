@@ -878,15 +878,22 @@ Usage:
 
   const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 600_000;
-  const crossLabelsForTiming = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph", "normagraph", "temporal"];
   const crossT0 = Date.now();
+
+  function crossDone(label: string) {
+    return {
+      then: (r: unknown) => { anim?.log(`  ✓  cross  ${label}  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; },
+      catch: (err: unknown) => { anim?.log(`  ✗  cross  ${label}  FAILED  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); throw err; },
+    };
+  }
+
   const crossResults = await Promise.allSettled([
-    withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph").then(r => { anim?.log(`  ✓  cross  pkg-graph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
-    withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate").then(r => { anim?.log(`  ✓  cross  aggregate  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
-    withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge").then(r => { anim?.log(`  ✓  cross  cross-lang-bridge  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
-    withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph").then(r => { anim?.log(`  ✓  cross  hypergraph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
-    withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph").then(r => { anim?.log(`  ✓  cross  normagraph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
-    withTimeout(runTemporal({ root: ROOT }).then(txt => writeFile(join(AUDIT_DIR, "temporal.txt"), txt)), CROSS_TIMEOUT, "temporal").then(r => { anim?.log(`  ✓  cross  temporal  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph").then(crossDone("pkg-graph").then, crossDone("pkg-graph").catch),
+    withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate").then(crossDone("aggregate").then, crossDone("aggregate").catch),
+    withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge").then(crossDone("cross-lang-bridge").then, crossDone("cross-lang-bridge").catch),
+    withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph").then(crossDone("hypergraph").then, crossDone("hypergraph").catch),
+    withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph").then(crossDone("normagraph").then, crossDone("normagraph").catch),
+    withTimeout(runTemporal({ root: ROOT }).then(txt => writeFile(join(AUDIT_DIR, "temporal.txt"), txt)), CROSS_TIMEOUT, "temporal").then(crossDone("temporal").then, crossDone("temporal").catch),
   ]);
   unmuteCross();
 

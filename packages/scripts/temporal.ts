@@ -4,9 +4,12 @@
  * Finds risk zones that static analysis can't detect by mining git history.
  */
 
-import { execSync } from "node:child_process";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve, relative, basename } from "node:path";
 import { parseRootArg } from "./utils.js";
+
+const execAsync = promisify(exec);
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -23,11 +26,16 @@ export async function runTemporal(opts: TemporalOptions): Promise<string> {
   const since = sinceFlag(window);
 
   // ── 1. Gather raw data ──────────────────────────────────────────────────
-  const hotspots = getHotspots(root, since);
-  const coupling = getChangeCoupling(root, since);
-  const ageInfo = getFileAge(root, hotspots.map((h) => h.file));
-  const authorInfo = getAuthorKnowledge(root, hotspots.map((h) => h.file));
-  const projectStats = getProjectStats(root, since);
+  const [hotspots, coupling, projectStats] = await Promise.all([
+    getHotspots(root, since),
+    getChangeCoupling(root, since),
+    getProjectStats(root, since),
+  ]);
+  // These depend on hotspots, so run after
+  const [ageInfo, authorInfo] = await Promise.all([
+    getFileAge(root, hotspots.map((h) => h.file)),
+    getAuthorKnowledge(root, hotspots.map((h) => h.file)),
+  ]);
 
   // ── 2. Merge into enriched hotspot list ─────────────────────────────────
   const enriched = hotspots.slice(0, 20).map((h) => ({
@@ -64,7 +72,7 @@ export async function runTemporal(opts: TemporalOptions): Promise<string> {
     singleAuthorPct > 80 ? "CRITICAL" : singleAuthorPct > 60 ? "HIGH" : singleAuthorPct > 40 ? "MODERATE" : "LOW";
 
   // Sort authors by commit involvement
-  const authorCommits = getAuthorCommitCounts(root, since);
+  const authorCommits = await getAuthorCommitCounts(root, since);
   const sortedAuthors = [...authorCommits.entries()].sort((a, b) => b[1] - a[1]);
   const totalCommits = sortedAuthors.reduce((s, [, c]) => s + c, 0);
 
@@ -101,9 +109,10 @@ export async function runTemporal(opts: TemporalOptions): Promise<string> {
 
 // ─── Git helpers ─────────────────────────────────────────────────────────────
 
-function git(cmd: string, cwd: string): string {
+async function git(cmd: string, cwd: string): Promise<string> {
   try {
-    return execSync(`git ${cmd}`, { cwd, encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 }).trim();
+    const { stdout } = await execAsync(`git ${cmd}`, { cwd, encoding: "utf-8", maxBuffer: 50 * 1024 * 1024 });
+    return stdout.trim();
   } catch {
     return "";
   }
@@ -132,8 +141,8 @@ function isRelevantFile(f: string): boolean {
 
 // ─── Analysis functions ──────────────────────────────────────────────────────
 
-function getHotspots(root: string, since: string): { file: string; count: number }[] {
-  const raw = git(`log --no-merges ${since} --name-only --format=""`, root);
+async function getHotspots(root: string, since: string): Promise<{ file: string; count: number }[]> {
+  const raw = await git(`log --no-merges ${since} --name-only --format=""`, root);
   if (!raw) return [];
   const counts = new Map<string, number>();
   for (const line of raw.split("\n")) {
@@ -146,11 +155,11 @@ function getHotspots(root: string, since: string): { file: string; count: number
     .sort((a, b) => b.count - a.count);
 }
 
-function getChangeCoupling(
+async function getChangeCoupling(
   root: string,
   since: string,
-): { fileA: string; fileB: string; count: number }[] {
-  const raw = git(`log --no-merges ${since} --name-only --format="%H"`, root);
+): Promise<{ fileA: string; fileB: string; count: number }[]> {
+  const raw = await git(`log --no-merges ${since} --name-only --format="%H"`, root);
   if (!raw) return [];
 
   // Parse commits
@@ -196,11 +205,11 @@ function getChangeCoupling(
     .sort((a, b) => b.count - a.count);
 }
 
-function getFileAge(root: string, files: string[]): Map<string, { label: string; days: number }> {
+async function getFileAge(root: string, files: string[]): Promise<Map<string, { label: string; days: number }>> {
   const result = new Map<string, { label: string; days: number }>();
   const now = Date.now();
   for (const f of files) {
-    const dateStr = git(`log -1 --format="%aI" -- "${f}"`, root);
+    const dateStr = await git(`log -1 --format="%aI" -- "${f}"`, root);
     if (!dateStr) continue;
     const ms = now - new Date(dateStr).getTime();
     const days = Math.floor(ms / 86_400_000);
@@ -214,10 +223,10 @@ function getFileAge(root: string, files: string[]): Map<string, { label: string;
   return result;
 }
 
-function getAuthorKnowledge(root: string, files: string[]): Map<string, string[]> {
+async function getAuthorKnowledge(root: string, files: string[]): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>();
   for (const f of files) {
-    const raw = git(`log --all --format="%ae" -- "${f}"`, root);
+    const raw = await git(`log --all --format="%ae" -- "${f}"`, root);
     if (!raw) continue;
     const unique = [...new Set(raw.split("\n").map((l) => l.trim()).filter(Boolean))];
     result.set(f, unique);
@@ -225,8 +234,8 @@ function getAuthorKnowledge(root: string, files: string[]): Map<string, string[]
   return result;
 }
 
-function getAuthorCommitCounts(root: string, since: string): Map<string, number> {
-  const raw = git(`log --no-merges ${since} --format="%ae"`, root);
+async function getAuthorCommitCounts(root: string, since: string): Promise<Map<string, number>> {
+  const raw = await git(`log --no-merges ${since} --format="%ae"`, root);
   if (!raw) return new Map();
   const counts = new Map<string, number>();
   for (const line of raw.split("\n")) {
@@ -237,8 +246,8 @@ function getAuthorCommitCounts(root: string, since: string): Map<string, number>
   return counts;
 }
 
-function getProjectStats(root: string, since: string): { commits: number; authors: number; activeDays: number } {
-  const raw = git(`log --no-merges ${since} --format="%ae|%aI"`, root);
+async function getProjectStats(root: string, since: string): Promise<{ commits: number; authors: number; activeDays: number }> {
+  const raw = await git(`log --no-merges ${since} --format="%ae|%aI"`, root);
   if (!raw) return { commits: 0, authors: 0, activeDays: 0 };
   const authors = new Set<string>();
   const days = new Set<string>();
