@@ -4,7 +4,10 @@ import { mkdir, readdir } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { findFiles, parseRootArg, readFile } from "./utils.js";
-import type { BaseGraphOutput } from "./shared.js";
+import {
+  serializeJsonForHtmlScriptTag,
+  type BaseGraphOutput,
+} from "./shared.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 
@@ -223,7 +226,7 @@ async function buildGraph(
 }
 
 function generateHtml(data: GraphData): string {
-  const json = JSON.stringify(data);
+  const json = serializeJsonForHtmlScriptTag(data);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

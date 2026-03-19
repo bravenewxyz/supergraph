@@ -181,6 +181,22 @@ export type PkgData = { short: string; map: RawMap };
 // ─── Path compression ─────────────────────────────────────────────────────────
 
 /**
+ * Serialize JSON safely for embedding inside an HTML <script> tag.
+ *
+ * Raw `</script>` inside the payload terminates the enclosing tag early and
+ * leaves the viewer page blank. These escapes keep the payload valid for
+ * `JSON.parse(textContent)` in the browser.
+ */
+export function serializeJsonForHtmlScriptTag(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+/**
  * Compress a module's raw path for display using path segment abbreviations.
  *
  * Strips `src/` prefix, collapses `/index` → nothing, then applies

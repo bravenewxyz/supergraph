@@ -15,6 +15,7 @@
 
 import { mkdir } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
+import { serializeJsonForHtmlScriptTag } from "./shared.js";
 import { findFiles, parseRootArg, readFile } from "./utils.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
@@ -1235,7 +1236,7 @@ function buildExportJSON(data: FlowData) {
 // ─── HTML Generator ───────────────────────────────────────────────────────────
 
 function generateFlowsHTML(json: ReturnType<typeof buildExportJSON>): string {
-  const data = JSON.stringify(json);
+  const data = serializeJsonForHtmlScriptTag(json);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

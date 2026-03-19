@@ -38,6 +38,7 @@ import { runPkgGraph } from "../../packages/scripts/pkg-graph.js";
 import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js";
 import { runNormagraph } from "../../packages/scripts/normagraph.js";
 import { runTemporal } from "../../packages/scripts/temporal.js";
+import { serializeJsonForHtmlScriptTag } from "../../packages/scripts/shared.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -530,7 +531,7 @@ async function injectTemplate(
     if (!template) throw new Error(`Unknown template: ${templateFile}`);
     const injected = template.replace(
       '<script id="__AUDIT_DATA__" type="application/json">null</script>',
-      `<script id="__AUDIT_DATA__" type="application/json">${JSON.stringify(payload)}</script>`,
+      `<script id="__AUDIT_DATA__" type="application/json">${serializeJsonForHtmlScriptTag(payload)}</script>`,
     );
     await writeFile(outPath, injected);
     return true;

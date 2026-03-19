@@ -2,6 +2,7 @@
 
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
+import { serializeJsonForHtmlScriptTag } from "./shared.js";
 
 const devtoolsRoot = resolve(import.meta.dir, "..");
 
@@ -540,7 +541,7 @@ async function injectTemplate(
     );
     const injected = template.replace(
       '<script id="__AUDIT_DATA__" type="application/json">null</script>',
-      `<script id="__AUDIT_DATA__" type="application/json">${JSON.stringify(payload)}</script>`,
+      `<script id="__AUDIT_DATA__" type="application/json">${serializeJsonForHtmlScriptTag(payload)}</script>`,
     );
     await writeFile(outPath, injected);
     return true;

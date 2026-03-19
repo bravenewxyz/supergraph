@@ -9,6 +9,7 @@ import {
   type RawModule as BaseRawModule,
   type RawMap as BaseRawMap,
   type BaseGraphOutput,
+  serializeJsonForHtmlScriptTag,
 } from "./shared.js";
 
 const ROOT = parseRootArg(process.cwd());
@@ -407,7 +408,7 @@ function generateIssuesTxt(data: SuperGraph): string {
 }
 
 function generateHtml(data: SuperGraph): string {
-  const json = JSON.stringify(data);
+  const json = serializeJsonForHtmlScriptTag(data);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
