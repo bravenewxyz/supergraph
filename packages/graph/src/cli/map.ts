@@ -29,7 +29,8 @@ import type { ExtractedComment } from "../parser/comment-extractor.js";
 import type { SymbolNode } from "../schema/nodes.js";
 import type { SymbolEdge } from "../schema/edges.js";
 import type { SymbolKind } from "../schema/nodes.js";
-import { collectTsFiles } from "./utils.js";
+import { collectTsFiles, findCycles, truncateParams, collectDirectories, strip } from "./utils.js";
+import type { DirectoryManifest } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types for the output manifest
@@ -66,12 +67,6 @@ interface ModuleManifest {
     typeAliases: number;
     variables: number;
   };
-}
-
-interface DirectoryManifest {
-  path: string;
-  modules: string[];
-  subdirectories: string[];
 }
 
 export interface PackageManifest {
@@ -159,36 +154,6 @@ function buildSymbolSummary(store: GraphStore, symbol: SymbolNode): SymbolSummar
   };
 }
 
-function collectDirectories(modules: ModuleManifest[]): DirectoryManifest[] {
-  const dirMap = new Map<string, { modules: Set<string>; subdirs: Set<string> }>();
-
-  for (const mod of modules) {
-    const dir = dirname(mod.relativePath);
-    if (!dirMap.has(dir)) {
-      dirMap.set(dir, { modules: new Set(), subdirs: new Set() });
-    }
-    dirMap.get(dir)!.modules.add(mod.relativePath);
-
-    let parent = dirname(dir);
-    let child = dir;
-    while (parent !== child) {
-      if (!dirMap.has(parent)) {
-        dirMap.set(parent, { modules: new Set(), subdirs: new Set() });
-      }
-      dirMap.get(parent)!.subdirs.add(child);
-      child = parent;
-      parent = dirname(parent);
-    }
-  }
-
-  return [...dirMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([path, data]) => ({
-      path,
-      modules: [...data.modules].sort(),
-      subdirectories: [...data.subdirs].sort(),
-    }));
-}
 
 // ---------------------------------------------------------------------------
 // Text renderer (LLM-friendly compact notation)
@@ -218,37 +183,6 @@ function commentLine(text: string, pad = "", maxLen = 120): string {
   return `${pad}// ${body}`;
 }
 
-/**
- * Collapse a function signature's parameter list to `(…)` when the params
- * exceed `maxParamLen` characters. Return-type annotation is preserved.
- * Only `()` depth is tracked — sufficient for TypeScript signatures.
- */
-function truncateParams(sig: string, maxParamLen = 60): string {
-  const open = sig.indexOf("(");
-  if (open === -1) return sig;
-
-  let depth = 0;
-  let close = -1;
-  for (let i = open; i < sig.length; i++) {
-    if (sig[i] === "(") depth++;
-    else if (sig[i] === ")") {
-      depth--;
-      if (depth === 0) {
-        close = i;
-        break;
-      }
-    }
-  }
-  // Handle truncated signatures where the parser cut off before the closing paren.
-  const params = close !== -1 ? sig.slice(open + 1, close) : sig.slice(open + 1);
-  if (params.length <= maxParamLen) return sig;
-
-  if (close !== -1) {
-    return `${sig.slice(0, open)}(…)${sig.slice(close + 1)}`;
-  }
-  // Incomplete signature — keep only name + (…)
-  return `${sig.slice(0, open)}(…)`;
-}
 
 /**
  * Extract field/member names from an interface or enum body.
@@ -365,51 +299,6 @@ function renderText(manifest: PackageManifest): string {
   return lines.join("\n");
 }
 
-/** DFS cycle detection. Returns each cycle as a path of node names. */
-function findCycles(graph: Record<string, string[]>): string[][] {
-  const WHITE = 0,
-    GRAY = 1,
-    BLACK = 2;
-  const color = new Map<string, 0 | 1 | 2>();
-  const allNodes = new Set([
-    ...Object.keys(graph),
-    ...Object.values(graph).flat(),
-  ]);
-  for (const n of allNodes) color.set(n, WHITE);
-
-  const cycles: string[][] = [];
-  const seen = new Set<string>(); // canonical cycle keys, for dedup
-
-  function dfs(node: string, path: string[]): void {
-    color.set(node, GRAY);
-    path.push(node);
-    for (const nb of graph[node] ?? []) {
-      if (color.get(nb) === GRAY) {
-        const start = path.indexOf(nb);
-        const cycle = path.slice(start);
-        // Canonicalize: rotate to smallest node so duplicates collapse
-        const minIdx = cycle.indexOf([...cycle].sort()[0]!);
-        const canonical = [
-          ...cycle.slice(minIdx),
-          ...cycle.slice(0, minIdx),
-        ].join("→");
-        if (!seen.has(canonical)) {
-          seen.add(canonical);
-          cycles.push(cycle);
-        }
-      } else if (color.get(nb) === WHITE) {
-        dfs(nb, path);
-      }
-    }
-    path.pop();
-    color.set(node, BLACK);
-  }
-
-  for (const node of allNodes) {
-    if (color.get(node) === WHITE) dfs(node, []);
-  }
-  return cycles;
-}
 
 function renderDepsText(manifest: PackageManifest): string {
   const lines: string[] = [];
@@ -551,9 +440,6 @@ function formatLineRange(lines: { startLine: number; endLine: number } | null): 
     : `  L${lines.startLine}-${lines.endLine}`;
 }
 
-function strip(modulePath: string): string {
-  return modulePath.replace(/^src\//, "");
-}
 
 // ---------------------------------------------------------------------------
 // Comment attachment
@@ -663,11 +549,26 @@ export async function runMap(opts: MapOptions): Promise<MapResult> {
   const moduleIdByPath = new Map<string, string>();
   const commentsByModule = new Map<string, ExtractedComment[]>();
 
-  for (const file of files) {
-    const code = await readFile(file, "utf-8");
-    const relPath = relative(pkgRoot, file);
-    const result = parseTypeScript(code, relPath);
+  // Read and parse all files in parallel (I/O + CPU-bound parsing)
+  const parseResults = await Promise.all(
+    files.map(async (file) => {
+      const code = await readFile(file, "utf-8");
+      const relPath = relative(pkgRoot, file);
+      const result = parseTypeScript(code, relPath);
+      let comments: ExtractedComment[] | undefined;
+      if (commentsEnabled) {
+        const qualifiedName = relPath.replace(/\.(ts|tsx)$/, "");
+        const extracted = extractComments(code, relPath);
+        if (extracted.length > 0) {
+          comments = extracted;
+        }
+      }
+      return { file, relPath, result, comments };
+    }),
+  );
 
+  // Add to store sequentially (GraphStore is not thread-safe)
+  for (const { relPath, result, comments } of parseResults) {
     for (const node of result.nodes) {
       store.addSymbol(node);
       if (node.kind === "module") {
@@ -687,12 +588,9 @@ export async function runMap(opts: MapOptions): Promise<MapResult> {
       }
     }
 
-    if (commentsEnabled) {
+    if (comments) {
       const qualifiedName = relPath.replace(/\.(ts|tsx)$/, "");
-      const comments = extractComments(code, relPath);
-      if (comments.length > 0) {
-        commentsByModule.set(qualifiedName, comments);
-      }
+      commentsByModule.set(qualifiedName, comments);
     }
   }
 

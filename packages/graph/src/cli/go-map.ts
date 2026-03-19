@@ -1,9 +1,11 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseGo } from "../parser/go-structural.js";
 import type { SymbolEdge } from "../schema/edges.js";
 import type { SymbolKind, SymbolNode } from "../schema/nodes.js";
 import { GraphStore } from "../store/graph-store.js";
+import { collectGoFiles, findCycles, truncateParams, collectDirectories } from "./utils.js";
+import type { DirectoryManifest } from "./utils.js";
 
 // ---------------------------------------------------------------------------
 // Types (mirror map.ts PackageManifest exactly)
@@ -40,12 +42,6 @@ interface ModuleManifest {
   };
 }
 
-interface DirectoryManifest {
-  path: string;
-  modules: string[];
-  subdirectories: string[];
-}
-
 export interface PackageManifest {
   package: string;
   srcRoot: string;
@@ -71,35 +67,6 @@ type OutputFormat = "json" | "text";
 // ---------------------------------------------------------------------------
 // Go file collection
 // ---------------------------------------------------------------------------
-
-const SKIP_DIRS = new Set([
-  "vendor",
-  "testdata",
-  "node_modules",
-  ".git",
-  "dist",
-  "build",
-]);
-
-async function collectGoFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!SKIP_DIRS.has(entry.name))
-        results.push(...(await collectGoFiles(full)));
-    } else if (entry.name.endsWith(".go") && !entry.name.endsWith("_test.go")) {
-      results.push(full);
-    }
-  }
-  return results.sort();
-}
 
 // ---------------------------------------------------------------------------
 // Go module name detection
@@ -179,39 +146,6 @@ function buildSymbolSummary(
   };
 }
 
-function collectDirectories(modules: ModuleManifest[]): DirectoryManifest[] {
-  const dirMap = new Map<
-    string,
-    { modules: Set<string>; subdirs: Set<string> }
-  >();
-
-  for (const mod of modules) {
-    const dir = dirname(mod.relativePath);
-    if (!dirMap.has(dir)) {
-      dirMap.set(dir, { modules: new Set(), subdirs: new Set() });
-    }
-    dirMap.get(dir)?.modules.add(mod.relativePath);
-
-    let parent = dirname(dir);
-    let child = dir;
-    while (parent !== child) {
-      if (!dirMap.has(parent)) {
-        dirMap.set(parent, { modules: new Set(), subdirs: new Set() });
-      }
-      dirMap.get(parent)?.subdirs.add(child);
-      child = parent;
-      parent = dirname(parent);
-    }
-  }
-
-  return [...dirMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([path, data]) => ({
-      path,
-      modules: [...data.modules].sort(),
-      subdirectories: [...data.subdirs].sort(),
-    }));
-}
 
 // ---------------------------------------------------------------------------
 // Text renderer (identical notation to map.ts)
@@ -221,28 +155,6 @@ function singleLine(s: string): string {
   return s.replace(/\s*\n\s*/g, " ").trim();
 }
 
-function truncateParams(sig: string, maxParamLen = 60): string {
-  const open = sig.indexOf("(");
-  if (open === -1) return sig;
-
-  let depth = 0;
-  let close = -1;
-  for (let i = open; i < sig.length; i++) {
-    if (sig[i] === "(") depth++;
-    else if (sig[i] === ")") {
-      depth--;
-      if (depth === 0) {
-        close = i;
-        break;
-      }
-    }
-  }
-  const params =
-    close !== -1 ? sig.slice(open + 1, close) : sig.slice(open + 1);
-  if (params.length <= maxParamLen) return sig;
-  if (close !== -1) return `${sig.slice(0, open)}(…)${sig.slice(close + 1)}`;
-  return `${sig.slice(0, open)}(…)`;
-}
 
 function compactBody(body: string): string {
   if (!body) return "";
@@ -380,49 +292,6 @@ function renderText(manifest: PackageManifest): string {
   return lines.join("\n");
 }
 
-function findCycles(graph: Record<string, string[]>): string[][] {
-  const WHITE = 0;
-  const GRAY = 1;
-  const BLACK = 2;
-  const color = new Map<string, 0 | 1 | 2>();
-  const allNodes = new Set([
-    ...Object.keys(graph),
-    ...Object.values(graph).flat(),
-  ]);
-  for (const n of allNodes) color.set(n, WHITE);
-
-  const cycles: string[][] = [];
-  const seen = new Set<string>();
-
-  function dfs(node: string, path: string[]): void {
-    color.set(node, GRAY);
-    path.push(node);
-    for (const nb of graph[node] ?? []) {
-      if (color.get(nb) === GRAY) {
-        const start = path.indexOf(nb);
-        const cycle = path.slice(start);
-        const minIdx = cycle.indexOf([...cycle].sort()[0] ?? "");
-        const canonical = [
-          ...cycle.slice(minIdx),
-          ...cycle.slice(0, minIdx),
-        ].join("→");
-        if (!seen.has(canonical)) {
-          seen.add(canonical);
-          cycles.push(cycle);
-        }
-      } else if (color.get(nb) === WHITE) {
-        dfs(nb, path);
-      }
-    }
-    path.pop();
-    color.set(node, BLACK);
-  }
-
-  for (const node of allNodes) {
-    if (color.get(node) === WHITE) dfs(node, []);
-  }
-  return cycles;
-}
 
 function renderDepsText(manifest: PackageManifest): string {
   const lines: string[] = [];

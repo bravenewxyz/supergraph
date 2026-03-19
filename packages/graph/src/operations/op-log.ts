@@ -20,8 +20,12 @@ export class OperationLog {
   private filePath: string | null;
   private pendingWrites: OperationEntry[] = [];
 
-  constructor(filePath?: string) {
+  // Auto-compaction threshold (0 = disabled)
+  private maxEntries: number;
+
+  constructor(filePath?: string, opts?: { maxEntries?: number }) {
     this.filePath = filePath ?? null;
+    this.maxEntries = opts?.maxEntries ?? 0;
   }
 
   // --- Core ---
@@ -52,6 +56,13 @@ export class OperationLog {
     this.entries.push(entry);
     this.indexEntry(entry);
     this.pendingWrites.push(entry);
+
+    // Auto-compact when maxEntries threshold is exceeded.
+    // Keep the most recent half of entries to avoid compacting on every append.
+    if (this.maxEntries > 0 && this.entries.length > this.maxEntries) {
+      const cutoff = this.entries[Math.floor(this.entries.length / 2)].lamport;
+      this.compact(cutoff);
+    }
 
     return entry;
   }
@@ -159,6 +170,26 @@ export class OperationLog {
   }
 
   // --- Compaction ---
+
+  /**
+   * Remove entries older than the given Lamport clock value.
+   * Rebuilds all indexes from the remaining entries.
+   * Returns the number of entries removed.
+   */
+  compact(keepAfterLamport: number): number {
+    const before = this.entries.length;
+    this.entries = this.entries.filter((e) => e.lamport > keepAfterLamport);
+
+    // Rebuild indexes from remaining entries
+    this.byAgent = new Map();
+    this.bySymbol = new Map();
+    this.byBatch = new Map();
+    for (const entry of this.entries) {
+      this.indexEntry(entry);
+    }
+
+    return before - this.entries.length;
+  }
 
   /**
    * Write a snapshot of the current graph state alongside the log.

@@ -87,7 +87,7 @@ export function findNamedType(
   return result;
 }
 
-export function resolveExpressionType(
+function resolveExpressionType(
   checker: ts.TypeChecker,
   sourceFile: ts.SourceFile,
   position: number,

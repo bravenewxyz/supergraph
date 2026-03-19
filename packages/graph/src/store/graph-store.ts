@@ -209,9 +209,10 @@ export class GraphStore {
         const existing = this.getSymbol(op.symbolId);
         if (!existing) return { applied: false, operationType: op.type, symbolId: op.symbolId, reason: "symbol not found" };
         const oldQn = existing.qualifiedName;
-        const parts = existing.qualifiedName.split(".");
-        parts[parts.length - 1] = op.newName;
-        const newQn = parts.join(".");
+        const dotIdx = existing.qualifiedName.lastIndexOf(".");
+        const newQn = dotIdx === -1
+          ? op.newName
+          : existing.qualifiedName.slice(0, dotIdx + 1) + op.newName;
         const node = { ...existing, name: op.newName, qualifiedName: newQn, updatedAt: Date.now(), version: existing.version + 1 };
         this.graph.replaceNodeAttributes(op.symbolId, node);
         this.registry.updateQualifiedName(oldQn, newQn, node.id);

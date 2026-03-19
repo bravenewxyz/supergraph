@@ -123,7 +123,12 @@ const DEFAULT_MAX_PATHS = 64;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_LOOP_UNROLL = 8;
 
-// ── Z3 context (lazy, singleton) ─────────────────────────────────────────
+// ── Z3 context (lazy, per-proof) ─────────────────────────────────────────
+//
+// WARNING: This module is NOT safe for concurrent use. Do not call
+// proveInvariant() or proveInvariants() from Promise.all or concurrent
+// async contexts. Z3 is not thread-safe and the module-level context
+// would be shared/corrupted.
 
 let z3Ctx: Z3Context | null = null;
 
@@ -135,6 +140,7 @@ async function getZ3(): Promise<Z3Context> {
   return z3Ctx;
 }
 
+/** Reset the cached Z3 context so the next proof starts with fresh solver state. */
 function resetZ3Context(): void {
   z3Ctx = null;
 }
@@ -1467,20 +1473,25 @@ export async function proveInvariant(
   const status: SymbolicProofResult["status"] =
     failed > 0 ? "counterexample" : proven === returnedPaths.length ? "proven" : "unknown";
 
-  if (status === "unknown" || failed > 0) {
-    resetZ3Context(); // Ensure fresh context for next proof attempt
-  }
-
   return { invariantName: invariant.name, status, counterexample: firstCx, pathsExplored: returnedPaths.length, pathsProven: proven, pathsFailed: failed };
 }
 
+/**
+ * Prove multiple invariants sequentially. Resets the Z3 context after each
+ * proof to prevent solver state accumulation across proofs.
+ *
+ * WARNING: Not safe for concurrent calls — Z3 is not thread-safe.
+ */
 export async function proveInvariants(
   func: DiscoveredFunction,
   invariants: Invariant[],
   options?: ProveOptions,
 ): Promise<SymbolicProofResult[]> {
   const results: SymbolicProofResult[] = [];
-  for (const inv of invariants) results.push(await proveInvariant(func, inv, options));
+  for (const inv of invariants) {
+    results.push(await proveInvariant(func, inv, options));
+    resetZ3Context(); // Fresh context for next proof — prevents state accumulation
+  }
   return results;
 }
 

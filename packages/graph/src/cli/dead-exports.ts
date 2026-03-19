@@ -19,7 +19,7 @@
 
 import { readFile } from "node:fs/promises";
 import { join, relative, resolve, basename, dirname } from "node:path";
-import { collectTsFiles } from "./utils.js";
+import { collectTsFiles, collectExports, strip, escapeRegex } from "./utils.js";
 import { runMap } from "./map.js";
 import type { PackageManifest } from "./map.js";
 
@@ -72,10 +72,6 @@ function isStandaloneScript(content: string): boolean {
   return false;
 }
 
-function strip(p: string): string {
-  return p.replace(/^src\//, "");
-}
-
 /**
  * Load module paths referenced by package.json exports, bin, and main fields.
  * These are package boundary entry points that should not be flagged as orphans.
@@ -112,18 +108,6 @@ async function loadPackageBoundaryModules(srcRoot: string): Promise<Set<string>>
   return result;
 }
 
-/** Collect all exported symbol names from a module (recurse into children). */
-function collectExports(symbols: SymbolSummary[]): string[] {
-  const names: string[] = [];
-  for (const sym of symbols) {
-    if (sym.exported && sym.name && sym.name !== "(anonymous)") {
-      // Skip import/re-export stubs (kind === "import")
-      if (sym.kind !== "import") names.push(sym.name);
-    }
-    if (sym.children) names.push(...collectExports(sym.children));
-  }
-  return names;
-}
 
 interface DeadResult {
   orphanModules: Array<{ module: string; exports: string[] }>;
@@ -244,13 +228,13 @@ async function analyzeDeadExports(
       if (sym.name.length <= 2) continue;
       // Word-boundary check: is the name used in any importing file?
       const symbolName = sym.name;
-      const re = new RegExp(`\\b${escapeRegExp(symbolName)}\\b`);
+      const re = new RegExp(`\\b${escapeRegex(symbolName)}\\b`);
       let found = re.test(importerContent);
 
       // Check for namespace imports: import * as NS from './module'
       // where the symbol is accessed as NS.symbolName
       if (!found) {
-        const nsPattern = new RegExp(`\\w+\\.${escapeRegExp(symbolName)}\\b`);
+        const nsPattern = new RegExp(`\\w+\\.${escapeRegex(symbolName)}\\b`);
         if (nsPattern.test(importerContent)) found = true;
       }
 
@@ -268,10 +252,6 @@ async function analyzeDeadExports(
   const totalDead = orphanExportCount + unusedSymbols.length;
 
   return { orphanModules, unusedSymbols, totalExports, totalDead };
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ---------------------------------------------------------------------------

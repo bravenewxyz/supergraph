@@ -3,6 +3,7 @@ import type { SgNode } from "@ast-grep/napi";
 import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { collectSourceFiles } from "../extractor/typescript.js";
+import { findEnclosingFunction } from "./ast-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,30 +161,6 @@ const SANITIZER_PATTERNS: string[] = [
 // AST helpers
 // ---------------------------------------------------------------------------
 
-function findEnclosingFunction(node: SgNode): string | null {
-  let current = node.parent();
-  while (current) {
-    const kind = current.kind();
-    if (kind === "function_declaration" || kind === "method_definition") {
-      const nameNode = current.field("name");
-      if (nameNode) return nameNode.text();
-    }
-    if (kind === "arrow_function" || kind === "function_expression" || kind === "function") {
-      const parent = current.parent();
-      if (parent?.kind() === "variable_declarator") {
-        const nameNode = parent.field("name");
-        if (nameNode) return nameNode.text();
-      }
-      if (parent?.kind() === "pair" || parent?.kind() === "property_assignment") {
-        const key = parent.field("key");
-        if (key) return key.text();
-      }
-    }
-    current = current.parent();
-  }
-  return null;
-}
-
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return s.slice(0, max - 3) + "...";
@@ -265,8 +242,12 @@ function isCommandInjectionRisk(sinkNode: SgNode): boolean {
     if (text.includes("+")) return true;
   }
 
-  // If the argument is an identifier, it could be tainted
-  if (cmdArg.kind() === "identifier") return true;
+  // If the argument is an identifier, it could be tainted — but skip
+  // ALL_CAPS names which are conventionally constants (e.g. CMD_PATH)
+  if (cmdArg.kind() === "identifier") {
+    const name = cmdArg.text();
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(name)) return true;
+  }
 
   return false;
 }
@@ -405,6 +386,17 @@ function computeFlows(
   const sinksByScope = groupBy(sinks, (s) => `${s.filePath}::${s.functionContext}`);
   const sanitizersByScope = groupBy(sanitizers, (s) => `${s.variable}::scope`);
 
+  // Pre-index: map each sink to its AST nodes (single pass per unique pattern
+  // instead of re-searching the entire AST for every sink in every scope)
+  const sinkNodeIndex = new Map<TaintSink, SgNode[]>();
+  for (const scopeSinks of sinksByScope.values()) {
+    for (const sink of scopeSinks) {
+      const pattern = sink.raw.endsWith("...") ? sink.raw.slice(0, -3) : sink.raw;
+      const nodes = root.findAll({ rule: { pattern } });
+      sinkNodeIndex.set(sink, nodes);
+    }
+  }
+
   for (const [scope, scopeSources] of sourcesByScope) {
     const scopeSinks = sinksByScope.get(scope);
     if (!scopeSinks) continue;
@@ -426,10 +418,8 @@ function computeFlows(
     }
 
     for (const sink of scopeSinks) {
-      // Find the sink node in the AST to extract referenced variables
-      const sinkNodes = root.findAll({
-        rule: { pattern: sink.raw.endsWith("...") ? sink.raw.slice(0, -3) : sink.raw },
-      });
+      // Look up pre-computed sink nodes instead of re-searching the AST
+      const sinkNodes = sinkNodeIndex.get(sink) ?? [];
 
       // Collect variables referenced in the sink
       let referencedVars: string[] = [];
@@ -501,10 +491,12 @@ function findSanitizerBetween(
 ): TaintSanitizer | null {
   const taintedSet = new Set(taintedVars);
 
-  for (const san of sanitizers) {
-    // Sanitizer must be in same file
-    if (source.filePath !== sink.filePath) continue;
+  // NOTE: This is intraprocedural — source and sink are always in the same
+  // file/scope because computeFlows() groups by `${filePath}::${functionContext}`
+  // and runTaintAnalysis() partitions per file. Cross-file taint tracking is
+  // not yet supported (known limitation).
 
+  for (const san of sanitizers) {
     // Sanitizer line must be between source and sink
     if (san.line > source.line && san.line < sink.line) {
       // Check if the sanitizer operates on a tainted variable

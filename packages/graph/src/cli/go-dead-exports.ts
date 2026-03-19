@@ -1,26 +1,7 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { runGoMap } from "./go-map.js";
-
-const SKIP_DIRS = new Set(["vendor", "testdata", "node_modules", ".git"]);
-
-async function collectGoFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const e of entries) {
-    const full = join(dir, e.name);
-    if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) results.push(...(await collectGoFiles(full)));
-    } else if (e.name.endsWith(".go") && !e.name.endsWith("_test.go"))
-      results.push(full);
-  }
-  return results.sort();
-}
+import { collectGoFiles, collectExports, escapeRegex } from "./utils.js";
 
 interface SymbolSummary {
   name: string;
@@ -42,16 +23,6 @@ function isEntryPoint(modulePath: string): boolean {
   return ENTRY_POINTS.has(base);
 }
 
-function collectExports(symbols: SymbolSummary[]): string[] {
-  const names: string[] = [];
-  for (const sym of symbols) {
-    if (sym.exported && sym.name && sym.name !== "(anonymous)") {
-      if (sym.kind !== "import") names.push(sym.name);
-    }
-    if (sym.children) names.push(...collectExports(sym.children));
-  }
-  return names;
-}
 
 interface DeadResult {
   orphanModules: Array<{ module: string; exports: string[] }>;
@@ -122,7 +93,7 @@ async function analyzeDeadExports(
     for (const sym of mod.symbols) {
       if (!sym.exported || !sym.name) continue;
       if (sym.name === "(anonymous)") continue;
-      const re = new RegExp(`\\b${escapeRegExp(sym.name)}\\b`);
+      const re = new RegExp(`\\b${escapeRegex(sym.name)}\\b`);
       if (!re.test(importerContent)) {
         unusedSymbols.push({
           module: mod.path,
@@ -144,10 +115,6 @@ async function analyzeDeadExports(
   const totalDead = orphanExportCount + unusedSymbols.length;
 
   return { orphanModules, unusedSymbols, totalExports, totalDead };
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function renderText(pkg: string, result: DeadResult): string {

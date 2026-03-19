@@ -43,6 +43,9 @@ export class ZodExtractor extends BaseSchemaExtractor {
       if (
         text.startsWith("z.array(") ||
         text.startsWith("z.union(") ||
+        text.startsWith("z.discriminatedUnion(") ||
+        text.startsWith("z.intersection(") ||
+        text.startsWith("z.lazy(") ||
         text.startsWith("z.enum(") ||
         text.startsWith("z.record(") ||
         text.startsWith("z.tuple(") ||
@@ -176,6 +179,63 @@ export class ZodExtractor extends BaseSchemaExtractor {
           return { type: { kind: "union", members }, optional: false };
         }
       }
+    }
+
+    if (text.startsWith("z.discriminatedUnion(")) {
+      const args = node.field("arguments");
+      if (args) {
+        const argNodes = this.meaningfulChildren(args);
+        // First arg is discriminator key (string), second is array of schemas
+        if (argNodes.length >= 2) {
+          const arr =
+            argNodes[1]!.kind() === "array"
+              ? argNodes[1]!
+              : this.findFirstChild(argNodes[1]!, "array");
+          if (arr) {
+            const members = this.meaningfulChildren(arr).map(
+              (c) => this.resolveZodType(c).type,
+            );
+            return { type: { kind: "union", members }, optional: false };
+          }
+        }
+      }
+    }
+
+    if (text.startsWith("z.intersection(")) {
+      const args = node.field("arguments");
+      if (args) {
+        const argNodes = this.meaningfulChildren(args);
+        if (argNodes.length >= 2) {
+          return {
+            type: {
+              kind: "intersection",
+              members: [
+                this.resolveZodType(argNodes[0]!).type,
+                this.resolveZodType(argNodes[1]!).type,
+              ],
+            },
+            optional: false,
+          };
+        }
+      }
+    }
+
+    if (text.startsWith("z.lazy(")) {
+      const args = node.field("arguments");
+      if (args) {
+        const thunk = this.firstMeaningfulChild(args);
+        if (thunk) {
+          // Try to extract schema name from () => SomeSchema
+          const body = thunk.field("body");
+          if (body && body.kind() === "identifier") {
+            return {
+              type: { kind: "ref", name: body.text() },
+              optional: false,
+            };
+          }
+        }
+      }
+      return { type: { kind: "opaque", raw: "z.lazy(...)" }, optional: false };
     }
 
     if (text.startsWith("z.enum(")) {

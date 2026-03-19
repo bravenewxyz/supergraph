@@ -90,19 +90,17 @@ function classifySymbol(sym: RawSymbol, source: string, bodyText: string): Tier 
 }
 
 // ---------------------------------------------------------------------------
-// Source reading (shared cache)
+// Source reading
 // ---------------------------------------------------------------------------
 
-const sourceCache = new Map<string, string>();
-
-async function readSourceFile(root: string, srcRoot: string, modulePath: string): Promise<string> {
+async function readSourceFile(root: string, srcRoot: string, modulePath: string, cache: Map<string, string>): Promise<string> {
   const pkgRoot = dirname(srcRoot);
   for (const ext of [".ts", ".tsx", ".js", ".jsx"]) {
     const fullPath = resolve(root, pkgRoot, modulePath + ext);
-    if (sourceCache.has(fullPath)) return sourceCache.get(fullPath)!;
+    if (cache.has(fullPath)) return cache.get(fullPath)!;
     const content = await readFile(fullPath);
     if (content) {
-      sourceCache.set(fullPath, content);
+      cache.set(fullPath, content);
       return content;
     }
   }
@@ -211,6 +209,7 @@ async function buildNormagraph(auditDir: string, root: string): Promise<NormaGra
   const nodes: NormaNode[] = [];
   const pathToIdx: Record<string, number> = {};
   let totalSymbols = 0;
+  const sourceCache = new Map<string, string>();
 
   for (const { short, map } of pkgMaps) {
     for (const mod of map.modules ?? []) {
@@ -218,7 +217,7 @@ async function buildNormagraph(auditDir: string, root: string): Promise<NormaGra
       if (pathToIdx[prefixed] !== undefined) continue;
       const idx = nodes.length;
       pathToIdx[prefixed] = idx;
-      const source = await readSourceFile(root, map.srcRoot, mod.path);
+      const source = await readSourceFile(root, map.srcRoot, mod.path, sourceCache);
       totalSymbols += mod.stats?.totalSymbols ?? 0;
       nodes.push({
         idx, path: prefixed, pkg: short, pkgName: map.package,

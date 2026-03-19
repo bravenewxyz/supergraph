@@ -1,6 +1,58 @@
 // ── 2. Guard consistency scan ───────────────────────────────────────
 
 import type { GuardInconsistency, PushSite, OpSite, AssignSite } from "./types.js";
+import { escapeRegex } from "../util.js";
+
+/**
+ * Count net brace-depth change for a single line, skipping braces inside
+ * string literals, template literals, line comments, and block comments.
+ */
+function netBraceChange(line: string): number {
+  let depth = 0;
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i]!;
+    // Skip single- and double-quoted string literals
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i++;
+      while (i < line.length && line[i] !== quote) {
+        if (line[i] === "\\") i++;
+        i++;
+      }
+      i++; // skip closing quote
+      continue;
+    }
+    // Skip template literals (backtick strings)
+    if (ch === "`") {
+      i++;
+      while (i < line.length && line[i] !== "`") {
+        if (line[i] === "\\") i++;
+        i++;
+      }
+      i++; // skip closing backtick
+      continue;
+    }
+    // Skip line comments
+    if (ch === "/" && i + 1 < line.length && line[i + 1] === "/") {
+      break; // rest of line is a comment
+    }
+    // Skip block comments
+    if (ch === "/" && i + 1 < line.length && line[i + 1] === "*") {
+      i += 2;
+      while (i + 1 < line.length && !(line[i] === "*" && line[i + 1] === "/")) {
+        i++;
+      }
+      i += 2; // skip closing */
+      continue;
+    }
+    // Count braces
+    if (ch === "{") depth++;
+    if (ch === "}") depth--;
+    i++;
+  }
+  return depth;
+}
 
 export function scanGuardConsistency(
   source: string,
@@ -53,20 +105,19 @@ export function scanGuardConsistency(
     }
 
     // Process braces AFTER checking for else (else comes after closing brace)
-    for (const ch of line) {
-      if (ch === "{") braceDepth++;
-      if (ch === "}") {
-        braceDepth--;
-        if (inLoop && braceDepth <= loopDepth) {
-          analyzePushSites(pushSites, loopVar, filePath, loopStart, results, lines);
-          inLoop = false;
-          pushSites.length = 0;
-        }
-        if (ifDepth > 0 && braceDepth < ifDepth) {
-          currentIfGuard = null;
-          ifDepth = 0;
-          inElseBranch = false;
-        }
+    const prevDepth = braceDepth;
+    braceDepth += netBraceChange(line);
+    // Check if any closing braces ended a tracked scope
+    if (braceDepth < prevDepth) {
+      if (inLoop && braceDepth <= loopDepth) {
+        analyzePushSites(pushSites, loopVar, filePath, loopStart, results, lines);
+        inLoop = false;
+        pushSites.length = 0;
+      }
+      if (ifDepth > 0 && braceDepth < ifDepth) {
+        currentIfGuard = null;
+        ifDepth = 0;
+        inElseBranch = false;
       }
     }
 
@@ -222,17 +273,12 @@ export function analyzePushSites(
   }
 }
 
-/** Escape a string for use in a RegExp constructor. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Check if a Map variable is pre-populated (via .set() or .has()+.set()) between
  * scopeStart and getLine. If so, a subsequent .get() on the same Map is safe.
  */
 function isMapPrePopulated(lines: string[], mapVar: string, getLine: number, scopeStart: number): boolean {
-  const setPattern = new RegExp(`${escapeRegExp(mapVar)}\\.(set|has)\\s*\\(`);
+  const setPattern = new RegExp(`${escapeRegex(mapVar)}\\.(set|has)\\s*\\(`);
   for (let i = scopeStart; i < getLine && i < lines.length; i++) {
     if (setPattern.test(lines[i]!)) return true;
   }
@@ -344,19 +390,17 @@ export function scanForEachMapGuards(
       currentIfGuard = null;
     }
 
-    for (const ch of line) {
-      if (ch === "{") braceDepth++;
-      if (ch === "}") {
-        braceDepth--;
-        if (inCallback && braceDepth <= callbackDepth) {
-          analyzeOpSites(opSites, callbackVar, filePath, callbackStart, results, lines);
-          inCallback = false;
-          opSites = [];
-        }
-        if (ifDepth > 0 && braceDepth < ifDepth) {
-          currentIfGuard = null;
-          ifDepth = 0;
-        }
+    const prevDepth = braceDepth;
+    braceDepth += netBraceChange(line);
+    if (braceDepth < prevDepth) {
+      if (inCallback && braceDepth <= callbackDepth) {
+        analyzeOpSites(opSites, callbackVar, filePath, callbackStart, results, lines);
+        inCallback = false;
+        opSites = [];
+      }
+      if (ifDepth > 0 && braceDepth < ifDepth) {
+        currentIfGuard = null;
+        ifDepth = 0;
       }
     }
 
@@ -505,32 +549,30 @@ export function scanSwitchMissingCases(
       hasDefault = false;
     }
 
-    for (const ch of line) {
-      if (ch === "{") braceDepth++;
-      if (ch === "}") {
-        braceDepth--;
-        if (inSwitch && braceDepth <= switchDepth) {
-          // Switch ended — if we have cases but no default and few cases, flag it
-          if (cases.length >= 2 && !hasDefault) {
-            results.push({
-              filePath,
+    const prevDepth = braceDepth;
+    braceDepth += netBraceChange(line);
+    if (braceDepth < prevDepth) {
+      if (inSwitch && braceDepth <= switchDepth) {
+        // Switch ended — if we have cases but no default and few cases, flag it
+        if (cases.length >= 2 && !hasDefault) {
+          results.push({
+            filePath,
+            line: switchLine + 1,
+            loopVariable: switchVar,
+            guardedPush: {
+              collection: `case "${cases[0]}"`,
+              guard: `switch(${switchVar})`,
               line: switchLine + 1,
-              loopVariable: switchVar,
-              guardedPush: {
-                collection: `case "${cases[0]}"`,
-                guard: `switch(${switchVar})`,
-                line: switchLine + 1,
-              },
-              unguardedPush: {
-                collection: "default",
-                line: switchLine + 1,
-              },
-              message: `switch(${switchVar}) at line ${switchLine + 1} handles ${cases.length} cases [${cases.join(", ")}] but has no default. Possible missing case.`,
-              confidence: "low",
-            });
-          }
-          inSwitch = false;
+            },
+            unguardedPush: {
+              collection: "default",
+              line: switchLine + 1,
+            },
+            message: `switch(${switchVar}) at line ${switchLine + 1} handles ${cases.length} cases [${cases.join(", ")}] but has no default. Possible missing case.`,
+            confidence: "low",
+          });
         }
+        inSwitch = false;
       }
     }
 
@@ -572,14 +614,12 @@ export function scanConditionalAssignments(
       guardBraceDepth = braceDepth;
     }
 
-    for (const ch of line) {
-      if (ch === "{") braceDepth++;
-      if (ch === "}") {
-        braceDepth--;
-        if (inIfBlock && braceDepth <= guardBraceDepth) {
-          currentGuard = null;
-          inIfBlock = false;
-        }
+    const prevDepth = braceDepth;
+    braceDepth += netBraceChange(line);
+    if (braceDepth < prevDepth) {
+      if (inIfBlock && braceDepth <= guardBraceDepth) {
+        currentGuard = null;
+        inIfBlock = false;
       }
     }
 

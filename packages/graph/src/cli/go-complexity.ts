@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 
-import { readFile, readdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import goLang from "@ast-grep/lang-go";
 import { parse, registerDynamicLanguage } from "@ast-grep/napi";
 import type { SgNode } from "@ast-grep/napi";
 import type { ComplexityOptions } from "./lang/types.js";
+import { collectGoFiles } from "./utils.js";
 
 let goRegistered = false;
 function ensureGo(): void {
@@ -13,26 +14,6 @@ function ensureGo(): void {
     registerDynamicLanguage({ go: goLang });
     goRegistered = true;
   }
-}
-
-const SKIP_DIRS = new Set(["vendor", "testdata", "node_modules", ".git"]);
-
-async function collectGoFiles(dir: string): Promise<string[]> {
-  const results: string[] = [];
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const e of entries) {
-    const full = join(dir, e.name);
-    if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) results.push(...(await collectGoFiles(full)));
-    } else if (e.name.endsWith(".go") && !e.name.endsWith("_test.go"))
-      results.push(full);
-  }
-  return results.sort();
 }
 
 const BRANCH_KINDS = new Set([

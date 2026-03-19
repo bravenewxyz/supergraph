@@ -285,14 +285,29 @@ export async function crossRepScan(
   const matched = new Set<string>(); // schema names already matched
   const mismatches: CrossRepMismatch[] = [];
 
-  // ── Strategy 1: z.infer ground truth (highest confidence) ───────
-  // Find `type X = z.infer<typeof someSchema>` declarations. These are
-  // explicit pairings — the TypeScript checker can resolve X's shape
-  // which we compare against the schema's shape.
+  // ── Strategies 1-3: Single-pass AST scan ────────────────────────
+  // All three strategies are checked in one pass over source files.
+  // Strategy 1 (z.infer) has highest priority, so its matches prevent
+  // strategies 2/3 from re-matching the same schema via the `matched` set.
+  //
+  // Strategy 3 (Hono middleware) needs a two-phase approach per file:
+  // Phase A collects schemas used in middleware calls (zValidator, validateJson, etc.)
+  // Phase B matches c.req.valid() calls against those schemas.
+  // Both phases are handled within the single visitor — Phase A populates
+  // a per-file map, and Phase B consumes it during the same walk.
   for (const sourceFile of program.getSourceFiles()) {
     if (sourceFile.isDeclarationFile) continue;
 
+    // Per-file state for Strategy 3 (Hono middleware)
+    const honoSchemas = new Map<string, string>(); // schemaName -> middleware kind
+
+    // Phase A+B combined: a single visitor checks all three strategies
+    // on each node. Strategy 3's valid() calls may reference middleware
+    // found earlier in the same file walk (since middleware declarations
+    // typically precede route handlers in the AST).
     ts.forEachChild(sourceFile, function visit(node) {
+      // ── Strategy 1: z.infer ground truth (highest confidence) ───
+      // Find `type X = z.infer<typeof someSchema>` declarations.
       if (ts.isTypeAliasDeclaration(node)) {
         const typeText = node.type.getText(sourceFile);
         const inferMatch = typeText.match(
@@ -317,21 +332,9 @@ export async function crossRepScan(
           }
         }
       }
-      ts.forEachChild(node, visit);
-    });
-  }
 
-  // ── Strategy 2: .parse() / .safeParse() dataflow (high confidence) ──
-  // Find where the .parse() result FLOWS TO — what typed parameter or
-  // typed variable it ends up in. Comparing schema vs its own return type
-  // is circular; comparing schema vs the DESTINATION type catches real drift.
-  //
-  // Pattern: const body = schema.parse(x); fn(body) → compare schema vs fn's param type
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.isDeclarationFile) continue;
-
-    ts.forEachChild(sourceFile, function visit(node) {
-      // Look for: const VAR = SCHEMA.parse(DATA) or SCHEMA.safeParse(DATA)
+      // ── Strategy 2: .parse() / .safeParse() dataflow (high confidence) ──
+      // Find: const VAR = SCHEMA.parse(DATA) or SCHEMA.safeParse(DATA)
       if (
         ts.isVariableDeclaration(node) &&
         ts.isIdentifier(node.name) &&
@@ -340,71 +343,38 @@ export async function crossRepScan(
         ts.isPropertyAccessExpression(node.initializer.expression)
       ) {
         const methodName = node.initializer.expression.name.text;
-        if (methodName !== "parse" && methodName !== "safeParse") {
-          ts.forEachChild(node, visit);
-          return;
-        }
-
-        const schemaExpr = node.initializer.expression.expression;
-        const schemaName = ts.isIdentifier(schemaExpr) ? schemaExpr.text : null;
-        if (!schemaName || !byName.has(schemaName) || matched.has(schemaName)) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-
-        const schema = byName.get(schemaName)!;
-        if (schema.shape.kind !== "object") {
-          ts.forEachChild(node, visit);
-          return;
-        }
-
-        // Get the symbol for the result variable (e.g., `body`)
-        const varSymbol = checker.getSymbolAtLocation(node.name);
-        if (!varSymbol) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-
-        // Walk the containing block/function to find where this variable
-        // is passed as an argument to a typed function.
-        const container = findContainingBlock(node);
-        if (!container) {
-          ts.forEachChild(node, visit);
-          return;
-        }
-
-        const destType = findDestinationType(checker, varSymbol, container, node.name.text);
-        if (destType && isUsableType(checker, destType)) {
-          const typeShape = extractTypeShape(checker, destType);
-          if (typeShape.length > 0) {
-            const typeName = checker.typeToString(destType);
-            // Skip anonymous inline types — they're just the schema's own output
-            // repeated by the checker. Only compare against named types.
-            if (!typeName.startsWith("{")) {
-              matched.add(schemaName);
-              collectMismatches(schema, schemaName, typeName, typeShape, mismatches, "dataflow");
+        if (methodName === "parse" || methodName === "safeParse") {
+          const schemaExpr = node.initializer.expression.expression;
+          const schemaName = ts.isIdentifier(schemaExpr) ? schemaExpr.text : null;
+          if (schemaName && byName.has(schemaName) && !matched.has(schemaName)) {
+            const schema = byName.get(schemaName)!;
+            if (schema.shape.kind === "object") {
+              const varSymbol = checker.getSymbolAtLocation(node.name);
+              if (varSymbol) {
+                const container = findContainingBlock(node);
+                if (container) {
+                  const destType = findDestinationType(checker, varSymbol, container, node.name.text);
+                  if (destType && isUsableType(checker, destType)) {
+                    const typeShape = extractTypeShape(checker, destType);
+                    if (typeShape.length > 0) {
+                      const typeName = checker.typeToString(destType);
+                      // Skip anonymous inline types — they're just the schema's own output
+                      // repeated by the checker. Only compare against named types.
+                      if (!typeName.startsWith("{")) {
+                        matched.add(schemaName);
+                        collectMismatches(schema, schemaName, typeName, typeShape, mismatches, "dataflow");
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
       }
-      ts.forEachChild(node, visit);
-    });
-  }
 
-  // ── Strategy 3: Hono middleware inference (medium confidence) ─────
-  // Patterns: zValidator("json", schema), validateJson(schema), validateQuery(schema)
-  // For these, the schema shape IS the validated type (Hono infers
-  // z.infer<typeof schema> internally). The useful check is whether the
-  // route handler accesses fields that are not in the schema. We scan for
-  // `c.req.valid("json")` usage and check property accesses against the
-  // schema shape.
-  for (const sourceFile of program.getSourceFiles()) {
-    if (sourceFile.isDeclarationFile) continue;
-
-    // First, find all schemas used in Hono validation middleware calls
-    const honoSchemas = new Map<string, string>(); // schemaName -> middleware kind
-
-    ts.forEachChild(sourceFile, function findMiddleware(node) {
+      // ── Strategy 3 Phase A: Collect Hono middleware schemas ─────
+      // Patterns: zValidator("json", schema), validateJson(schema), etc.
       if (ts.isCallExpression(node)) {
         const fnText = node.expression.getText(sourceFile);
         let kind: string | null = null;
@@ -417,7 +387,6 @@ export async function crossRepScan(
           kind = fnText.replace("validate", "").toLowerCase();
           schemaArg = node.arguments[0]!;
         } else if (fnText === "zValidator" && node.arguments.length >= 2) {
-          // zValidator("json", schema) — first arg is the target string
           const targetArg = node.arguments[0]!;
           if (ts.isStringLiteral(targetArg)) {
             kind = targetArg.text;
@@ -432,53 +401,43 @@ export async function crossRepScan(
           }
         }
       }
-      ts.forEachChild(node, findMiddleware);
-    });
 
-    if (honoSchemas.size === 0) continue;
-
-    // Now find c.req.valid("json"|"query") calls and check their usage
-    ts.forEachChild(sourceFile, function findValidCalls(node) {
+      // ── Strategy 3 Phase B: Match c.req.valid() calls ──────────
       if (
         ts.isCallExpression(node) &&
         ts.isPropertyAccessExpression(node.expression) &&
         node.expression.name.text === "valid" &&
-        node.arguments.length >= 1
+        node.arguments.length >= 1 &&
+        honoSchemas.size > 0
       ) {
         const validTarget = node.arguments[0]!;
-        if (!ts.isStringLiteral(validTarget)) {
-          ts.forEachChild(node, findValidCalls);
-          return;
-        }
+        if (ts.isStringLiteral(validTarget)) {
+          const validKind = validTarget.text;
 
-        const validKind = validTarget.text; // "json", "query", etc.
-
-        // Find which schema corresponds to this valid() kind
-        let matchedSchemaName: string | null = null;
-        for (const [name, kind] of honoSchemas) {
-          if (kind === validKind) {
-            matchedSchemaName = name;
-            break;
+          let matchedSchemaName: string | null = null;
+          for (const [name, kind] of honoSchemas) {
+            if (kind === validKind) {
+              matchedSchemaName = name;
+              break;
+            }
           }
-        }
-        if (!matchedSchemaName) {
-          ts.forEachChild(node, findValidCalls);
-          return;
-        }
 
-        // Resolve the type that the checker infers for this call expression
-        const validType = checker.getTypeAtLocation(node);
-        if (isUsableType(checker, validType)) {
-          const typeShape = extractTypeShape(checker, validType);
-          const schema = byName.get(matchedSchemaName)!;
-          if (schema.shape.kind === "object" && typeShape.length > 0) {
-            const typeName = checker.typeToString(validType);
-            matched.add(matchedSchemaName);
-            collectMismatches(schema, matchedSchemaName, typeName, typeShape, mismatches, "hono");
+          if (matchedSchemaName) {
+            const validType = checker.getTypeAtLocation(node);
+            if (isUsableType(checker, validType)) {
+              const typeShape = extractTypeShape(checker, validType);
+              const schema = byName.get(matchedSchemaName)!;
+              if (schema.shape.kind === "object" && typeShape.length > 0) {
+                const typeName = checker.typeToString(validType);
+                matched.add(matchedSchemaName);
+                collectMismatches(schema, matchedSchemaName, typeName, typeShape, mismatches, "hono");
+              }
+            }
           }
         }
       }
-      ts.forEachChild(node, findValidCalls);
+
+      ts.forEachChild(node, visit);
     });
   }
 

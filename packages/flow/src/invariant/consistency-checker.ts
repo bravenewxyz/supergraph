@@ -1,3 +1,6 @@
+// NOTE: This module is not yet integrated into the public API.
+// It is excluded from the barrel export in index.ts.
+
 import type { ConsistencyInput, ConsistencyVerdict } from "./types.js";
 
 async function checkConsistency(

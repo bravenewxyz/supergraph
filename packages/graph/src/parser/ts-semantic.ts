@@ -1,3 +1,13 @@
+// STATUS: Dead code — not wired into any CLI command, MCP tool, or external API.
+// Only consumed by __tests__/semantic-parser.test.ts.
+// Re-exported from parser/index.ts (and thus packages/graph/src/index.ts),
+// but no file in src/commands/ or src/mcp/ imports it.
+// The implementation is complete and well-tested (type resolution, call edges,
+// extends/implements chains, enrichGraph integration with GraphStore).
+// It appears to be a finished module awaiting integration into the map pipeline
+// or a future "enrich" command, not an abandoned experiment.
+// Added 2026-03-19.
+
 import ts from "typescript";
 import type { GraphStore } from "../store/graph-store.js";
 import type { SymbolNode } from "../schema/nodes.js";
