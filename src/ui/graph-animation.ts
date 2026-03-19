@@ -43,6 +43,7 @@ type GraphNode = {
   pkg: number;
   spawnT: number;
   glowT: number;     // last glow trigger time
+  ready: boolean;
 };
 
 type GraphEdge = {
@@ -85,8 +86,9 @@ function createGraph(packageNames?: string[], realEdges?: [number, number][]) {
       vel: v3.create(0, 0, 0),
       label: PKG_NAMES[i]!,
       pkg: i,
-      spawnT: i * 0.2 + Math.random() * 0.1,
+      spawnT: Number.POSITIVE_INFINITY,
       glowT: -10,
+      ready: false,
     });
   }
 
@@ -96,7 +98,7 @@ function createGraph(packageNames?: string[], realEdges?: [number, number][]) {
       if (from < nodes.length && to < nodes.length) {
         edges.push({
           from, to,
-          spawnT: Math.max(nodes[from]!.spawnT, nodes[to]!.spawnT) + 0.3,
+          spawnT: Number.POSITIVE_INFINITY,
           cross: true,
         });
       }
@@ -107,14 +109,14 @@ function createGraph(packageNames?: string[], realEdges?: [number, number][]) {
       const next = (i + 1) % nodes.length;
       edges.push({
         from: i, to: next,
-        spawnT: Math.max(nodes[i]!.spawnT, nodes[next]!.spawnT) + 0.2,
+        spawnT: Number.POSITIVE_INFINITY,
         cross: true,
       });
       for (let j = i + 2; j < nodes.length; j++) {
         if (Math.random() < 0.15) {
           edges.push({
             from: i, to: j,
-            spawnT: Math.max(nodes[i]!.spawnT, nodes[j]!.spawnT) + 0.4,
+            spawnT: Number.POSITIVE_INFINITY,
             cross: true,
           });
         }
@@ -260,8 +262,8 @@ function renderGraph(
     const coreChar = age < 0.18 ? "*" : pulse > 0.93 ? "@" : "+";
     fb.set(p.sx, p.sy, coreChar, color, p.depth - 0.22, age < 0.5 ? 1 : 0.45);
 
-    // Labels for nodes that are close enough
-    if (p.scale > 0.1 && age > 0.6) {
+    // Node labels stay visible once the package is actually ready.
+    if (age >= 0) {
       drawLabel(fb, proj, p.node.pos, p.node.label, color);
     }
   }
@@ -275,6 +277,7 @@ function renderGraph(
 export type AnimationHandle = {
   update: (status: string) => void;
   log: (line: string) => void;
+  packageReady: (pkgName: string) => void;
   stop: () => void;
 };
 
@@ -315,6 +318,12 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         proc.stdin.flush();
       } catch {}
     },
+    packageReady(pkgName: string) {
+      try {
+        proc.stdin.write(`__READY__:${encodeURIComponent(pkgName)}\n`);
+        proc.stdin.flush();
+      } catch {}
+    },
     stop() {
       try {
         proc.stdin.write("__STOP__\n");
@@ -335,6 +344,7 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
   const pkgNames = opts?.packages;
   const { nodes, edges } = createGraph(pkgNames, opts?.edges);
   const particles = new ParticleSystem();
+  const nodeByName = new Map(nodes.map((node) => [node.label, node]));
 
   const camera = createCamera({
     position: v3.create(0, 0.5, 7),
@@ -368,14 +378,22 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
       // Physics
       updatePhysics(nodes, dt, t);
 
+      for (const e of edges) {
+        if (e.spawnT !== Number.POSITIVE_INFINITY) continue;
+        const from = nodes[e.from]!;
+        const to = nodes[e.to]!;
+        if (!from.ready || !to.ready) continue;
+        e.spawnT = t + 0.08;
+      }
+
       // Count active elements
-      activeNodes = nodes.filter(n => t >= n.spawnT).length;
-      activeEdges = edges.filter(e => t >= e.spawnT).length;
+      activeNodes = nodes.filter((n) => n.ready).length;
+      activeEdges = edges.filter((e) => e.spawnT <= t).length;
 
       // Spawn particles on newly appearing nodes
       for (const n of nodes) {
         const age = t - n.spawnT;
-        if (age >= 0 && age < dt * 2) {
+        if (n.ready && age >= 0 && age < dt * 2) {
           const color = PKG_COLORS[n.pkg % PKG_COLORS.length]!;
           particles.emit(n.pos, 6, {
             speed: 0.8,
@@ -426,15 +444,22 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
   return {
     update(status: string) {
       statusText = status;
-      // Trigger glow on random subset of nodes
-      const count = Math.min(5, Math.floor(Math.random() * 4) + 1);
+      const readyNodes = nodes.filter((node) => node.ready);
+      const count = Math.min(5, Math.floor(Math.random() * 4) + 1, readyNodes.length);
       for (let i = 0; i < count; i++) {
-        const idx = Math.floor(Math.random() * nodes.length);
-        nodes[idx]!.glowT = sceneTime;
+        const idx = Math.floor(Math.random() * readyNodes.length);
+        readyNodes[idx]!.glowT = sceneTime;
       }
     },
     log(line: string) {
       handle.log(line);
+    },
+    packageReady(pkgName: string) {
+      const node = nodeByName.get(pkgName);
+      if (!node || node.ready) return;
+      node.ready = true;
+      node.spawnT = sceneTime;
+      node.glowT = sceneTime;
     },
     stop() {
       handle.stop();
@@ -475,6 +500,8 @@ if (process.argv.includes("--subprocess")) {
       }
       if (line.startsWith("__LOG__:")) {
         anim.log(line.slice(8));
+      } else if (line.startsWith("__READY__:")) {
+        anim.packageReady(decodeURIComponent(line.slice(10)));
       } else {
         anim.update(line);
       }
@@ -509,6 +536,7 @@ else if (import.meta.main) {
   ] as const;
 
   let phase = 0;
+  let readyIdx = 0;
   const t0 = Date.now();
 
   const check = setInterval(() => {
@@ -516,6 +544,10 @@ else if (import.meta.main) {
     while (phase < phases.length && elapsed >= phases[phase]![0]) {
       anim.update(phases[phase]![1]);
       phase++;
+    }
+    while (readyIdx < DEFAULT_PKG_NAMES.length && elapsed >= 1.2 + readyIdx * 1.15) {
+      anim.packageReady(DEFAULT_PKG_NAMES[readyIdx]!);
+      readyIdx++;
     }
     if (phase >= phases.length) {
       clearInterval(check);

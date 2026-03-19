@@ -631,6 +631,8 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   }
   if (failures > 0 && !anim) console.log(`  ${C.yellow}⚠  ${failures} tool(s) failed${C.reset}`);
 
+  anim?.packageReady(t.pkgName);
+
   return failures;
 }
 
