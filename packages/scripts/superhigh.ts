@@ -56,28 +56,22 @@ import {
   resolveOutPath,
 } from "./shared.js";
 
-const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+export interface SuperhighOptions {
+  root: string;
+  full?: boolean;
+  outPath?: string;
+}
+
+export async function runSuperhigh(opts: SuperhighOptions): Promise<void> {
+
+const ROOT = opts.root;
 const AUDIT = resolve(ROOT, ".supergraph");
 const PKGS = resolve(ROOT, ".supergraph/packages");
 
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const args = process.argv.slice(2);
-if (args.includes("--help") || args.includes("-h")) {
-  console.log("Usage: bun superhigh.ts [--out <path>] [--fresh] [--full]");
-  console.log("  Full unified audit: domain blocks + packages + TS types.");
-  console.log("  --fresh  Re-run source scripts first.");
-  console.log(
-    "  --full   Full paths + auto-grouped dirs → supergraph.txt  (default)",
-  );
-  console.log(
-    "           Omit for compressed shortcut → supergraph-compact.txt",
-  );
-  process.exit(0);
-}
-
 /** --full: uncompressed paths, all symbols, full dep names */
-const FULL = args.includes("--full");
+const FULL = opts.full ?? false;
 
 const cfg = await loadConfig(ROOT);
 const shCfg = cfg.superhigh ?? {};
@@ -92,12 +86,9 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
   string,
 ][];
 
-const outPath = resolveOutPath(
-  args,
-  FULL
-    ? resolve(ROOT, ".supergraph/supergraph.txt")
-    : resolve(ROOT, ".supergraph/supergraph-compact.txt"),
-);
+const outPath = opts.outPath ?? (FULL
+  ? resolve(ROOT, ".supergraph/supergraph.txt")
+  : resolve(ROOT, ".supergraph/supergraph-compact.txt"));
 
 console.log("Building superhigh…");
 const t0 = Date.now();
@@ -1452,3 +1443,32 @@ const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
 console.log(
   `Done in ${elapsed}s  —  ${(out.length / 1024).toFixed(0)} KB / ${out.split("\n").length} lines → ${relative(ROOT, outPath)}`,
 );
+
+} // end runSuperhigh
+
+// ─── CLI entry point ─────────────────────────────────────────────────────────
+
+const isMain = import.meta.main || import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith("superhigh.ts") || process.argv[2] === "superhigh";
+
+if (isMain) {
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: bun superhigh.ts [--out <path>] [--fresh] [--full]");
+    console.log("  Full unified audit: domain blocks + packages + TS types.");
+    console.log("  --fresh  Re-run source scripts first.");
+    console.log("  --full   Full paths + auto-grouped dirs → supergraph.txt  (default)");
+    console.log("           Omit for compressed shortcut → supergraph-compact.txt");
+    process.exit(0);
+  }
+
+  const root = parseRootArg(resolve(import.meta.dir, "../.."));
+  const full = args.includes("--full");
+  const outPath = resolveOutPath(
+    args,
+    full
+      ? resolve(root, ".supergraph/supergraph.txt")
+      : resolve(root, ".supergraph/supergraph-compact.txt"),
+  );
+  await runSuperhigh({ root, full, outPath });
+}

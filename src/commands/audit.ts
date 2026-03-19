@@ -898,47 +898,24 @@ Usage:
 
   // Generate superhigh outputs (full + shortcut)
   anim?.update("generating superhigh...");
-  const spawnIO = "pipe" as const;
 
-  // Use process.execPath for compiled binary support, fall back to bun for dev
-  const superhighScript = resolve(devtoolsRoot, "packages", "scripts", "superhigh.ts");
-  const isCompiledBinary = !process.execPath.includes("bun");
-  const spawnCmd = isCompiledBinary
-    ? [process.execPath, "superhigh"]  // compiled: call self with subcommand
-    : ["bun", superhighScript];         // dev: run script directly
-
+  // Run superhigh in-process to avoid native module loading issues in compiled
+  // binaries (dprint-node / ast-grep-napi can't load from /$bunfs/root/).
+  const { runSuperhigh } = await import("../../packages/scripts/superhigh.js");
   const SPAWN_TIMEOUT = 600_000;
   const superhighT0 = Date.now();
+  const unmuteSH = muteConsole();
   const superhighResults = await Promise.allSettled([
-    withTimeout((async () => {
-      const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
-        cwd: ROOT, stdout: spawnIO, stderr: "pipe",
-      });
-      if (spawnIO === "pipe") {
-        for await (const _ of proc.stdout) { /* drain */ }
-      }
-      const code = await proc.exited;
-      if (code !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(`superhigh --full exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
-      }
-      anim?.log(`  ✓  cross  superhigh --full  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`);
-    })(), SPAWN_TIMEOUT, "superhigh --full"),
-    withTimeout((async () => {
-      const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
-        cwd: ROOT, stdout: spawnIO, stderr: "pipe",
-      });
-      if (spawnIO === "pipe") {
-        for await (const _ of proc.stdout) { /* drain */ }
-      }
-      const code = await proc.exited;
-      if (code !== 0) {
-        const stderr = await new Response(proc.stderr).text();
-        throw new Error(`superhigh shortcut exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
-      }
-      anim?.log(`  ✓  cross  superhigh compact  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`);
-    })(), SPAWN_TIMEOUT, "superhigh shortcut"),
+    withTimeout(
+      runSuperhigh({ root: ROOT, full: true }),
+      SPAWN_TIMEOUT, "superhigh --full",
+    ).then(() => { anim?.log(`  ✓  cross  superhigh --full  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`); }),
+    withTimeout(
+      runSuperhigh({ root: ROOT, full: false }),
+      SPAWN_TIMEOUT, "superhigh compact",
+    ).then(() => { anim?.log(`  ✓  cross  superhigh compact  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`); }),
   ]);
+  unmuteSH();
 
   // -----------------------------------------------------------------------
   // Tally failures (while animation still runs)
