@@ -640,6 +640,7 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
 // ---------------------------------------------------------------------------
 
 export async function runAuditPipeline(args: string[]): Promise<void> {
+  const pipelineT0 = Date.now();
   const showHelp = args.includes("--help") || args.includes("-h");
   const skipGo = args.includes("--no-go");
   const goOnly = args.includes("--go-only");
@@ -1006,51 +1007,97 @@ Usage:
   // Summary (printed after animation clears)
   // -----------------------------------------------------------------------
   const pkgsWithFailures = allResults.filter((p) => p.results.some((r) => !r.ok));
-
   const totalPkgs = tsTargets.length + goTargets.length;
+  const totalElapsed = ((Date.now() - pipelineT0) / 1000).toFixed(1);
 
+  const bar = `${C.dim}${"═".repeat(60)}${C.reset}`;
+  console.log(`\n${bar}`);
+
+  // ── Header ──
   if (totalProblems === 0) {
-    console.log(`\n${C.dim}${"═".repeat(60)}${C.reset}`);
-    console.log(`${C.green}${C.bold}All ${totalPkgs} package(s) audited successfully.${C.reset}`);
-    if (htmlExists) {
-      console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
-    }
-    console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
-    process.exit(0);
+    console.log(`${C.green}${C.bold}  ✓  All ${totalPkgs} package(s) audited successfully${C.reset}  ${C.dim}(${totalElapsed}s)${C.reset}`);
   } else {
-    console.log(`\n${C.dim}${"═".repeat(60)}${C.reset}`);
+    console.log(`${C.yellow}${C.bold}  ⚠  ${totalPkgs} package(s) audited with ${totalProblems} issue(s)${C.reset}  ${C.dim}(${totalElapsed}s)${C.reset}`);
+  }
+  console.log(bar);
 
-    if (pkgsWithFailures.length > 0) {
-      console.log(`\n${C.red}${C.bold}Tool failures:${C.reset}\n`);
-      for (const pkg of pkgsWithFailures) {
-        const failed = pkg.results.filter((r) => !r.ok);
-        console.log(`  ${C.bold}${pkg.pkgName}${C.reset} ${C.dim}(${failed.length} failed)${C.reset}`);
-        for (const r of failed) {
-          console.log(`    ${C.red}✗${C.reset}  ${r.tool.label}`);
-          if (r.error) {
-            const preview = r.error.split("\n")[0];
-            console.log(`       ${C.dim}${preview}${C.reset}`);
-          }
-        }
+  // ── Per-package results ──
+  console.log(`\n${C.bold}  Packages${C.reset}\n`);
+  for (const { pkgName, results } of allResults) {
+    const ok = results.filter((r) => r.ok).length;
+    const failed = results.filter((r) => !r.ok);
+    const totalTools = results.length;
+    const icon = failed.length === 0 ? `${C.green}✓${C.reset}` : `${C.yellow}⚠${C.reset}`;
+    // Collect sizes (non-json text outputs only)
+    const textResults = results.filter((r) => r.ok && !r.tool.json && r.size && r.size !== "? KB");
+    const sizeNote = textResults.length > 0
+      ? `  ${C.dim}${textResults.map(r => `${r.tool.label}: ${r.size}`).join(", ")}${C.reset}`
+      : "";
+    console.log(`  ${icon}  ${C.bold}${pkgName.padEnd(22)}${C.reset} ${C.dim}${ok}/${totalTools} tools${C.reset}${failed.length > 0 ? `  ${C.red}${failed.length} failed${C.reset}` : ""}`);
+    if (failed.length > 0) {
+      for (const r of failed) {
+        const preview = r.error ? `  ${C.dim}${r.error.split("\n")[0]}${C.reset}` : "";
+        console.log(`       ${C.red}✗${C.reset}  ${r.tool.label}${preview}`);
       }
     }
-
-    if (crossFailures.length > 0) {
-      console.log(`\n${C.red}${C.bold}Cross-package failures:${C.reset}\n`);
-      for (const f of crossFailures) console.error(f);
-    }
-
-    if (superhighFailures.length > 0) {
-      console.log(`\n${C.red}${C.bold}Superhigh failures:${C.reset}\n`);
-      for (const f of superhighFailures) console.error(f);
-    }
-
-    console.log(`\n${C.yellow}${totalProblems} issue(s)${C.reset} across ${totalPkgs} package(s)`);
-    if (htmlExists) {
-      console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
-    }
-    console.log(`${C.dim}${"═".repeat(60)}${C.reset}`);
-
-    process.exit(1);
   }
+
+  // ── Cross-package results ──
+  const crossLabelsAll = ["pkg-graph", "supergraph.html", "cross-lang-bridge", "symbols-full.txt", "symbols.txt", "temporal.txt"];
+  const shLabelsAll = ["supergraph.txt", "supergraph-compact.txt"];
+  const allCrossOk = crossResults.every(r => r.status === "fulfilled") && superhighResults.every(r => r.status === "fulfilled");
+
+  console.log(`\n${C.bold}  Cross-package${C.reset}\n`);
+  for (let i = 0; i < crossResults.length; i++) {
+    const r = crossResults[i]!;
+    const label = crossLabelsAll[i]!;
+    if (r.status === "fulfilled") {
+      console.log(`  ${C.green}✓${C.reset}  ${label}`);
+    } else {
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
+    }
+  }
+  for (let i = 0; i < superhighResults.length; i++) {
+    const r = superhighResults[i]!;
+    const label = shLabelsAll[i]!;
+    if (r.status === "fulfilled") {
+      console.log(`  ${C.green}✓${C.reset}  ${label}`);
+    } else {
+      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+      console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
+    }
+  }
+
+  // ── Output artifacts ──
+  console.log(`\n${C.bold}  Output${C.reset}  ${C.dim}→ .supergraph/${C.reset}\n`);
+  const artifactFiles = [
+    "supergraph.html", "supergraph.txt", "supergraph-compact.txt",
+    "symbols.txt", "symbols-full.txt", "temporal.txt",
+    "issues.txt", "pkg-graph.html",
+  ];
+  for (const f of artifactFiles) {
+    try {
+      const s = await stat(join(AUDIT_DIR, f));
+      const sizeKB = (s.size / 1024).toFixed(0);
+      const sizeMB = s.size > 1024 * 1024 ? ` (${(s.size / 1024 / 1024).toFixed(1)} MB)` : "";
+      console.log(`  ${C.dim}${sizeKB.padStart(6)} KB${C.reset}  ${f}${sizeMB}`);
+    } catch { /* file doesn't exist */ }
+  }
+  // Per-package dashboards
+  for (const t of allTargets) {
+    try {
+      const dashPath = `${t.outDir}/dashboard.html`;
+      const s = await stat(dashPath);
+      console.log(`  ${C.dim}${(s.size / 1024).toFixed(0).padStart(6)} KB${C.reset}  packages/${t.pkgName}/dashboard.html`);
+    } catch {}
+  }
+
+  console.log(`\n${bar}`);
+
+  if (htmlExists) {
+    console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
+  }
+
+  process.exit(totalProblems > 0 ? 1 : 0);
 }
