@@ -361,7 +361,6 @@ function muteConsole(): () => void {
 function waitForKeypress(): Promise<string> {
   return new Promise((resolve) => {
     if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") {
-      // Non-interactive — don't block
       resolve("\n");
       return;
     }
@@ -995,36 +994,35 @@ Usage:
   }
 
   // -----------------------------------------------------------------------
-  // Interactive wait — animation keeps running, user can press o or enter
+  // Interactive wait
   // -----------------------------------------------------------------------
   if (anim) {
-    const promptParts: string[] = [];
-    if (htmlExists) promptParts.push("press o to open supergraph.html");
-    promptParts.push("enter to exit");
-    const promptSuffix = promptParts.join(" · ");
-
     if (totalProblems === 0) {
-      anim.update(`done — ${promptSuffix}`);
+      anim.update("done — finishing up...");
     } else {
-      anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — ${promptSuffix}`);
+      anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — finishing up...`);
     }
-
-    // Pause animation render loop before reading keypress —
-    // concurrent stdout writes from the subprocess can prevent stdin from being processed
-    await new Promise((r) => setTimeout(r, 200));
-    anim.pause();
-
-    const key = await waitForKeypress();
-
-    if ((key === "o" || key === "O") && htmlExists) {
-      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
-      try {
-        Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
-      } catch {}
-      await new Promise((r) => setTimeout(r, 500));
-    }
-
+    // Let the animation render the final status for a moment, then kill the
+    // subprocess entirely.  Bun's process.stdin events don't fire while a
+    // child process with inherited stdout is alive.
+    await new Promise((r) => setTimeout(r, 400));
     anim.stop();
+    // Small delay for subprocess to fully exit and release the terminal
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Now print a compact post-animation prompt and wait for keypress
+    if (htmlExists) {
+      console.log(`\n  ${C.accent}supergraph${C.reset} ${C.dim}·${C.reset} done${totalProblems > 0 ? ` (${totalProblems} issue${totalProblems > 1 ? "s" : ""})` : ""}`);
+      console.log(`\n  ${C.dim}press${C.reset} ${C.bold}o${C.reset} ${C.dim}to open supergraph.html · ${C.reset}${C.bold}enter${C.reset} ${C.dim}to exit${C.reset}`);
+      const key = await waitForKeypress();
+      if (key === "o" || key === "O") {
+        const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+        try {
+          Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
+        } catch {}
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
