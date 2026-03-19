@@ -436,6 +436,9 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
       const timeout = setTimeout(() => { try { proc.kill(); } catch {} }, 500);
       try { await proc.exited; } catch {}
       clearTimeout(timeout);
+      // Own the final terminal reset in the parent so the child can't clear
+      // the screen after summary output due to PTY flush ordering.
+      process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
     },
   };
 }
@@ -600,7 +603,7 @@ if (process.argv.includes("--subprocess")) {
     buffer = lines.pop()!;
     for (const line of lines) {
       if (line === "__STOP__") {
-        anim.stop();
+        anim.pause();
         process.exit(0);
       }
       if (line === "__PAUSE__") {
@@ -618,12 +621,12 @@ if (process.argv.includes("--subprocess")) {
   });
 
   process.stdin.on("end", () => {
-    anim.stop();
+    anim.pause();
     process.exit(0);
   });
 
   process.on("SIGINT", () => {
-    anim.stop();
+    anim.pause();
     process.exit(0);
   });
 }
