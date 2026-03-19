@@ -391,9 +391,7 @@ function computeFlows(
   const sinkNodeIndex = new Map<TaintSink, SgNode[]>();
   for (const scopeSinks of sinksByScope.values()) {
     for (const sink of scopeSinks) {
-      const pattern = sink.raw.endsWith("...") ? sink.raw.slice(0, -3) : sink.raw;
-      const nodes = root.findAll({ rule: { pattern } });
-      sinkNodeIndex.set(sink, nodes);
+      sinkNodeIndex.set(sink, findSinkNodes(root, sink));
     }
   }
 
@@ -459,6 +457,21 @@ function computeFlows(
   }
 
   return flows;
+}
+
+function findSinkNodes(root: SgNode, sink: TaintSink): SgNode[] {
+  // `sink.raw` is a display string and may be truncated. Feeding an incomplete
+  // expression back into ast-grep as a pattern can throw and abort the entire
+  // package audit, so fall back to text-based identifier extraction instead.
+  if (sink.raw.endsWith("...")) {
+    return [];
+  }
+
+  try {
+    return root.findAll({ rule: { pattern: sink.raw } });
+  } catch {
+    return [];
+  }
 }
 
 function extractIdentifiersFromText(text: string): string[] {
