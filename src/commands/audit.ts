@@ -799,12 +799,7 @@ Usage:
   // Ensure animation subprocess is cleaned up on Ctrl+C
   if (anim) {
     const cleanup = () => {
-      anim.stop();
-      // Clear screen from parent side and exit
-      setTimeout(() => {
-        process.stdout.write("\x1b[2J\x1b[H");
-        process.exit(0);
-      }, 150);
+      anim.stop().then(() => process.exit(0));
     };
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
@@ -987,10 +982,7 @@ Usage:
     // subprocess entirely.  Bun's process.stdin events don't fire while a
     // child process with inherited stdout is alive.
     await new Promise((r) => setTimeout(r, 400));
-    anim.stop();
-    // Wait for subprocess to fully exit, then clear screen from parent side
-    await new Promise((r) => setTimeout(r, 200));
-    process.stdout.write("\x1b[2J\x1b[H"); // clear screen (parent-side, no race)
+    await anim.stop(); // waits for subprocess to exit + clear screen
   }
 
   // -----------------------------------------------------------------------

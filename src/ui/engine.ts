@@ -783,10 +783,8 @@ export class Terminal {
   stop() {
     if (!this.started) return;
     this.started = false;
-    // Only restore cursor — do NOT clear screen here.
-    // The parent process handles screen clear to avoid race conditions
-    // when the subprocess has inherited stdout.
-    process.stdout.write("\x1b[?25h");   // show cursor
+    process.stdout.write("\x1b[2J\x1b[H"); // clear screen
+    process.stdout.write("\x1b[?25h");      // show cursor
     if (this.sigintHandler) {
       process.removeListener("SIGINT", this.sigintHandler);
       process.removeListener("SIGTERM", this.sigintHandler);

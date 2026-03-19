@@ -369,7 +369,7 @@ export type AnimationHandle = {
   log: (line: string) => void;
   packageReady: (pkgName: string) => void;
   pause: () => void;
-  stop: () => void;
+  stop: () => Promise<void>;
 };
 
 /**
@@ -421,18 +421,21 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         proc.stdin.flush();
       } catch {}
     },
-    stop() {
+    async stop() {
       try {
         proc.stdin.write("__STOP__\n");
         proc.stdin.flush();
         proc.stdin.end();
       } catch {
         // Subprocess may already be dead — just restore cursor
-        process.stdout.write("\x1b[?25h");
+        process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
+        return;
       }
-      setTimeout(() => {
-        try { proc.kill(); } catch {}
-      }, 300);
+      // Wait for subprocess to actually exit so its screen-clear finishes
+      // before the parent prints anything
+      const timeout = setTimeout(() => { try { proc.kill(); } catch {} }, 500);
+      try { await proc.exited; } catch {}
+      clearTimeout(timeout);
     },
   };
 }
@@ -563,7 +566,7 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
     pause() {
       handle.pause();
     },
-    stop() {
+    async stop() {
       handle.stop();
     },
   };
