@@ -427,8 +427,8 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
         proc.stdin.flush();
         proc.stdin.end();
       } catch {
-        // Subprocess may already be dead — restore terminal from parent
-        process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
+        // Subprocess may already be dead — just restore cursor
+        process.stdout.write("\x1b[?25h");
       }
       setTimeout(() => {
         try { proc.kill(); } catch {}

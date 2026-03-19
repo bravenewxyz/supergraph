@@ -800,8 +800,11 @@ Usage:
   if (anim) {
     const cleanup = () => {
       anim.stop();
-      // Give subprocess a moment to restore terminal, then exit
-      setTimeout(() => process.exit(0), 100);
+      // Clear screen from parent side and exit
+      setTimeout(() => {
+        process.stdout.write("\x1b[2J\x1b[H");
+        process.exit(0);
+      }, 150);
     };
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
@@ -972,7 +975,7 @@ Usage:
   }
 
   // -----------------------------------------------------------------------
-  // Interactive wait
+  // Stop animation before summary
   // -----------------------------------------------------------------------
   if (anim) {
     if (totalProblems === 0) {
@@ -985,22 +988,9 @@ Usage:
     // child process with inherited stdout is alive.
     await new Promise((r) => setTimeout(r, 400));
     anim.stop();
-    // Small delay for subprocess to fully exit and release the terminal
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Now print a compact post-animation prompt and wait for keypress
-    if (htmlExists) {
-      console.log(`\n  ${C.accent}supergraph${C.reset} ${C.dim}·${C.reset} done${totalProblems > 0 ? ` (${totalProblems} issue${totalProblems > 1 ? "s" : ""})` : ""}`);
-      console.log(`\n  ${C.dim}press${C.reset} ${C.bold}o${C.reset} ${C.dim}to open supergraph.html · ${C.reset}${C.bold}enter${C.reset} ${C.dim}to exit${C.reset}`);
-      const key = await waitForKeypress();
-      if (key === "o" || key === "O") {
-        const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
-        try {
-          Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
-        } catch {}
-        await new Promise((r) => setTimeout(r, 500));
-      }
-    }
+    // Wait for subprocess to fully exit, then clear screen from parent side
+    await new Promise((r) => setTimeout(r, 200));
+    process.stdout.write("\x1b[2J\x1b[H"); // clear screen (parent-side, no race)
   }
 
   // -----------------------------------------------------------------------
@@ -1097,6 +1087,19 @@ Usage:
 
   if (htmlExists) {
     console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
+  }
+
+  // In animation mode, wait for keypress before exiting so user can read the summary
+  if (anim && htmlExists) {
+    console.log(`\n  ${C.dim}press${C.reset} ${C.bold}o${C.reset} ${C.dim}to open ·${C.reset} ${C.bold}enter${C.reset} ${C.dim}to exit${C.reset}`);
+    const key = await waitForKeypress();
+    if (key === "o" || key === "O") {
+      const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+      try {
+        Bun.spawn([openCmd, supergraphHtml], { stdout: "ignore", stderr: "ignore" });
+      } catch {}
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
 
   process.exit(totalProblems > 0 ? 1 : 0);
