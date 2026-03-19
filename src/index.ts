@@ -1,12 +1,4 @@
 #!/usr/bin/env bun
-// ── [BUILD] Force Bun to embed native .node files ──────────────────
-// These require() calls are injected by scripts/build.ts at build time.
-// Bun's --compile only embeds .node files with static require paths
-// visible from the entry point.
-const __dprint_native = require("./dprint-node.darwin-arm64.node");
-const __napi_native = require("./ast-grep-napi.darwin-arm64.node");
-// ── [/BUILD] ─────────────────────────────────────────────────────────
-
 /**
  * supergraph CLI — unified entry point for all analysis tools.
  *
