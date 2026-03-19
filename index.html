@@ -554,6 +554,8 @@
   <ul class="nav-links">
     <li><a href="#output">Output</a></li>
     <li><a href="#deep-audit">Deep Audit</a></li>
+    <li><a href="#intelligence">Intelligence</a></li>
+    <li><a href="#mcp">MCP</a></li>
     <li><a href="#visualization">Visualization</a></li>
     <li><a href="https://github.com/bravenewxyz/supergraph">Github</a></li>
   </ul>
@@ -566,11 +568,15 @@
     <span>Zero Dependencies</span>
     <span>AI-Native</span>
     <span>10-Phase Audit</span>
+    <span>MCP Server</span>
+    <span>Impact Analysis</span>
     <span>Monorepo Intelligence</span>
     <span>One File</span>
     <span>Zero Dependencies</span>
     <span>AI-Native</span>
     <span>10-Phase Audit</span>
+    <span>MCP Server</span>
+    <span>Impact Analysis</span>
   </div>
 </div>
 
@@ -581,7 +587,7 @@
   <div class="hero-content">
     <p class="hero-tagline">Your entire monorepo in <span style="color: var(--accent);">one file.</span></p>
     <p class="hero-desc">
-      supergraph analyzes your monorepo and generates a unified text map &mdash; every module, schema, endpoint, type, and cross-package edge. Domain-aware. Fits in one AI context window. For humans, an interactive graph visualization.
+      supergraph analyzes your monorepo and generates a unified text map &mdash; every module, schema, endpoint, type, and cross-package edge. Query it interactively with impact analysis, change detection, and symbol context. Expose it to AI agents via the built-in MCP server. Fits in one context window.
     </p>
     <div class="hero-install-group">
       <div class="hero-install">
@@ -595,7 +601,7 @@
         <button class="copy-btn" onclick="copyText(this, 'brew install bravenewxyz/supergraph/supergraph')">copy</button>
       </div>
     </div>
-    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span>, <span class="hl">/deep-read</span>, and <span class="hl">/high-level</span> for Claude Code.</p>
+    <p class="hero-install-note">Also installs <span class="hl">/deep-audit</span>, <span class="hl">/deep-read</span>, <span class="hl">/high-level</span>, and the <span class="hl">MCP server</span> for AI agents.</p>
   </div>
 </section>
 
@@ -765,10 +771,172 @@
 
 <hr class="section-divider" />
 
+<div class="full-bleed">
+  <div class="full-bleed-text">Parse once. <span class="hl">Query everything.</span></div>
+</div>
+
+<!-- ─── Interactive Intelligence ─────────────────────────────── -->
+<section id="intelligence">
+  <div class="section-header">
+    <div class="section-num">03 &mdash; Interactive Intelligence</div>
+    <h2>Query your <span class="accent">graph</span></h2>
+    <p class="section-sub">
+      Parse once, query many times. Impact analysis, change detection, and 360-degree symbol context &mdash; all instant via persistent graph cache.
+    </p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">supergraph impact &mdash; blast radius analysis</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-cmd">$</span> supergraph impact <span class="tok-sym">createGuild</span>
+
+<span class="tok-comment"># Impact Analysis: createGuild</span>
+<span class="tok-comment"># Risk: CRITICAL &mdash; 23 dependents across 4 packages</span>
+
+<span class="tok-edge">Depth 0</span> <span class="tok-punct">(direct)</span>
+  <span class="tok-pkg">[fortress]</span>  <span class="tok-sym">orchestrator</span> <span class="tok-punct">&larr;</span> calls createGuild
+  <span class="tok-pkg">[fortress]</span>  <span class="tok-sym">guild-handler</span> <span class="tok-punct">&larr;</span> imports createGuild
+  <span class="tok-pkg">[api]</span>       <span class="tok-sym">guild-router</span> <span class="tok-punct">&larr;</span> imports createGuild
+
+<span class="tok-edge">Depth 1</span> <span class="tok-punct">(transitive)</span>
+  <span class="tok-pkg">[fortress]</span>  <span class="tok-sym">actor-system</span> <span class="tok-punct">&larr;</span> imports orchestrator
+  <span class="tok-pkg">[api]</span>       <span class="tok-sym">v2-routes</span> <span class="tok-punct">&larr;</span> imports guild-router
+  <span class="tok-pkg">[dashboard]</span> <span class="tok-sym">guild-form</span> <span class="tok-punct">&larr;</span> imports guild-handler
+  <span class="tok-punct">...</span><span class="tok-num">+17 more</span></code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">supergraph context &mdash; 360&deg; symbol view</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-cmd">$</span> supergraph context <span class="tok-sym">GuildSchema</span>
+
+<span class="tok-comment"># Symbol Context: GuildSchema</span>
+<span class="tok-comment"># Package: @app/schemas &mdash; Type: zod-schema</span>
+
+<span class="tok-edge">Incoming</span> <span class="tok-punct">(who uses this)</span>
+  <span class="tok-sym">guild-router</span>     <span class="tok-punct">validates with</span> GuildSchema
+  <span class="tok-sym">guild-handler</span>    <span class="tok-punct">validates with</span> GuildSchema
+  <span class="tok-sym">guild-form</span>       <span class="tok-punct">imports</span> GuildSchema
+  <span class="tok-sym">guild.test</span>       <span class="tok-punct">imports</span> GuildSchema
+
+<span class="tok-edge">Outgoing</span> <span class="tok-punct">(what this uses)</span>
+  <span class="tok-sym">RoleSchema</span>       <span class="tok-punct">extends</span>
+  <span class="tok-sym">ImageUrlSchema</span>   <span class="tok-punct">references</span></code></pre>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">supergraph detect-changes &mdash; pre-commit scope</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-cmd">$</span> supergraph detect-changes
+
+<span class="tok-comment"># Changed symbols (from git diff)</span>
+<span class="tok-sym">createGuild</span>  <span class="tok-pkg">[guild]</span>   <span class="tok-string">MODIFIED</span>  risk:<span class="tok-num">CRITICAL</span>
+<span class="tok-sym">GuildSchema</span>  <span class="tok-pkg">[schemas]</span> <span class="tok-string">MODIFIED</span>  risk:<span class="tok-num">HIGH</span>
+<span class="tok-sym">guildUtils</span>   <span class="tok-pkg">[utils]</span>   <span class="tok-string">MODIFIED</span>  risk:<span class="tok-num">LOW</span>
+
+<span class="tok-comment"># Suggested re-analysis</span>
+<span class="tok-edge">supergraph impact createGuild</span>  <span class="tok-punct">&mdash;</span> 23 dependents
+<span class="tok-edge">supergraph impact GuildSchema</span>  <span class="tok-punct">&mdash;</span> 11 dependents</code></pre>
+  </div>
+
+  <div class="features-grid">
+    <div class="feature-item">
+      <div class="feature-icon">impact</div>
+      <div class="feature-title">Blast Radius</div>
+      <div class="feature-desc">BFS through the dependency graph. See every module that breaks when you change a symbol, grouped by depth with risk scoring.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">context</div>
+      <div class="feature-title">Symbol Context</div>
+      <div class="feature-desc">Every caller, importer, and extender of any symbol. Incoming and outgoing references grouped by relationship type.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">detect</div>
+      <div class="feature-title">Change Detection</div>
+      <div class="feature-desc">Maps your git diff to affected symbols and their dependents. Shows risk levels and suggests which analyses to re-run before commit.</div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top: 24px;">
+    <strong>Graph Cache:</strong> Supergraph serializes the parsed graph to disk. Parse once, then run impact, context, and detect-changes instantly without re-analyzing source files.
+  </div>
+</section>
+
+<hr class="section-divider" />
+
+<!-- ─── MCP Server ───────────────────────────────────────────── -->
+<section id="mcp">
+  <div class="section-header">
+    <div class="section-num">04 &mdash; MCP Server</div>
+    <h2>supergraph <span class="accent">serve</span></h2>
+    <p class="section-sub">
+      Model Context Protocol server that exposes supergraph intelligence as tools for AI agents. Your agent queries the graph directly &mdash; no copy-pasting, no context window waste.
+    </p>
+  </div>
+
+  <div class="code-block">
+    <div class="code-block-header">
+      <span class="code-block-label">.mcp.json &mdash; configuration</span>
+      <button class="copy-btn-small" onclick="copyBlock(this)">copy</button>
+    </div>
+    <pre><code><span class="tok-punct">{</span>
+  <span class="tok-string">"mcpServers"</span><span class="tok-punct">: {</span>
+    <span class="tok-string">"supergraph"</span><span class="tok-punct">: {</span>
+      <span class="tok-string">"command"</span><span class="tok-punct">:</span> <span class="tok-string">"supergraph"</span><span class="tok-punct">,</span>
+      <span class="tok-string">"args"</span><span class="tok-punct">:</span> <span class="tok-punct">[</span><span class="tok-string">"serve"</span><span class="tok-punct">]</span>
+    <span class="tok-punct">}</span>
+  <span class="tok-punct">}</span>
+<span class="tok-punct">}</span></code></pre>
+  </div>
+
+  <div class="features-grid" style="grid-template-columns: repeat(2, 1fr);">
+    <div class="feature-item">
+      <div class="feature-icon">supergraph_context</div>
+      <div class="feature-title">Symbol Context</div>
+      <div class="feature-desc">Agent asks "who uses this function?" and gets the full incoming/outgoing reference graph for any symbol.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">supergraph_impact</div>
+      <div class="feature-title">Impact Analysis</div>
+      <div class="feature-desc">Agent asks "what breaks if I change this?" and gets the blast radius with risk scoring before making edits.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">supergraph_detect_changes</div>
+      <div class="feature-title">Change Detection</div>
+      <div class="feature-desc">Agent checks which symbols are affected by the current diff and what needs re-testing.</div>
+    </div>
+    <div class="feature-item">
+      <div class="feature-icon">supergraph_query</div>
+      <div class="feature-title">Graph Query</div>
+      <div class="feature-desc">Agent runs arbitrary queries against the dependency graph &mdash; find paths, filter by package, search symbols.</div>
+    </div>
+  </div>
+
+  <div class="features-grid" style="grid-template-columns: 1fr; margin-top: 1px;">
+    <div class="feature-item">
+      <div class="feature-icon">supergraph_map</div>
+      <div class="feature-title">Full Map</div>
+      <div class="feature-desc">Agent loads the complete supergraph into its context window. The architecture map, on demand.</div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top: 24px;">
+    <strong>Works with:</strong> Claude Code, Cursor, Windsurf, and any AI tool that supports the Model Context Protocol. Run <code class="inline">supergraph serve</code> and your agent gains full codebase intelligence.
+  </div>
+</section>
+
+<hr class="section-divider" />
+
 <!-- ─── Visualization ────────────────────────────────────────── -->
 <section id="visualization">
   <div class="section-header">
-    <div class="section-num">03 &mdash; Visualization</div>
+    <div class="section-num">05 &mdash; Visualization</div>
     <h2><span class="accent">supergraph.html</span></h2>
     <p class="section-sub">
       Self-contained interactive module graph. Zero dependencies. The background of this page is a live one.

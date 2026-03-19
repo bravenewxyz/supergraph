@@ -43,6 +43,28 @@ All written output goes under `.supergraph/strategic/`. Appends to, does not ove
 
 ---
 
+## MCP tools (preferred)
+
+If the supergraph MCP server is running (`supergraph serve`), use these tools for a sharper follow-up. The diff layer (Phase 1c) benefits enormously from live analysis:
+
+| MCP Tool | Use for |
+|---|---|
+| `supergraph_detect_changes` | What changed since the strategic review — replaces manual git diff + static file reading |
+| `supergraph_impact` | Blast radius of proposed bold directions — quantify before proposing |
+| `supergraph_context` | Deep-dive into symbols that the strategic review flagged for follow-up |
+| `supergraph_query` | Explore areas the user's `$ARGUMENTS` theme points to |
+| `supergraph_map` | Quick architecture refresh before gap analysis |
+
+**Integration points:**
+- **Phase 1c**: Use `supergraph_detect_changes` (scope: "all") instead of manual `git diff` — it maps file changes to affected symbols and their dependents, giving you a precise picture of what shifted.
+- **Phase 2a**: Use `supergraph_impact` on symbols modified by the implemented strategic moves to assess whether they achieved the intended blast radius.
+- **Phase 3**: Use `supergraph_impact` on key symbols in each proposed bold direction to quantify effort and risk before presenting.
+- **Phase 4**: Use `supergraph_context` on the symbols the chosen direction will touch to verify the design fits the actual dependency graph.
+
+**Fallback**: If MCP tools are unavailable, the follow-up works entirely from static files and git commands as described below.
+
+---
+
 ## Phase 0: Generate artifacts (if needed)
 
 Check if `.supergraph/supergraph.txt` and `.supergraph/symbols.txt` exist. If not, run `supergraph --no-anim`.
@@ -69,7 +91,11 @@ Use the same chunked parallel reading strategy as `/deep-strategic`:
 
 ### 1c. Diff layer — what changed since the strategic review
 
-This is critical. Run:
+This is critical.
+
+**If MCP is available**: Use `supergraph_detect_changes` with scope "all" to get a structured view of what changed — it maps file diffs to affected symbols and their downstream dependents. This is far more useful than raw `git diff --stat` because it tells you what the changes MEAN in terms of the architecture, not just which files were touched.
+
+**Then (or if MCP is unavailable)** run:
 ```bash
 git log --oneline -20
 git diff HEAD~5 --stat

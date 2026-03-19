@@ -28,5 +28,8 @@
   },
   "devDependencies": {
     "bun-types": "latest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
   }
 }

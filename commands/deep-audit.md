@@ -28,6 +28,27 @@ Perform a systematic, multi-pass audit of a TypeScript package. Finds duplicate 
   plans/        README.md  001-*.md  002-*.md  ...
 ```
 
+## MCP tools (preferred) vs static files
+
+If the supergraph MCP server is running (`supergraph serve`), use these tools for interactive, targeted analysis throughout the audit. They provide live, focused data that supplements the static files:
+
+| MCP Tool | Use for |
+|---|---|
+| `supergraph_detect_changes` | Pre-audit: scope what actually changed (git diff → symbols → dependents) |
+| `supergraph_impact` | Blast radius: BFS traversal, risk scoring, depth groups for any symbol |
+| `supergraph_context` | 360-degree view: incoming + outgoing edges for a symbol |
+| `supergraph_query` | Find specific symbols by name or pattern |
+| `supergraph_map` | Compact architecture overview |
+
+**Integration points in the audit:**
+- **Phase 1**: After reading static files, use `supergraph_detect_changes` to identify what changed since last audit — focus deep-read effort there.
+- **Phase 2**: Use `supergraph_impact` on any dead export or circular dependency to assess whether it's load-bearing before flagging it.
+- **Phase 3**: Before reading a flagged source file, use `supergraph_context` on its key symbols to understand incoming/outgoing edges.
+- **Phase 6**: Use `supergraph_query` to find all symbols matching a pattern when investigating logic audit warnings.
+- **Phase 8c**: Use `supergraph_impact` on each plan's target symbols to order plans by blast radius.
+
+**Fallback**: If MCP tools are unavailable (connection refused, tool not found), fall back to reading the static files below. The audit works either way — MCP just makes it faster and more targeted.
+
 ## Critical: full-context files
 
 Read these files **in their entirety** (never skim or chunk). Pass full content to subagents — not paths.
@@ -63,6 +84,8 @@ Then focus the deep audit (Phases 1–10) on the requested packages.
 
 ## Phase 1: Read the map
 
+**If MCP is available**: Start with `supergraph_detect_changes` (scope: "all") to see what changed since last run. This tells you where to focus deep reads. Then use `supergraph_map` for the architecture overview before reading static files for full detail.
+
 Read `.supergraph/supergraph.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
 - `+` exported, ` ` unexported | `fn` function | `L42-55` line range
 - `←` internal deps | `←ext` external deps | `━━━ module ━━━` separator
@@ -71,7 +94,7 @@ Read `.supergraph/supergraph.txt` in full, then read all three per-package map f
 
 Read `complexity.txt` and `dead.txt` in full, then analyze:
 
-1. **Dead exports** — verify `dead.txt` against `map.txt`. Intentional or genuine dead code?
+1. **Dead exports** — verify `dead.txt` against `map.txt`. Intentional or genuine dead code? **If MCP is available**: use `supergraph_impact` on each dead export to check if it has downstream dependents not captured by the static analysis.
    **Known false positive patterns — do NOT report these:**
    - **Orphan modules that are CLI entry points** (contain `import.meta.main`, `process.argv`, or shebang). These have 0 inbound imports by design.
    - **Exports meant for external package consumers** (e.g. test utilities, fast-check arbitraries, public API symbols). The detector only checks internal imports.
@@ -87,6 +110,8 @@ Append to `findings.md`.
 ## Phase 3: Deep audit (read source files)
 
 Prioritize: (1) files flagged in Phase 2, (2) top complexity functions, (3) top escape-hatch files. For packages under 50 files, read all.
+
+**If MCP is available**: Before reading each flagged file, use `supergraph_context` on its key exported symbols. This reveals incoming callers and outgoing dependencies — helping you assess whether a bug or smell actually matters based on who uses it.
 
 Check for: **duplicates**, **overengineering**, **inconsistencies**, **dead code**, **unfinished work** (TODO/FIXME/HACK), **bugs** (races, unsafe casts, null access, resource leaks), **error handling** (swallowed errors, missing context).
 
@@ -147,6 +172,8 @@ For functions >50 lines: flag captures BEFORE mutation points where the capture 
 ### 6f. Enforcement gap scan
 
 Cross-reference `schema-match.txt` (`enforce=silent-ignore ⚠`) with `logic-audit.txt`.
+
+**If MCP is available**: Use `supergraph_query` to find all symbols matching patterns from logic audit warnings (e.g., function names cited in decision table gaps). Then use `supergraph_context` on each to see the full call chain and verify whether the gap is reachable from real callers.
 
 Append to `findings.md`.
 
@@ -285,6 +312,8 @@ Rules for this file:
 ### 8c. Grouped plans
 
 Group findings into **1–12 plans** as coherent work sessions. Each plan references issues by their number. Order: Security → Correctness → Data integrity → Concurrency → Core pipeline → Infrastructure → Polish → Large refactors.
+
+**If MCP is available**: Use `supergraph_impact` on the primary symbols each plan will modify. Order plans so that high-blast-radius changes come first (they're riskier — do them while the codebase is cleanest). Include the blast radius summary in each plan's header.
 
 Write to `.supergraph/<package-name>/plans/`.
 

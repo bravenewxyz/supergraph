@@ -13,6 +13,9 @@
  *   supergraph logic-audit <src-dir>        Per-package: logic-audit.txt
  *   supergraph contracts [options]          Per-package: contracts.txt
  *   supergraph invariant <subcmd> [opts]    Per-package: discovery.txt + subcommands
+ *   supergraph impact <src-dir> <sym>       Per-package: blast radius analysis
+ *   supergraph detect-changes [options]     Git diff → affected symbols + dependents
+ *   supergraph context <symbol> [opts]       Symbol: 360-degree edge/reference view
  *   supergraph aggregate [--root <path>]    Cross-package: supergraph.txt/html
  *   supergraph pkg-graph [--root <path>]    Cross-package: pkg-graph.html
  */
@@ -47,14 +50,14 @@ if (!existsSync(setupDone)) {
   const claudeCmdDir = join(homedir(), ".claude", "commands");
   try {
     mkdirSync(claudeCmdDir, { recursive: true });
-    const commands = ["deep-audit.md", "deep-strategic.md", "deep-followup.md", "high-level.md"];
+    const commands = ["deep-audit.md", "deep-strategic.md", "deep-followup.md", "high-level.md", "pre-commit.md", "explore.md"];
     for (const cmd of commands) {
       const res = await fetch(`${BASE_URL}/${cmd}`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         writeFileSync(join(claudeCmdDir, cmd), await res.text());
       }
     }
-    console.log(`Installed /deep-audit, /deep-strategic, and /high-level commands for Claude Code`);
+    console.log(`Installed /deep-audit, /deep-strategic, /high-level, /pre-commit, and /explore commands for Claude Code`);
     mkdirSync(supergraphDir, { recursive: true });
     writeFileSync(setupDone, new Date().toISOString());
   } catch {
@@ -97,10 +100,14 @@ Commands:
   logic-audit <src-dir>   Detect decision-logic bugs
   contracts [options]     FE↔BE contract verification
   invariant <subcmd>      Invariant verification system
+  impact <src-dir> <sym>  Blast radius analysis for a symbol
+  detect-changes          Map git diff to affected symbols + dependents
+  context <symbol>        360-degree view of a symbol (edges, references, metadata)
   apply <ops.json>        Apply graph operations with CRDT coordination
   aggregate               Build cross-package supergraph visualization
   pkg-graph               Build package dependency visualization
   superhigh               Generate unified supergraph.txt / supergraph-compact.txt
+  serve                   Start MCP server (stdio transport) for AI agents
 
 The full pipeline also generates:
   .supergraph/supergraph.txt            Unified map: domains + schemas + modules + types
@@ -109,7 +116,10 @@ The full pipeline also generates:
 Claude Code commands (installed automatically):
   /deep-audit             10-phase systematic package audit
   /deep-strategic         Strategic review — gaps, opportunities, leverage
+  /deep-followup          Bold follow-up to strategic review
   /high-level             Quick architecture overview
+  /pre-commit             Blast radius check before committing
+  /explore                Interactive symbol exploration
 
 Global options:
   --root <path>           Target repo root (default: cwd)
@@ -160,9 +170,29 @@ Global options:
       await runInvariantCommand(restArgs);
       break;
     }
+    case "impact": {
+      const { runImpactCommand } = await import("./commands/impact.js");
+      await runImpactCommand(restArgs);
+      break;
+    }
+    case "context": {
+      const { runContextCommand } = await import("./commands/context.js");
+      await runContextCommand(restArgs);
+      break;
+    }
     case "apply": {
       const { runApplyCommand } = await import("./commands/apply.js");
       await runApplyCommand(restArgs);
+      break;
+    }
+    case "detect-changes": {
+      const { runDetectChangesCommand } = await import("./commands/detect-changes.js");
+      await runDetectChangesCommand(restArgs);
+      break;
+    }
+    case "serve": {
+      const { startServer } = await import("./mcp/server.js");
+      await startServer(parseRoot());
       break;
     }
     case "aggregate": {

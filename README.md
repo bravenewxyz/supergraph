@@ -4,6 +4,8 @@ Your entire monorepo in one file.
 
 supergraph analyzes your monorepo and generates a compact, structured text map of every module, every symbol, every cross-package edge, and every issue. One file an AI agent can read to understand your entire codebase. One file a human can grep to answer any structural question.
 
+It also provides interactive query commands — blast radius analysis, change detection, and symbol context lookups — backed by a persistent graph cache and an MCP server for AI tool integration.
+
 ## Install
 
 **Homebrew:**
@@ -58,6 +60,115 @@ supergraph pkg-graph                 Package dependency visualization
 ```
 
 All commands support `--format text|json`, `--out <file>`, and `--root <path>`.
+
+### Query commands
+
+Query the dependency graph interactively. These commands use the graph built by `supergraph map` (cached automatically — see [Graph cache](#graph-cache)).
+
+```
+supergraph impact <symbol>           Blast radius analysis
+supergraph detect-changes            Pre-commit change scope analysis
+supergraph context <symbol>          360° symbol view (all edges in/out)
+```
+
+#### `supergraph impact <symbol>`
+
+Walk the dependency graph outward from a symbol via BFS. Shows every downstream consumer, grouped by depth, with a risk score.
+
+```bash
+supergraph impact createGuild --depth 5 --format json
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--direction up\|down\|both` | `down` | Traversal direction (dependents, dependencies, or both) |
+| `--depth <n>` | `3` | Max traversal depth |
+| `--format text\|json` | `text` | Output format |
+
+Example output:
+
+```
+Impact: createGuild
+Risk: high (14 dependents across 3 packages)
+
+Depth 1:
+  → useCreateGuild        hooks/useCreateGuild.ts
+  → createGuildAction     actions/guild.ts
+
+Depth 2:
+  → CreateGuildForm       components/CreateGuildForm.tsx
+  → GuildSetupWizard      components/GuildSetupWizard.tsx
+
+Depth 3:
+  → CreatePage            pages/create.tsx
+```
+
+#### `supergraph detect-changes`
+
+Reads the current git diff, resolves changed symbols, and walks the graph to find all affected dependents. Use it pre-commit to understand the scope of your changes.
+
+```bash
+supergraph detect-changes --scope packages/core --format json
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--scope <dir>` | `.` | Limit analysis to a directory |
+| `--compare <ref>` | `HEAD` | Git ref to diff against |
+| `--format text\|json` | `text` | Output format |
+
+Example output:
+
+```
+Changed symbols: 3
+  ~ validateInput         utils/validation.ts (modified)
+  + parseAmount           utils/validation.ts (added)
+  - sanitizeHtml          utils/validation.ts (removed)
+
+Affected dependents: 12
+  Risk: medium
+
+  useFormValidation       hooks/useFormValidation.ts
+  SettingsForm            components/SettingsForm.tsx
+  ... +10 more
+```
+
+#### `supergraph context <symbol>`
+
+Show all incoming and outgoing edges for a symbol, grouped by relationship type (import, call, type reference, etc.).
+
+```bash
+supergraph context GuildResponse --format json
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--format text\|json` | `text` | Output format |
+
+Example output:
+
+```
+Context: GuildResponse (types/guild.ts)
+
+Incoming (7):
+  import  useGuild              hooks/useGuild.ts
+  import  GuildCard             components/GuildCard.tsx
+  import  guildApi              api/guild.ts
+  typeref GuildListResponse     types/responses.ts
+  ... +3 more
+
+Outgoing (2):
+  import  Role                  types/role.ts
+  import  RequirementConfig     types/requirements.ts
+```
+
+### Graph cache
+
+The dependency graph is cached to `.supergraph/graph-cache.json` after the first build. Subsequent `impact`, `detect-changes`, and `context` commands reload from cache instead of re-parsing the entire codebase. The cache is invalidated automatically when source files change. To force a rebuild:
+
+```bash
+supergraph map <src-dir>   # rebuilds the graph and updates the cache
+```
 
 ## The output
 
@@ -119,6 +230,43 @@ Point it at a package, it reads the full map, audits source files across 10 phas
 ```
 /deep-audit packages/core/src
 ```
+
+## MCP Server
+
+supergraph includes a built-in [Model Context Protocol](https://modelcontextprotocol.io/) server, exposing graph queries as tools that AI agents can call directly.
+
+Start the server:
+
+```bash
+supergraph serve
+```
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `supergraph_context` | 360° symbol view — all incoming/outgoing edges |
+| `supergraph_impact` | Blast radius analysis — downstream dependents with risk scoring |
+| `supergraph_detect_changes` | Git diff → affected symbols → dependent scope |
+| `supergraph_query` | Raw graph query (filter by package, type, edge kind) |
+| `supergraph_map` | Rebuild the graph for a source directory |
+
+### Configuration
+
+Add to `.mcp.json` in your project root (works with Claude Code, Cursor, and other MCP clients):
+
+```json
+{
+  "mcpServers": {
+    "supergraph": {
+      "command": "supergraph",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+The server uses stdio transport by default. Once configured, your AI agent can call tools like `supergraph_impact` or `supergraph_context` directly during a conversation.
 
 ## Supported languages
 

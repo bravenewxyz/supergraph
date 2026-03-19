@@ -38,6 +38,28 @@ All written output goes under `.supergraph/strategic/`. For multi-package review
 
 ---
 
+## MCP tools (preferred)
+
+If the supergraph MCP server is running (`supergraph serve`), use these tools throughout the review. They provide live, interactive analysis that makes the strategic review sharper:
+
+| MCP Tool | Use for |
+|---|---|
+| `supergraph_map` | Architecture overview — replaces reading `supergraph-compact.txt` |
+| `supergraph_impact` | Identify high-coupling symbols and architectural risk hotspots |
+| `supergraph_query` | Explore specific areas, find symbols by name/pattern |
+| `supergraph_context` | Deep-dive into any symbol's incoming/outgoing edges |
+| `supergraph_detect_changes` | See what changed since last review |
+
+**Integration points:**
+- **Phase 1a**: Use `supergraph_map` first for the architecture skeleton, then read `supergraph.txt` for full detail.
+- **Phase 3b (Leverage)**: Use `supergraph_impact` on hub modules to quantify their blast radius — "this module affects N downstream symbols" is more convincing than "this module has high fan-in."
+- **Phase 3d (Frontier)**: Use `supergraph_query` to explore areas the user mentions or you identify as promising.
+- **Phase 3g (Correlations)**: Use `supergraph_context` on cross-package edge symbols to trace exactly how packages interact.
+
+**Fallback**: If MCP tools are unavailable, the review works entirely from static files as described below.
+
+---
+
 ## Phase 0: Generate artifacts (if needed)
 
 Check if `.supergraph/supergraph.txt` exists. If not:
@@ -91,7 +113,9 @@ Read: offset=2501 limit=500
 
 ### 1a. Architecture layer (read first)
 
-Read `.supergraph/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
+**If MCP is available**: Start with `supergraph_map` to get the compact architecture overview. This gives you the skeleton immediately — domains, modules, cross-package edges — before committing to reading the full static file.
+
+Then read `.supergraph/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
 
 After this layer you understand the skeleton: what talks to what, what's central, what's peripheral.
 
@@ -249,9 +273,9 @@ Does the code structure match what the user says they're building?
 
 Identify highest-leverage changes — small modifications with outsized impact:
 
-- **Hub modules** — modules with high ←N importer counts in `symbols.txt`. These are load-bearing walls. Improving them has blast radius.
+- **Hub modules** — modules with high ←N importer counts in `symbols.txt`. These are load-bearing walls. Improving them has blast radius. **If MCP is available**: use `supergraph_impact` on the top 5 hub symbols to get concrete blast radius numbers (depth groups, risk scores, affected symbol counts).
 - **Near-complete features** — exported functions with real implementations that nothing imports yet. You've seen the bodies — how close are they to being useful?
-- **Abstraction opportunities** — similar function signatures across modules visible in `symbols.txt`. Are these truly duplicative or intentionally specialized?
+- **Abstraction opportunities** — similar function signatures across modules visible in `symbols.txt`. Are these truly duplicative or intentionally specialized? **If MCP is available**: use `supergraph_query` to find all symbols matching a pattern (e.g., `create*`, `validate*`) to surface naming collisions and abstraction candidates.
 - **Dependency bottlenecks** — modules imported by many others. Are they robust enough for their importance?
 - **Trivial wins** — things that take <1hr and make a visible difference. You've seen the code — you know exactly what to suggest.
 
