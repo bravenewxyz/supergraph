@@ -1095,5 +1095,6 @@ Usage:
     }
   }
 
-  process.exit(totalProblems > 0 ? 1 : 0);
+  process.exitCode = totalProblems > 0 ? 1 : 0;
+  return;
 }
