@@ -10,7 +10,7 @@ import {
   type Vec3, type Camera, type Projected,
   v3, rgb, DIM, RESET, BOLD,
   Framebuffer, Projector, ParticleSystem,
-  createCamera, drawLine, drawGlow, drawLabel, drawSphere,
+  createCamera, drawLine, drawGlow, drawSphere, drawText,
   runScene,
 } from "./engine.js";
 
@@ -170,13 +170,14 @@ function renderGraph(
   t: number,
 ) {
   // Project all visible nodes
-  const projected: (Projected & { node: GraphNode; idx: number })[] = [];
+  const projected: (Projected & { node: GraphNode; idx: number; sphereRadius: number })[] = [];
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i]!;
     if (t < n.spawnT) continue;
     const p = proj.project(n.pos);
     if (p.visible) {
-      projected.push({ ...p, node: n, idx: i });
+      const sphereRadius = Math.max(1.15, Math.min(3.2, 0.9 + p.scale * 18));
+      projected.push({ ...p, node: n, idx: i, sphereRadius });
     }
   }
 
@@ -253,8 +254,7 @@ function renderGraph(
     const age = t - p.node.spawnT;
     const color = PKG_COLORS[p.node.pkg % PKG_COLORS.length]!;
     const pulse = 0.8 + 0.2 * Math.sin(t * 3 + p.idx);
-    const sphereRadius = Math.max(1.15, Math.min(3.2, 0.9 + p.scale * 18));
-    drawSphere(fb, p, sphereRadius, color, {
+    drawSphere(fb, p, p.sphereRadius, color, {
       emissive: age < 0.5 ? 1 : 0.35,
       pulse: pulse - 0.8,
     });
@@ -262,14 +262,104 @@ function renderGraph(
     const coreChar = age < 0.18 ? "*" : pulse > 0.93 ? "@" : "+";
     fb.set(p.sx, p.sy, coreChar, color, p.depth - 0.22, age < 0.5 ? 1 : 0.45);
 
-    // Node labels stay visible once the package is actually ready.
-    if (age >= 0) {
-      drawLabel(fb, proj, p.node.pos, p.node.label, color);
-    }
   }
+
+  drawNodeLabels(fb, projected);
 
   // ── Particles ──
   particles.draw(fb, proj);
+}
+
+type LabelRect = { x: number; y: number; width: number; height: number };
+
+function intersectionArea(a: LabelRect, b: LabelRect): number {
+  const x1 = Math.max(a.x, b.x);
+  const y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.width, b.x + b.width);
+  const y2 = Math.min(a.y + a.height, b.y + b.height);
+  return x2 > x1 && y2 > y1 ? (x2 - x1) * (y2 - y1) : 0;
+}
+
+function drawNodeLabels(
+  fb: Framebuffer,
+  projected: (Projected & { node: GraphNode; idx: number; sphereRadius: number })[],
+) {
+  const occupied: LabelRect[] = projected.map((p) => ({
+    x: Math.max(0, Math.floor(p.sx - p.sphereRadius * 1.4)),
+    y: Math.max(0, Math.floor(p.sy - p.sphereRadius)),
+    width: Math.max(1, Math.ceil(p.sphereRadius * 2.8)),
+    height: Math.max(1, Math.ceil(p.sphereRadius * 2)),
+  }));
+
+  const labels = [...projected].sort((a, b) => a.depth - b.depth);
+  for (const p of labels) {
+    const text = p.node.label;
+    const color = PKG_COLORS[p.node.pkg % PKG_COLORS.length]!;
+    const pad = Math.max(2, Math.ceil(p.sphereRadius));
+    const centerX = fb.width / 2;
+    const centerY = fb.height / 2;
+    const dx = p.sx - centerX;
+    const dy = p.sy - centerY;
+
+    const right = {
+      x: Math.round(p.sx + p.sphereRadius * 2 + pad),
+      y: Math.round(p.sy),
+      width: text.length,
+      height: 1,
+    };
+    const left = {
+      x: Math.round(p.sx - p.sphereRadius * 2 - pad - text.length),
+      y: Math.round(p.sy),
+      width: text.length,
+      height: 1,
+    };
+    const above = {
+      x: Math.round(p.sx - text.length / 2),
+      y: Math.round(p.sy - p.sphereRadius - 2),
+      width: text.length,
+      height: 1,
+    };
+    const below = {
+      x: Math.round(p.sx - text.length / 2),
+      y: Math.round(p.sy + p.sphereRadius + 1),
+      width: text.length,
+      height: 1,
+    };
+
+    const candidates = Math.abs(dx) >= Math.abs(dy)
+      ? (dx >= 0 ? [right, above, below, left] : [left, above, below, right])
+      : (dy >= 0 ? [below, right, left, above] : [above, right, left, below]);
+
+    let bestRect = candidates[0]!;
+    let bestScore = Infinity;
+
+    for (const candidate of candidates) {
+      const rect: LabelRect = {
+        x: Math.max(0, Math.min(fb.width - candidate.width, candidate.x)),
+        y: Math.max(0, Math.min(fb.height - 1, candidate.y)),
+        width: candidate.width,
+        height: candidate.height,
+      };
+
+      let score = Math.abs(rect.x - candidate.x) + Math.abs(rect.y - candidate.y) * 2;
+      for (const block of occupied) {
+        score += intersectionArea(rect, block) * 50;
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestRect = rect;
+      }
+    }
+
+    drawText(fb, bestRect.x, bestRect.y, text, color, p.depth - 0.26);
+    occupied.push({
+      x: Math.max(0, bestRect.x - 1),
+      y: bestRect.y,
+      width: Math.min(fb.width - bestRect.x + 1, bestRect.width + 2),
+      height: 1,
+    });
+  }
 }
 
 // ── Exported API ────────────────────────────────────────────────────────────
@@ -465,6 +555,8 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
       const node = nodeByName.get(pkgName);
       if (!node || node.ready) return;
       node.ready = true;
+      node.pos = { ...node.targetPos };
+      node.vel = v3.create(0, 0, 0);
       node.spawnT = sceneTime;
       node.glowT = sceneTime;
     },

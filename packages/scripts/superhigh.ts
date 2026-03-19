@@ -1279,7 +1279,7 @@ function deduplicateOpProfiles(lines: string[]): string {
 
 // ─── Generate output ──────────────────────────────────────────────────────────
 
-function generateOutput(): string {
+async function generateOutput(): Promise<string> {
   const date = new Date().toISOString().slice(0, 10);
   const epCount = flows.endpoints.length;
   const hkCount = flows.endpoints.reduce((n, ep) => n + ep.hooks.length, 0);
@@ -1427,6 +1427,24 @@ function generateOutput(): string {
     }
   }
 
+  // ── SYMBOLS (full mode only — embed symbols-full.txt for complete AST) ──
+  if (FULL) {
+    try {
+      const symbolsFull = await readFile(resolve(AUDIT, "symbols-full.txt"));
+      if (symbolsFull) {
+        lines.push("");
+        lines.push("═".repeat(60));
+        lines.push("# SYMBOLS-FULL  (complete AST: signatures, types, bodies)");
+        lines.push("═".repeat(60));
+        lines.push("");
+        // Skip the header lines (first 2 lines are title + stats)
+        const sfLines = symbolsFull.split("\n");
+        const startIdx = sfLines.findIndex(l => l.startsWith("═".repeat(4)));
+        lines.push(...sfLines.slice(startIdx >= 0 ? startIdx : 2));
+      }
+    } catch { /* symbols-full.txt may not exist yet */ }
+  }
+
   // ── Op-profile deduplication (compressed mode only) ──
   if (!FULL) {
     return deduplicateOpProfiles(lines);
@@ -1436,7 +1454,7 @@ function generateOutput(): string {
 }
 
 await mkdir(AUDIT, { recursive: true });
-const out = generateOutput();
+const out = await generateOutput();
 await Bun.write(outPath, out);
 
 const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
