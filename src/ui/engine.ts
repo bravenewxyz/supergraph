@@ -808,6 +808,7 @@ export type SceneCallbacks = {
 export type SceneHandle = {
   update: (status: string) => void;
   log: (line: string) => void;
+  pause: () => void;
   stop: () => void;
 };
 
@@ -874,6 +875,9 @@ export function runScene(
       logBuffer.push(line);
       // Keep buffer bounded
       if (logBuffer.length > 200) logBuffer.splice(0, logBuffer.length - 200);
+    },
+    pause() {
+      clearInterval(interval);
     },
     stop() {
       clearInterval(interval);

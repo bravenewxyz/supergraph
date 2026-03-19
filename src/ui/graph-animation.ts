@@ -278,6 +278,7 @@ export type AnimationHandle = {
   update: (status: string) => void;
   log: (line: string) => void;
   packageReady: (pkgName: string) => void;
+  pause: () => void;
   stop: () => void;
 };
 
@@ -321,6 +322,12 @@ export function startAnimation(opts?: { packages?: string[]; edges?: [number, nu
     packageReady(pkgName: string) {
       try {
         proc.stdin.write(`__READY__:${encodeURIComponent(pkgName)}\n`);
+        proc.stdin.flush();
+      } catch {}
+    },
+    pause() {
+      try {
+        proc.stdin.write("__PAUSE__\n");
         proc.stdin.flush();
       } catch {}
     },
@@ -461,6 +468,9 @@ function startAnimationInProcess(opts?: { packages?: string[]; edges?: [number, 
       node.spawnT = sceneTime;
       node.glowT = sceneTime;
     },
+    pause() {
+      handle.pause();
+    },
     stop() {
       handle.stop();
     },
@@ -497,6 +507,10 @@ if (process.argv.includes("--subprocess")) {
       if (line === "__STOP__") {
         anim.stop();
         process.exit(0);
+      }
+      if (line === "__PAUSE__") {
+        anim.pause();
+        continue;
       }
       if (line.startsWith("__LOG__:")) {
         anim.log(line.slice(8));

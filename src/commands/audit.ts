@@ -1009,6 +1009,11 @@ Usage:
       anim.update(`done (${totalProblems} issue${totalProblems > 1 ? "s" : ""}) — ${promptSuffix}`);
     }
 
+    // Pause animation render loop before reading keypress —
+    // concurrent stdout writes from the subprocess can prevent stdin from being processed
+    await new Promise((r) => setTimeout(r, 200));
+    anim.pause();
+
     const key = await waitForKeypress();
 
     if ((key === "o" || key === "O") && htmlExists) {
