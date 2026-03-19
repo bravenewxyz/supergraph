@@ -389,11 +389,17 @@ async function fileSizeKB(path: string): Promise<string> {
   }
 }
 
-async function runTools(tools: ToolRun[], muted: boolean, concurrency = 3): Promise<RunResult[]> {
+async function runTools(
+  tools: ToolRun[],
+  muted: boolean,
+  concurrency = 3,
+  onResult?: (result: RunResult, doneCount: number, total: number) => void,
+): Promise<RunResult[]> {
   const unmute = muted ? muteConsole() : undefined;
   try {
     const results: RunResult[] = new Array(tools.length);
     let nextIdx = 0;
+    let doneCount = 0;
 
     async function worker() {
       while (nextIdx < tools.length) {
@@ -401,16 +407,20 @@ async function runTools(tools: ToolRun[], muted: boolean, concurrency = 3): Prom
         const tool = tools[idx]!;
         const t0 = Date.now();
         const TOOL_TIMEOUT = 600_000;
+        let result: RunResult;
         try {
           await withTimeout(tool.run(), TOOL_TIMEOUT, tool.label);
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
           const size = await fileSizeKB(tool.checkFile);
-          results[idx] = { tool, ok: true, elapsed, size };
+          result = { tool, ok: true, elapsed, size };
         } catch (err) {
           const elapsed = `${((Date.now() - t0) / 1000).toFixed(1)}s`;
           const msg = err instanceof Error ? err.message : String(err);
-          results[idx] = { tool, ok: false, elapsed, error: msg };
+          result = { tool, ok: false, elapsed, error: msg };
         }
+        results[idx] = result;
+        doneCount++;
+        onResult?.(result, doneCount, tools.length);
       }
     }
 
@@ -581,12 +591,30 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   await mkdir(t.jsonDir, { recursive: true });
 
   const tools = buildTools(t);
+  let failures = 0;
   if (anim) {
-    anim.update(`${t.pkgName}: ${tools.length} tools running...`);
+    anim.update(`${t.pkgName}: 0/${tools.length} tools...`);
   }
-  const results = await runTools(tools, true);
+  const results = await runTools(tools, true, 3, (result, done, total) => {
+    if (anim) {
+      // Stream each result as it completes
+      const kind = result.tool.json ? " (json)" : "";
+      if (result.ok) {
+        anim.log(`  ✓  ${t.pkgName}  ${result.tool.label}${kind}  ${result.size ?? ""}  (${result.elapsed})`);
+      } else {
+        failures++;
+        anim.log(`  ✗  ${t.pkgName}  ${result.tool.label}${kind}  FAILED  (${result.elapsed})`);
+      }
+      anim.update(`${t.pkgName}: ${done}/${total} tools...`);
+    }
+  });
   allResults.push({ pkgName: t.pkgName, results });
-  const failures = reportResults(results, t.pkgName, anim);
+  if (!anim) {
+    failures = reportResults(results, t.pkgName);
+  } else {
+    const ok = results.filter((r) => r.ok).length;
+    anim.update(`${t.pkgName}: ${ok}/${results.length} tools${failures > 0 ? `, ${failures} failed` : ""}`);
+  }
 
   // Dashboards only for TS packages (they use flow-tool JSON)
   if (t.driver.id === "typescript") {
@@ -848,13 +876,15 @@ Usage:
 
   const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 600_000;
+  const crossLabelsForTiming = ["pkg-graph", "aggregate", "cross-lang-bridge", "hypergraph", "normagraph", "temporal"];
+  const crossT0 = Date.now();
   const crossResults = await Promise.allSettled([
-    withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph"),
-    withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate"),
-    withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge"),
-    withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph"),
-    withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph"),
-    withTimeout(runTemporal({ root: ROOT }).then(txt => writeFile(join(AUDIT_DIR, "temporal.txt"), txt)), CROSS_TIMEOUT, "temporal"),
+    withTimeout(runPkgGraph({ root: ROOT }), CROSS_TIMEOUT, "pkg-graph").then(r => { anim?.log(`  ✓  cross  pkg-graph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runAggregate({ root: ROOT }), CROSS_TIMEOUT, "aggregate").then(r => { anim?.log(`  ✓  cross  aggregate  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runCrossLangBridge({ root: ROOT }), CROSS_TIMEOUT, "cross-lang-bridge").then(r => { anim?.log(`  ✓  cross  cross-lang-bridge  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runNormagraph({ root: ROOT, detail: "full" }), CROSS_TIMEOUT, "hypergraph").then(r => { anim?.log(`  ✓  cross  hypergraph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runNormagraph({ root: ROOT, detail: "brief" }), CROSS_TIMEOUT, "normagraph").then(r => { anim?.log(`  ✓  cross  normagraph  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
+    withTimeout(runTemporal({ root: ROOT }).then(txt => writeFile(join(AUDIT_DIR, "temporal.txt"), txt)), CROSS_TIMEOUT, "temporal").then(r => { anim?.log(`  ✓  cross  temporal  (${((Date.now() - crossT0) / 1000).toFixed(1)}s)`); return r; }),
   ]);
   unmuteCross();
 
@@ -870,6 +900,7 @@ Usage:
     : ["bun", superhighScript];         // dev: run script directly
 
   const SPAWN_TIMEOUT = 600_000;
+  const superhighT0 = Date.now();
   const superhighResults = await Promise.allSettled([
     withTimeout((async () => {
       const proc = Bun.spawn([...spawnCmd, "--full", "--root", ROOT], {
@@ -883,6 +914,7 @@ Usage:
         const stderr = await new Response(proc.stderr).text();
         throw new Error(`superhigh --full exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
       }
+      anim?.log(`  ✓  cross  superhigh --full  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`);
     })(), SPAWN_TIMEOUT, "superhigh --full"),
     withTimeout((async () => {
       const proc = Bun.spawn([...spawnCmd, "--root", ROOT], {
@@ -896,6 +928,7 @@ Usage:
         const stderr = await new Response(proc.stderr).text();
         throw new Error(`superhigh shortcut exited with ${code}${stderr ? `\n${stderr.trim()}` : ""}`);
       }
+      anim?.log(`  ✓  cross  superhigh compact  (${((Date.now() - superhighT0) / 1000).toFixed(1)}s)`);
     })(), SPAWN_TIMEOUT, "superhigh shortcut"),
   ]);
 

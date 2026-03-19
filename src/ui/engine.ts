@@ -30,6 +30,97 @@ export function ansi256(n: number): string {
   return `\x1b[38;5;${n}m`;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+type RgbColor = { r: number; g: number; b: number };
+
+const SHADE_RAMP = " .,:-=+*#%@";
+const ANSI_TRUECOLOR_RE = /\x1b\[38;2;(\d+);(\d+);(\d+)m/;
+const ANSI_256_RE = /\x1b\[38;5;(\d+)m/;
+const ANSI_COLOR_CACHE = new Map<string, RgbColor>();
+
+function ansi256ToRgb(index: number): RgbColor {
+  if (index < 16) {
+    const base: RgbColor[] = [
+      { r: 0, g: 0, b: 0 },
+      { r: 205, g: 49, b: 49 },
+      { r: 13, g: 188, b: 121 },
+      { r: 229, g: 229, b: 16 },
+      { r: 36, g: 114, b: 200 },
+      { r: 188, g: 63, b: 188 },
+      { r: 17, g: 168, b: 205 },
+      { r: 229, g: 229, b: 229 },
+      { r: 102, g: 102, b: 102 },
+      { r: 241, g: 76, b: 76 },
+      { r: 35, g: 209, b: 139 },
+      { r: 245, g: 245, b: 67 },
+      { r: 59, g: 142, b: 234 },
+      { r: 214, g: 112, b: 214 },
+      { r: 41, g: 184, b: 219 },
+      { r: 255, g: 255, b: 255 },
+    ];
+    return base[index] ?? { r: 255, g: 255, b: 255 };
+  }
+
+  if (index >= 232) {
+    const v = 8 + (index - 232) * 10;
+    return { r: v, g: v, b: v };
+  }
+
+  const cube = index - 16;
+  const r = Math.floor(cube / 36);
+  const g = Math.floor((cube % 36) / 6);
+  const b = cube % 6;
+  const levels = [0, 95, 135, 175, 215, 255];
+  return { r: levels[r]!, g: levels[g]!, b: levels[b]! };
+}
+
+function colorFromAnsi(fg: string): RgbColor {
+  const cached = ANSI_COLOR_CACHE.get(fg);
+  if (cached) return cached;
+
+  const trueColor = fg.match(ANSI_TRUECOLOR_RE);
+  if (trueColor) {
+    const parsed = {
+      r: Number(trueColor[1]),
+      g: Number(trueColor[2]),
+      b: Number(trueColor[3]),
+    };
+    ANSI_COLOR_CACHE.set(fg, parsed);
+    return parsed;
+  }
+
+  const indexed = fg.match(ANSI_256_RE);
+  if (indexed) {
+    const parsed = ansi256ToRgb(Number(indexed[1]));
+    ANSI_COLOR_CACHE.set(fg, parsed);
+    return parsed;
+  }
+
+  const fallback = { r: 255, g: 255, b: 255 };
+  ANSI_COLOR_CACHE.set(fg, fallback);
+  return fallback;
+}
+
+function scaleColor(color: RgbColor, scale: number): RgbColor {
+  return {
+    r: clamp(Math.round(color.r * scale), 0, 255),
+    g: clamp(Math.round(color.g * scale), 0, 255),
+    b: clamp(Math.round(color.b * scale), 0, 255),
+  };
+}
+
+function mixColor(a: RgbColor, b: RgbColor, t: number): RgbColor {
+  const blend = clamp(t, 0, 1);
+  return {
+    r: Math.round(a.r + (b.r - a.r) * blend),
+    g: Math.round(a.g + (b.g - a.g) * blend),
+    b: Math.round(a.b + (b.b - a.b) * blend),
+  };
+}
+
 // ── Vec3 ────────────────────────────────────────────────────────────────────
 
 export type Vec3 = { x: number; y: number; z: number };
@@ -172,6 +263,11 @@ export type Cell = {
   fg: string;       // ANSI fg escape
   depth: number;     // Z value (lower = closer)
   emissive: number;  // glow intensity 0–1
+  light: number;     // accumulated brightness
+  coverage: number;  // accumulated coverage
+  accumR: number;
+  accumG: number;
+  accumB: number;
 };
 
 export class Framebuffer {
@@ -189,7 +285,17 @@ export class Framebuffer {
 
   clear() {
     for (let i = 0; i < this.cells.length; i++) {
-      this.cells[i] = { char: " ", fg: "", depth: Infinity, emissive: 0 };
+      this.cells[i] = {
+        char: " ",
+        fg: "",
+        depth: Infinity,
+        emissive: 0,
+        light: 0,
+        coverage: 0,
+        accumR: 0,
+        accumG: 0,
+        accumB: 0,
+      };
     }
   }
 
@@ -200,7 +306,7 @@ export class Framebuffer {
     if (ix < 0 || ix >= this.width || iy < 0 || iy >= this.height) return;
     const idx = iy * this.width + ix;
     const cell = this.cells[idx]!;
-    if (depth <= cell.depth) {
+    if (depth <= cell.depth + 0.05) {
       cell.char = char;
       cell.fg = fg;
       cell.depth = depth;
@@ -208,25 +314,53 @@ export class Framebuffer {
     }
   }
 
-  /** Additive write — blends glow without overwriting foreground chars. */
-  addGlow(x: number, y: number, intensity: number, fg: string) {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (ix < 0 || ix >= this.width || iy < 0 || iy >= this.height) return;
+  private blendLight(ix: number, iy: number, color: RgbColor, depth: number, amount: number, emissive = 0) {
+    if (ix < 0 || ix >= this.width || iy < 0 || iy >= this.height || amount <= 0.001) return;
+
     const idx = iy * this.width + ix;
     const cell = this.cells[idx]!;
-    if (cell.char === " ") {
-      // Pick glow char based on intensity
-      const glyphs = " .:;+*";
-      const gi = Math.min(glyphs.length - 1, Math.floor(intensity * glyphs.length));
-      if (gi > 0) {
-        cell.char = glyphs[gi]!;
-        cell.fg = fg;
-        cell.emissive = Math.max(cell.emissive, intensity);
-      }
-    } else {
-      cell.emissive = Math.max(cell.emissive, intensity);
+
+    if (cell.char !== " " && depth > cell.depth + 0.18) return;
+    if (cell.coverage > 0 && depth > cell.depth + 0.28) return;
+
+    if (depth < cell.depth - 0.18) {
+      cell.coverage *= 0.6;
+      cell.light *= 0.6;
+      cell.accumR *= 0.6;
+      cell.accumG *= 0.6;
+      cell.accumB *= 0.6;
     }
+
+    cell.depth = Math.min(cell.depth, depth);
+    cell.coverage += amount;
+    cell.light += amount;
+    cell.accumR += color.r * amount;
+    cell.accumG += color.g * amount;
+    cell.accumB += color.b * amount;
+    cell.emissive = Math.max(cell.emissive, emissive);
+  }
+
+  /** Sub-pixel sample that distributes intensity across neighboring cells. */
+  splat(x: number, y: number, depth: number, fg: string, intensity: number, emissive = 0) {
+    const color = colorFromAnsi(fg);
+    const minX = Math.floor(x);
+    const maxX = Math.ceil(x);
+    const minY = Math.floor(y);
+    const maxY = Math.ceil(y);
+
+    for (let iy = minY; iy <= maxY; iy++) {
+      for (let ix = minX; ix <= maxX; ix++) {
+        const wx = Math.max(0, 1 - Math.abs(x - ix));
+        const wy = Math.max(0, 1 - Math.abs(y - iy));
+        const weight = wx * wy * intensity;
+        this.blendLight(ix, iy, color, depth, weight, emissive);
+      }
+    }
+  }
+
+  /** Additive write — blends glow without overwriting foreground chars. */
+  addGlow(x: number, y: number, intensity: number, fg: string, depth = Infinity) {
+    this.splat(x, y, depth, fg, intensity * 0.85, intensity);
   }
 
   /** Render to ANSI string. Uses diff against previous frame. */
@@ -236,10 +370,24 @@ export class Framebuffer {
 
     for (let i = 0; i < this.cells.length; i++) {
       const c = this.cells[i]!;
-      if (c.char === " ") {
-        curr[i] = " ";
-      } else {
+      if (c.char !== " ") {
         curr[i] = c.fg + c.char + RESET;
+      } else if (c.light > 0.02 || c.emissive > 0.08) {
+        const avgColor = c.light > 0.0001
+          ? {
+              r: c.accumR / c.light,
+              g: c.accumG / c.light,
+              b: c.accumB / c.light,
+            }
+          : { r: 255, g: 255, b: 255 };
+        const glow = c.emissive * 0.8;
+        const tone = 1 - Math.exp(-(c.light * 0.9 + glow));
+        const rampIndex = clamp(Math.floor(tone * (SHADE_RAMP.length - 1)), 0, SHADE_RAMP.length - 1);
+        const highlight = mixColor(avgColor, { r: 255, g: 255, b: 255 }, clamp(glow * 0.45, 0, 0.45));
+        const finalColor = scaleColor(highlight, 0.55 + tone * 0.95 + glow * 0.4);
+        curr[i] = rgb(finalColor.r, finalColor.g, finalColor.b) + SHADE_RAMP[rampIndex]! + RESET;
+      } else {
+        curr[i] = " ";
       }
     }
 
@@ -326,8 +474,8 @@ export class Projector {
     const sy = this.height / 2 - v.y * invZ * this.aspectY;
 
     return {
-      sx: Math.round(sx),
-      sy: Math.round(sy),
+      sx,
+      sy,
       depth: viewZ,
       scale: invZ,
       visible: sx >= -1 && sx <= this.width && sy >= -1 && sy <= this.height,
@@ -372,6 +520,8 @@ export type LineStyle = {
   chars?: string;     // directional chars: "─│╱╲·" (h, v, fwd-diag, bk-diag, dot)
   fg: string;
   dashGap?: number;   // 0 = solid
+  width?: number;
+  intensity?: number;
 };
 
 /** Draw a 3D line between two projected points with depth interpolation. */
@@ -385,14 +535,19 @@ export function drawLine(
 
   const dx = b.sx - a.sx;
   const dy = b.sy - a.sy;
-  const steps = Math.max(Math.abs(dx), Math.abs(dy));
-  if (steps === 0) return;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.001) return;
+  const steps = Math.max(1, Math.ceil(length * 1.5));
 
   const drawSteps = Math.floor(steps * Math.max(0, Math.min(1, progress)));
-  const chars = style.chars ?? null;
+  const width = style.width ?? (style.dashGap ? 0.95 : 0.7);
+  const intensity = style.intensity ?? (style.dashGap ? 0.5 : 0.32);
+  const invLength = 1 / length;
+  const nx = -dy * invLength;
+  const ny = dx * invLength;
 
   for (let s = 0; s <= drawSteps; s++) {
-    const t = s / steps;
+    const t = steps === 0 ? 0 : s / steps;
     const x = a.sx + dx * t;
     const y = a.sy + dy * t;
     const depth = a.depth + (b.depth - a.depth) * t;
@@ -401,20 +556,12 @@ export function drawLine(
       if (s % (style.dashGap + 1) !== 0) continue;
     }
 
-    // Pick directional char
-    let ch: string;
-    if (chars) {
-      const angle = Math.atan2(dy, dx);
-      const deg = ((angle * 180 / Math.PI) + 360) % 360;
-      if (deg < 22.5 || deg >= 337.5 || (deg >= 157.5 && deg < 202.5)) ch = chars[0] ?? "-";
-      else if ((deg >= 67.5 && deg < 112.5) || (deg >= 247.5 && deg < 292.5)) ch = chars[1] ?? "|";
-      else if ((deg >= 22.5 && deg < 67.5) || (deg >= 202.5 && deg < 247.5)) ch = chars[2] ?? "/";
-      else ch = chars[3] ?? "\\";
-    } else {
-      ch = style.char ?? ".";
+    fb.splat(x, y, depth, style.fg, intensity);
+    if (width > 0.8) {
+      const offset = (width - 0.35) * 0.45;
+      fb.splat(x + nx * offset, y + ny * offset, depth + 0.01, style.fg, intensity * 0.5);
+      fb.splat(x - nx * offset, y - ny * offset, depth + 0.01, style.fg, intensity * 0.5);
     }
-
-    fb.set(x, y, ch, style.fg, depth);
   }
 }
 
@@ -427,6 +574,7 @@ export function drawGlow(
   radius: number,
   intensity: number,
   fg: string,
+  depth = Infinity,
 ) {
   const r = Math.ceil(radius);
   for (let dy = -r; dy <= r; dy++) {
@@ -437,8 +585,58 @@ export function drawGlow(
       const falloff = 1 - dist / radius;
       const glow = falloff * falloff * intensity;
       if (glow > 0.05) {
-        fb.addGlow(sx + dx, sy + dy, glow, fg);
+        fb.addGlow(sx + dx, sy + dy, glow, fg, depth);
       }
+    }
+  }
+}
+
+// ── Sphere helper ───────────────────────────────────────────────────────────
+
+export function drawSphere(
+  fb: Framebuffer,
+  center: Projected,
+  radius: number,
+  fg: string,
+  opts?: { emissive?: number; pulse?: number },
+) {
+  if (!center.visible || radius <= 0.2) return;
+
+  const baseColor = colorFromAnsi(fg);
+  const lightDir = v3.normalize(v3.create(-0.45, -0.65, 0.85));
+  const viewDir = v3.create(0, 0, 1);
+  const halfVec = v3.normalize(v3.add(lightDir, viewDir));
+  const emissive = opts?.emissive ?? 0;
+  const pulse = opts?.pulse ?? 0;
+  const screenRadius = Math.max(1, radius);
+  const maxDy = Math.ceil(screenRadius);
+  const maxDx = Math.ceil(screenRadius * 2);
+
+  for (let dy = -maxDy; dy <= maxDy; dy++) {
+    for (let dx = -maxDx; dx <= maxDx; dx++) {
+      const nx = dx / (screenRadius * 2);
+      const ny = dy / screenRadius;
+      const rr = nx * nx + ny * ny;
+      if (rr > 1) continue;
+
+      const nz = Math.sqrt(1 - rr);
+      const normal = v3.normalize(v3.create(nx, ny, nz));
+      const diffuse = Math.max(0, v3.dot(normal, lightDir));
+      const rim = Math.pow(1 - Math.max(0, v3.dot(normal, viewDir)), 2.2);
+      const spec = Math.pow(Math.max(0, v3.dot(normal, halfVec)), 18);
+      const ambient = 0.14;
+      const brightness = ambient + diffuse * 0.72 + spec * 0.4 + pulse * 0.08;
+      const shadeColor = mixColor(baseColor, { r: 255, g: 250, b: 240 }, spec * 0.85 + diffuse * 0.12);
+      const finalColor = scaleColor(shadeColor, 0.7 + diffuse * 0.45 + pulse * 0.1);
+
+      fb.splat(
+        center.sx + dx,
+        center.sy + dy,
+        center.depth - nz * 0.18,
+        rgb(finalColor.r, finalColor.g, finalColor.b),
+        brightness,
+        emissive * (0.65 + rim * 0.35),
+      );
     }
   }
 }
@@ -512,9 +710,10 @@ export class ParticleSystem {
       const pp = proj.project(p.pos);
       if (!pp.visible) continue;
       const lifeRatio = p.life / p.maxLife;
-      const chars = ".+*#@";
-      const ci = Math.min(chars.length - 1, Math.floor(lifeRatio * chars.length));
-      fb.set(pp.sx, pp.sy, chars[ci]!, p.fg, pp.depth, p.emissive * lifeRatio);
+      fb.splat(pp.sx, pp.sy, pp.depth, p.fg, 0.2 + lifeRatio * 0.9, p.emissive * lifeRatio);
+      if (lifeRatio > 0.5) {
+        fb.set(pp.sx, pp.sy, lifeRatio > 0.8 ? "*" : "+", p.fg, pp.depth - 0.02, p.emissive * lifeRatio);
+      }
     }
   }
 }

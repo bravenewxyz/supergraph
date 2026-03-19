@@ -10,7 +10,7 @@ import {
   type Vec3, type Camera, type Projected,
   v3, rgb, DIM, RESET, BOLD,
   Framebuffer, Projector, ParticleSystem,
-  createCamera, drawLine, drawGlow, drawLabel, drawText,
+  createCamera, drawLine, drawGlow, drawLabel, drawSphere,
   runScene,
 } from "./engine.js";
 
@@ -195,17 +195,30 @@ function renderGraph(
     const pb = proj.project(b.pos);
 
     if (e.cross) {
+      const midDepth = (pa.depth + pb.depth) * 0.5;
+      drawGlow(
+        fb,
+        (pa.sx + pb.sx) * 0.5,
+        (pa.sy + pb.sy) * 0.5,
+        1.4 + progress * 0.8,
+        0.06 + progress * 0.08,
+        ACCENT,
+        midDepth + 0.2,
+      );
+
       // Cross-package: accent colored, dashed
       drawLine(fb, pa, pb, {
-        char: "-",
         fg: ACCENT,
         dashGap: 2,
+        width: 1.1,
+        intensity: 0.42,
       }, progress);
     } else {
-      // Intra-package: dim grey, solid dots
+      // Intra-package: dim grey, softer solid line
       drawLine(fb, pa, pb, {
-        char: ".",
         fg: DARK,
+        width: 0.75,
+        intensity: 0.18,
       }, progress);
     }
   }
@@ -219,17 +232,17 @@ function renderGraph(
     // Spawn burst glow
     if (age < 0.8) {
       const burstIntensity = (1 - age / 0.8) * 0.7;
-      drawGlow(fb, p.sx, p.sy, 3 + burstIntensity * 3, burstIntensity, color);
+      drawGlow(fb, p.sx, p.sy, 3 + burstIntensity * 3, burstIntensity, color, p.depth + 0.12);
     }
 
     // Ambient glow for all nodes
     const ambientPulse = 0.15 + 0.08 * Math.sin(t * 2.5 + p.idx * 1.7);
-    drawGlow(fb, p.sx, p.sy, 2, ambientPulse, color);
+    drawGlow(fb, p.sx, p.sy, 2.5, ambientPulse, color, p.depth + 0.16);
 
     // Triggered glow (from status updates)
     if (glowAge < 1.0 && glowAge >= 0) {
       const trigIntensity = (1 - glowAge) * 0.9;
-      drawGlow(fb, p.sx, p.sy, 4, trigIntensity, ACCENT);
+      drawGlow(fb, p.sx, p.sy, 4.8, trigIntensity, ACCENT, p.depth + 0.08);
     }
   }
 
@@ -238,22 +251,14 @@ function renderGraph(
     const age = t - p.node.spawnT;
     const color = PKG_COLORS[p.node.pkg % PKG_COLORS.length]!;
     const pulse = 0.8 + 0.2 * Math.sin(t * 3 + p.idx);
+    const sphereRadius = Math.max(1.15, Math.min(3.2, 0.9 + p.scale * 18));
+    drawSphere(fb, p, sphereRadius, color, {
+      emissive: age < 0.5 ? 1 : 0.35,
+      pulse: pulse - 0.8,
+    });
 
-    // Node character based on age and pulse
-    let ch: string;
-    if (age < 0.15) {
-      ch = "*";
-    } else if (age < 0.3) {
-      ch = "+";
-    } else if (pulse > 0.92) {
-      ch = "@";
-    } else if (pulse > 0.85) {
-      ch = "#";
-    } else {
-      ch = "*";
-    }
-
-    fb.set(p.sx, p.sy, ch, color, p.depth, age < 0.5 ? 1 : 0.3);
+    const coreChar = age < 0.18 ? "*" : pulse > 0.93 ? "@" : "+";
+    fb.set(p.sx, p.sy, coreChar, color, p.depth - 0.22, age < 0.5 ? 1 : 0.45);
 
     // Labels for nodes that are close enough
     if (p.scale > 0.1 && age > 0.6) {
