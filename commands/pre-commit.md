@@ -83,4 +83,4 @@ If MCP tools are unavailable:
 
 1. Run `supergraph detect-changes --scope staged` via Bash to generate the analysis.
 2. Read the output and present the same format above.
-3. For blast radius details, read `.supergraph/supergraph.txt` and trace dependents manually from the module graph.
+3. For blast radius details, read `.supergraph/context/architecture-full.txt` and trace dependents manually from the module graph. If the new file is missing, fall back to the legacy compatibility output `.supergraph/supergraph.txt`.

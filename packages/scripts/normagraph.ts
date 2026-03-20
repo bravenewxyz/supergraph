@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
-import { mkdir, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { readFile } from "./utils.js";
+import { rawPackagesRoot, writeMirroredText } from "./artifact-paths.js";
 
 // ── Discovery JSON types ──────────────────────────────────────────────────────
 type DiscoveryFunction = {
@@ -192,12 +193,16 @@ async function buildNormagraph(auditDir: string, root: string): Promise<NormaGra
   const discoveryData = new Map<string, DiscoveryJson>();
   for (const short of auditEntries) {
     try {
-      const raw = await readFile(join(auditDir, short, "json/map.json"));
+      const raw =
+        await readFile(join(auditDir, short, "map.json")) ??
+        await readFile(join(auditDir, short, "json", "map.json"));
       if (!raw) continue;
       pkgMaps.push({ short, map: JSON.parse(raw) });
     } catch {}
     try {
-      const raw = await readFile(join(auditDir, short, "json/discovery.json"));
+      const raw =
+        await readFile(join(auditDir, short, "discovery.json")) ??
+        await readFile(join(auditDir, short, "json", "discovery.json"));
       if (raw) discoveryData.set(short, JSON.parse(raw));
     } catch {}
   }
@@ -906,7 +911,7 @@ export interface NormagraphOptions {
 export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
   const root = opts.root;
   const detail: DetailLevel = opts.detail ?? "brief";
-  const auditDir = resolve(root, ".supergraph/packages");
+  const auditDir = rawPackagesRoot(root);
 
   const label = detail === "full" ? "symbols-full" : `symbols (${detail})`;
   console.log(`Building ${label}...`);
@@ -914,10 +919,13 @@ export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
   const data = await buildNormagraph(auditDir, root);
   const text = renderNormagraph(data, detail);
 
-  await mkdir(resolve(root, ".supergraph"), { recursive: true });
-  const outFile = detail === "full" ? ".supergraph/symbols-full.txt" : ".supergraph/symbols.txt";
-  const outPath = resolve(root, outFile);
-  await Bun.write(outPath, text);
+  const written = await writeMirroredText(
+    root,
+    "context",
+    detail === "full" ? "symbols-source.txt" : "symbols-brief.txt",
+    text,
+    detail === "full" ? "symbols-full.txt" : "symbols.txt",
+  );
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   if (detail === "brief") {
@@ -930,7 +938,7 @@ export async function runNormagraph(opts: NormagraphOptions): Promise<void> {
       `  ${data.packages.length} packages · ${data.stats.totalModules} modules · ${data.stats.totalSymbols} symbols`,
     );
   }
-  console.log(`  ${(text.length / 1024).toFixed(0)} KB → ${relative(root, outPath)}`);
+  console.log(`  ${(text.length / 1024).toFixed(0)} KB → ${relative(root, written.primary)}`);
   console.log(`Done in ${elapsed}s`);
 }
 

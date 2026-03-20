@@ -428,7 +428,7 @@ function toolQuery(
 
 async function toolMap(root: string, pkg?: string) {
   // Try reading the compact text map
-  const compactPath = join(root, ".supergraph", "supergraph-compact.txt");
+  const compactPath = join(root, ".supergraph", "context", "architecture-compact.txt");
   if (existsSync(compactPath)) {
     let content = await readFile(compactPath, "utf-8");
     if (pkg) {
@@ -444,14 +444,41 @@ async function toolMap(root: string, pkg?: string) {
       }
       content = filtered.length > 0 ? filtered.join("\n") : content;
     }
+    return { source: "context/architecture-compact.txt", content };
+  }
+
+  const legacyCompactPath = join(root, ".supergraph", "supergraph-compact.txt");
+  if (existsSync(legacyCompactPath)) {
+    let content = await readFile(legacyCompactPath, "utf-8");
+    if (pkg) {
+      const lines = content.split("\n");
+      const filtered: string[] = [];
+      let inPkg = false;
+      for (const line of lines) {
+        if (line.startsWith("# ") || line.startsWith("## ")) {
+          inPkg = line.toLowerCase().includes(pkg.toLowerCase());
+        }
+        if (inPkg) filtered.push(line);
+      }
+      content = filtered.length > 0 ? filtered.join("\n") : content;
+    }
     return { source: "supergraph-compact.txt", content };
   }
 
   // Fallback: try the full supergraph.txt
-  const fullPath = join(root, ".supergraph", "supergraph.txt");
+  const fullPath = join(root, ".supergraph", "context", "architecture-full.txt");
   if (existsSync(fullPath)) {
     let content = await readFile(fullPath, "utf-8");
     // Truncate if too long
+    if (content.length > 100_000) {
+      content = content.slice(0, 100_000) + "\n\n... (truncated, full file at .supergraph/context/architecture-full.txt)";
+    }
+    return { source: "context/architecture-full.txt", content };
+  }
+
+  const legacyFullPath = join(root, ".supergraph", "supergraph.txt");
+  if (existsSync(legacyFullPath)) {
+    let content = await readFile(legacyFullPath, "utf-8");
     if (content.length > 100_000) {
       content = content.slice(0, 100_000) + "\n\n... (truncated, full file at .supergraph/supergraph.txt)";
     }
@@ -459,7 +486,7 @@ async function toolMap(root: string, pkg?: string) {
   }
 
   return {
-    error: "No .supergraph/supergraph-compact.txt or supergraph.txt found. Run `supergraph` first to generate the architecture map.",
+    error: "No .supergraph/context/architecture-compact.txt or architecture-full.txt found. Run `supergraph` first to generate the architecture map.",
   };
 }
 

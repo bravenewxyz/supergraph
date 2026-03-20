@@ -11,8 +11,9 @@
  * Maps Go swagger definitions (storage.Admin, client.X) → TS model files.
  *
  * Writes:
- *   .supergraph/cross-lang-bridge.txt   (human-readable report)
- *   .supergraph/cross-lang-bridge.json  (machine-readable data)
+ *   .supergraph/context/cross-lang-bridge.txt    (human-readable report)
+ *   .supergraph/raw/repo/cross-lang-bridge.json  (machine-readable data)
+ *   Legacy top-level copies are retained for compatibility.
  *
  * Usage: bun cross-lang-bridge.ts [--out <dir>] [--help]
  */
@@ -20,6 +21,7 @@
 import { mkdir, readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { parseRootArg, readFile } from "./utils.js";
+import { writeMirroredJson, writeMirroredText } from "./artifact-paths.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 
@@ -78,6 +80,15 @@ interface BridgeReport {
   unmatchedGoEndpoints: GoEndpoint[];
   unmatchedTsFunctions: TsFunction[];
   unmatchedDefinitions: string[];
+}
+
+export interface CrossLangBridgeResult {
+  status: "generated" | "skipped";
+  generatedAt: string;
+  elapsedMs: number;
+  reason?: string;
+  report?: BridgeReport;
+  artifacts: Array<{ kind: "text" | "json"; path: string }>;
 }
 
 // ─── Parse Go swagger spec ───────────────────────────────────────────────────
@@ -455,9 +466,11 @@ export interface CrossLangBridgeOptions {
   outDir?: string;
 }
 
-export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<void> {
+export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<CrossLangBridgeResult> {
   const t0 = Date.now();
   const outDir = opts.outDir ?? resolve(opts.root, ".supergraph");
+  const defaultOutDir = resolve(opts.root, ".supergraph");
+  const mirrorDefaultLayout = resolve(outDir) === defaultOutDir;
 
   const swaggerPath = resolve(opts.root, "go-packages/protocol/docs/swagger.json");
   const sdkPath = resolve(opts.root, "packages/internal/protocol/generated/api.ts");
@@ -466,7 +479,17 @@ export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<
   // Skip entirely if none of the expected paths exist (not a Go ↔ TS bridge repo)
   const { existsSync } = await import("node:fs");
   if (!existsSync(swaggerPath) && !existsSync(sdkPath) && !existsSync(modelsDir)) {
-    return;
+    const generatedAt = new Date().toISOString();
+    const elapsedMs = Date.now() - t0;
+    const reason = "no Go↔TypeScript bridge inputs found";
+    console.log(`  Skipping cross-lang bridge: ${reason}`);
+    return {
+      status: "skipped",
+      generatedAt,
+      elapsedMs,
+      reason,
+      artifacts: [],
+    };
   }
 
   console.log("Detecting Go ↔ TypeScript cross-language bridges...\n");
@@ -523,17 +546,34 @@ export async function runCrossLangBridge(opts: CrossLangBridgeOptions): Promise<
   await mkdir(outDir, { recursive: true });
 
   const textOut = formatText(report);
-  const textPath = join(outDir, "cross-lang-bridge.txt");
-  await Bun.write(textPath, textOut);
-
-  const jsonPath = join(outDir, "cross-lang-bridge.json");
-  await Bun.write(jsonPath, JSON.stringify(report, null, 2));
+  let textPath = join(outDir, "cross-lang-bridge.txt");
+  let jsonPath = join(outDir, "cross-lang-bridge.json");
+  if (mirrorDefaultLayout) {
+    const mirroredText = await writeMirroredText(opts.root, "context", "cross-lang-bridge.txt", textOut);
+    const mirroredJson = await writeMirroredJson(opts.root, "raw", "repo/cross-lang-bridge.json", report, "cross-lang-bridge.json");
+    textPath = mirroredText.primary;
+    jsonPath = mirroredJson.primary;
+  } else {
+    await Bun.write(textPath, textOut);
+    await Bun.write(jsonPath, JSON.stringify(report, null, 2));
+  }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   console.log(
     `\nDone in ${elapsed}s  —  ${(textOut.length / 1024).toFixed(0)} KB / ${textOut.split("\n").length} lines → ${relative(opts.root, textPath)}`,
   );
   console.log(`  JSON → ${relative(opts.root, jsonPath)}`);
+
+  return {
+    status: "generated",
+    generatedAt: report.generatedAt,
+    elapsedMs: Date.now() - t0,
+    report,
+    artifacts: [
+      { kind: "text", path: textPath },
+      { kind: "json", path: jsonPath },
+    ],
+  };
 }
 
 // ─── Standalone execution ────────────────────────────────────────────────────
@@ -544,7 +584,9 @@ async function main() {
     console.log(
       "Usage: bun cross-lang-bridge.ts [--out <dir>] [--help]\n\n" +
         "Detects Go ↔ TypeScript interface points.\n" +
-        "  --out <dir>   Output directory (default: .supergraph/)\n",
+        "  --out <dir>   Output directory (default: .supergraph/)\n" +
+        "                Writes into .supergraph/context and .supergraph/raw\n" +
+        "                with legacy top-level compatibility copies.\n",
     );
     process.exit(0);
   }
@@ -556,4 +598,6 @@ async function main() {
   await runCrossLangBridge({ root: ROOT, outDir });
 }
 
-// No auto-run — use the exported runCrossLangBridge function
+const isMain = import.meta.main || import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith("cross-lang-bridge.ts");
+if (isMain) main();

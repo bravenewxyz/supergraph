@@ -239,8 +239,9 @@ export function compressExtDep(
 // ─── Load per-package map.json files ──────────────────────────────────────────
 
 /**
- * Reads all `.supergraph/packages/<pkg>/json/map.json` files into a Map keyed by
- * package short name.
+ * Reads canonical `.supergraph/raw/packages/<pkg>/map.json` files into a Map keyed by
+ * package short name, falling back to legacy `.supergraph/packages/<pkg>/json/map.json`
+ * compatibility paths when needed.
  *
  * When `allowList` is provided, only directories whose names appear in the
  * set are loaded — this prevents stale artifact directories left over from
@@ -263,7 +264,9 @@ export async function loadAllMaps(
   } catch { /* packages dir unreadable */ }
   for (const short of entries) {
     try {
-      const raw = await readFile(join(pkgsDir, short, "json/map.json"));
+      const raw =
+        await readFile(join(pkgsDir, short, "map.json")) ??
+        await readFile(join(pkgsDir, short, "json/map.json"));
       if (!raw) continue;
       result.set(short, { short, map: JSON.parse(raw) });
     } catch { /* map.json unreadable or malformed — skip package */ }

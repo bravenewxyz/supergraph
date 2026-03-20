@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 
-import { mkdir, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
+import { rawPackagesRoot, writeMirroredText } from "./artifact-paths.js";
 import {
   compressPath as _compressPath,
   type RawModule as BaseRawModule,
@@ -67,6 +68,13 @@ type SuperGraph = BaseGraphOutput<SuperNode, SuperEdge, {
   issueData: Record<string, IssueFiles>;
 };
 
+async function readPackageArtifact(dir: string, fileName: string): Promise<string | undefined> {
+  const primary = await readFile(join(dir, fileName));
+  if (primary !== null && primary !== undefined) return primary;
+  const legacy = await readFile(join(dir, "json", fileName));
+  return legacy ?? undefined;
+}
+
 async function loadIssueFiles(dir: string): Promise<IssueFiles> {
   const files: IssueFiles = {};
   for (const key of [
@@ -76,7 +84,9 @@ async function loadIssueFiles(dir: string): Promise<IssueFiles> {
     "trace-boundaries",
   ] as const) {
     try {
-      files[key] = JSON.parse(await readFile(join(dir, `json/${key}.json`)) ?? "");
+      const raw = await readPackageArtifact(dir, `${key}.json`);
+      if (!raw) continue;
+      files[key] = JSON.parse(raw);
     } catch { /* file may not exist — expected for optional issue types */ }
   }
   return files;
@@ -84,7 +94,7 @@ async function loadIssueFiles(dir: string): Promise<IssueFiles> {
 
 function derivePkgShort(relToPackages: string): string {
   const parts = relToPackages.split("/");
-  if (parts.length === 1) return parts[0];
+  if (parts.length === 1) return parts[0] ?? relToPackages;
   const parent = parts[parts.length - 1];
   const grandparent = parts[parts.length - 2];
   return `${grandparent}-${parent}`;
@@ -109,9 +119,9 @@ async function buildSupergraph(
 
   for (const short of auditEntries) {
     try {
-      const map: RawMap = JSON.parse(
-        await readFile(join(auditDir, short, "json/map.json")) ?? "",
-      );
+      const raw = await readPackageArtifact(join(auditDir, short), "map.json");
+      if (!raw) continue;
+      const map: RawMap = JSON.parse(raw);
       const issues = await loadIssueFiles(join(auditDir, short));
       pkgMaps.push({ short, map, issues });
       auditDirsWithData.add(short);
@@ -1013,7 +1023,7 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   PROJECT_NAME = basename(root);
 
   const cfg = await loadConfig(root);
-  const auditDir = resolve(root, ".supergraph/packages");
+  const auditDir = rawPackagesRoot(root);
   const packagesDir = cfg.workspace.packagesDir ?? "packages";
   EXT_ALIASES = cfg.supergraph.extAliases as [string, string][];
   PATH_SEGS = cfg.supergraph.pathSegments as [string, string][];
@@ -1031,25 +1041,37 @@ export async function runAggregate(opts: AggregateOptions): Promise<void> {
   if (data.stats.missing.length)
     console.log(`  ⚠  No data for: ${data.stats.missing.join(", ")}`);
 
-  const outPath = resolve(root, ".supergraph/supergraph.html");
-  const issuesPath = resolve(root, ".supergraph/issues.txt");
-  await mkdir(resolve(root, ".supergraph"), { recursive: true });
   const html = generateHtml(data);
   const issues = generateIssuesTxt(data);
-
-  await Promise.all([
-    Bun.write(outPath, html),
-    Bun.write(issuesPath, issues),
-  ]);
+  const htmlPath = await writeMirroredText(root, "views", "supergraph.html", html);
+  const issuesPath = await writeMirroredText(root, "context", "findings.txt", issues, "issues.txt");
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
   console.log(`\nDone in ${elapsed}s`);
   console.log(
-    `  ${(html.length / 1024).toFixed(0)} KB → ${relative(root, outPath)}`,
+    `  ${(html.length / 1024).toFixed(0)} KB → ${relative(root, htmlPath.primary)}`,
   );
   console.log(
-    `  ${(issues.length / 1024).toFixed(0)} KB → ${relative(root, issuesPath)}`,
+    `  ${(issues.length / 1024).toFixed(0)} KB → ${relative(root, issuesPath.primary)}`,
   );
 }
 
-// No auto-run — use `supergraph aggregate` or `bun scripts/supergraph.ts` via index.ts
+async function main() {
+  const args = process.argv.slice(2);
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("Usage: bun supergraph.ts");
+    console.log("  Builds the cross-package supergraph view from audit artifacts.");
+    process.exit(0);
+  }
+
+  await runAggregate({ root: ROOT });
+}
+
+const isMain = import.meta.main ||
+  process.argv[1]?.endsWith("supergraph.ts");
+if (isMain) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

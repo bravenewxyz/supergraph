@@ -21,11 +21,13 @@ Perform a systematic, multi-pass audit of a TypeScript package. Finds duplicate 
 **ALL output goes under `.supergraph/<package-name>/`.** Never write findings, plans, or any artifacts inside the source tree. The package name is derived from the argument path (e.g. `packages/orchestrator/src` → `orchestrator`).
 
 ```
-.supergraph/<package-name>/
+.supergraph/context/<package-name>/
   map.txt  deps.txt  imports.txt  complexity.txt  dead.txt
   findings.md  schema-match.txt  trace-boundaries.txt  logic-audit.txt
   invariants/   discovery.txt  invariants.json  tests/  README.md
   plans/        README.md  001-*.md  002-*.md  ...
+.supergraph/raw/packages/<package-name>/
+  map.json  schema-match.json  trace-boundaries.json  logic-audit.json  discovery.json
 ```
 
 ## MCP tools (preferred) vs static files
@@ -55,7 +57,7 @@ Read these files **in their entirety** (never skim or chunk). Pass full content 
 
 | File | Contains |
 |---|---|
-| `supergraph.txt` | Unified monorepo map: domains, schemas, modules, types, edges |
+| `context/architecture-full.txt` | Unified monorepo map: domains, schemas, modules, types, edges |
 | `map.txt` | Per-module symbols, functions, types, variables, comments, deps |
 | `deps.txt` | Full dependency graph — every module → its internal deps |
 | `imports.txt` | All modules sorted by inbound edge count |
@@ -86,7 +88,7 @@ Then focus the deep audit (Phases 1–10) on the requested packages.
 
 **If MCP is available**: Start with `supergraph_detect_changes` (scope: "all") to see what changed since last run. This tells you where to focus deep reads. Then use `supergraph_map` for the architecture overview before reading static files for full detail.
 
-Read `.supergraph/supergraph.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). Notation:
+Read `.supergraph/context/architecture-full.txt` in full, then read all three per-package map files (`map.txt`, `deps.txt`, `imports.txt`). If the new file is missing, the legacy `.supergraph/supergraph.txt` is acceptable. Notation:
 - `+` exported, ` ` unexported | `fn` function | `L42-55` line range
 - `←` internal deps | `←ext` external deps | `━━━ module ━━━` separator
 

@@ -1,5 +1,5 @@
-import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join, resolve, relative } from "node:path";
+import { appendFile, copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve, relative } from "node:path";
 import { Glob } from "bun";
 
 import { discoverPackages, findMonorepoRoot } from "../monorepo.js";
@@ -39,6 +39,22 @@ import { runCrossLangBridge } from "../../packages/scripts/cross-lang-bridge.js"
 import { runNormagraph } from "../../packages/scripts/normagraph.js";
 import { runTemporal } from "../../packages/scripts/temporal.js";
 import { serializeJsonForHtmlScriptTag } from "../../packages/scripts/shared.js";
+import {
+  contextPackageDir,
+  legacyPackageDir,
+  legacyRepoArtifacts,
+  mirrorCanonicalToLegacy,
+  rawPackageDir,
+  repoArtifacts,
+  viewsPackageDir,
+} from "../../packages/scripts/artifact-paths.js";
+import {
+  type ArtifactFormat,
+  type ArtifactRecordInput,
+  type ArtifactStatus,
+  buildArtifactManifest,
+  serializeArtifactManifest,
+} from "./artifact-manifest.js";
 
 // UI
 import { startAnimation } from "../ui/graph-animation.js";
@@ -71,6 +87,8 @@ type PkgTarget = {
   outDir: string;
   invDir: string;
   jsonDir: string;
+  viewDir: string;
+  legacyDir: string;
   driver: LanguageDriver;
 };
 
@@ -434,6 +452,177 @@ async function runTools(
 
 /** Collect all results across packages for the final summary */
 const allResults: { pkgName: string; results: RunResult[] }[] = [];
+const allArtifactRecords: ArtifactRecordInput[] = [];
+
+type ArtifactProbe = {
+  status: ArtifactStatus;
+  bytes?: number;
+  reason?: string;
+  summary?: string;
+};
+
+function artifactFormatFromPath(path: string): ArtifactFormat {
+  if (path.endsWith(".html")) return "html";
+  if (path.endsWith(".json")) return "json";
+  if (path.endsWith(".md")) return "md";
+  return "txt";
+}
+
+function resolveArtifactPath(root: string, path: string): { absPath: string; relPath: string } {
+  const absPath = path.startsWith("/") ? path : resolve(root, path);
+  return { absPath, relPath: relative(root, absPath) };
+}
+
+function defaultMissingReason(status: ArtifactStatus): string {
+  switch (status) {
+    case "skipped": return "artifact not applicable for this run";
+    case "empty": return "analysis completed with no output";
+    case "failed": return "expected artifact was not written";
+    case "generated": return "";
+  }
+}
+
+async function probeArtifact(
+  root: string,
+  path: string,
+  fallbackStatusOnMissing: ArtifactStatus,
+  summary?: string,
+): Promise<ArtifactProbe> {
+  const { absPath } = resolveArtifactPath(root, path);
+  let bytes = 0;
+  try {
+    const st = await stat(absPath);
+    bytes = st.size;
+  } catch {
+    return {
+      status: fallbackStatusOnMissing,
+      reason: defaultMissingReason(fallbackStatusOnMissing),
+      summary,
+    };
+  }
+
+  const format = artifactFormatFromPath(path);
+  if (bytes === 0) {
+    return { status: "empty", bytes, reason: "artifact is empty", summary };
+  }
+
+  if (format === "txt" || format === "md" || format === "html") {
+    const text = await readFile(absPath, "utf-8");
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return { status: "empty", bytes, reason: "artifact is empty", summary };
+    }
+    if (trimmed === "No runtime schemas found.") {
+      return { status: "skipped", bytes, reason: trimmed, summary: summary ?? trimmed };
+    }
+    if (trimmed.startsWith("Skipped:")) {
+      return { status: "skipped", bytes, reason: trimmed, summary: summary ?? trimmed };
+    }
+    if (/^No .+ found\.$/.test(trimmed) && bytes <= 256) {
+      return { status: "empty", bytes, reason: trimmed, summary: summary ?? trimmed };
+    }
+    return { status: "generated", bytes, summary };
+  }
+
+  if (format === "json") {
+    try {
+      const value = JSON.parse(await readFile(absPath, "utf-8")) as unknown;
+      if (path.endsWith("schema-match.json")) {
+        const data = value as { schemas?: number };
+        if ((data.schemas ?? 0) === 0) {
+          return { status: "skipped", bytes, reason: "no runtime schemas found", summary };
+        }
+      }
+      if (path.endsWith("contracts.json")) {
+        const data = value as { skipped?: boolean; reason?: string };
+        if (data.skipped) {
+          return { status: "skipped", bytes, reason: data.reason ?? "contracts analysis skipped", summary };
+        }
+      }
+      if (path.endsWith("trace-boundaries.json")) {
+        const data = value as { boundaries?: unknown[] };
+        if (Array.isArray(data.boundaries) && data.boundaries.length === 0) {
+          return { status: "empty", bytes, reason: "no serialization boundaries found", summary };
+        }
+      }
+      if (path.endsWith("taint.json")) {
+        const data = value as { unsanitizedFlows?: number };
+        if ((data.unsanitizedFlows ?? 0) === 0) {
+          return { status: "empty", bytes, reason: "no unsanitized taint flows", summary };
+        }
+      }
+      if (Array.isArray(value) && value.length === 0) {
+        return { status: "empty", bytes, reason: "artifact contains no records", summary };
+      }
+    } catch {
+      // Keep status as generated for now; parse errors should already fail the producer.
+    }
+  }
+
+  return { status: "generated", bytes, summary };
+}
+
+function pushArtifactRecord(record: ArtifactRecordInput): void {
+  allArtifactRecords.push(record);
+}
+
+async function recordArtifact(
+  root: string,
+  base: Omit<ArtifactRecordInput, "format" | "status" | "bytes" | "reason"> & {
+    fallbackStatusOnMissing: ArtifactStatus;
+  },
+): Promise<void> {
+  const { relPath } = resolveArtifactPath(root, base.path);
+  const probe = await probeArtifact(root, base.path, base.fallbackStatusOnMissing, base.summary);
+  pushArtifactRecord({
+    id: base.id,
+    scope: base.scope,
+    producer: base.producer,
+    packageName: base.packageName,
+    path: relPath,
+    format: artifactFormatFromPath(relPath),
+    status: probe.status,
+    bytes: probe.bytes,
+    summary: probe.summary ?? base.summary,
+    reason: probe.reason,
+    inputs: base.inputs,
+  });
+}
+
+async function promoteLegacyArtifact(canonicalPath: string, legacyPath: string): Promise<void> {
+  try {
+    await stat(canonicalPath);
+    return;
+  } catch {
+    // canonical missing — fall through
+  }
+  try {
+    await stat(legacyPath);
+  } catch {
+    return;
+  }
+  await mkdir(dirname(canonicalPath), { recursive: true });
+  await copyFile(legacyPath, canonicalPath);
+}
+
+function statusIcon(status: ArtifactStatus): string {
+  switch (status) {
+    case "generated": return `${C.green}✓${C.reset}`;
+    case "empty": return `${C.yellow}○${C.reset}`;
+    case "skipped": return `${C.dim}·${C.reset}`;
+    case "failed": return `${C.red}✗${C.reset}`;
+  }
+}
+
+function statusSuffix(record: { status: ArtifactStatus; reason?: string }): string {
+  if (!record.reason) {
+    return record.status === "empty" ? `  ${C.dim}empty${C.reset}` :
+      record.status === "skipped" ? `  ${C.dim}skipped${C.reset}` :
+      "";
+  }
+  if (record.status === "generated") return "";
+  return `  ${C.dim}${record.reason}${C.reset}`;
+}
 
 function reportResults(results: RunResult[], pkgName: string, anim?: AnimationHandle): number {
   let failures = 0;
@@ -546,8 +735,8 @@ async function buildDashboards(
 ): Promise<{ dash: boolean; graph: boolean }> {
   const payload = await loadPayload(t.jsonDir);
   const [dash, graph] = await Promise.all([
-    injectTemplate("index.html", payload, `${t.outDir}/dashboard.html`),
-    injectTemplate("graph.html", payload, `${t.outDir}/graph.html`),
+    injectTemplate("index.html", payload, `${t.viewDir}/dashboard.html`),
+    injectTemplate("graph.html", payload, `${t.viewDir}/graph.html`),
   ]);
   return { dash, graph };
 }
@@ -575,7 +764,7 @@ function checkCollisions(targets: PkgTarget[]): void {
 // Per-package audit (unified)
 // ---------------------------------------------------------------------------
 
-async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<number> {
+async function auditPackage(root: string, t: PkgTarget, anim?: AnimationHandle): Promise<number> {
   const langLabel = t.driver.id === "typescript" ? "" : `  (${t.driver.name})`;
   if (anim) {
     anim.update(`auditing ${t.pkgName}...`);
@@ -586,9 +775,12 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
 
   // Clean previous outputs so stale artifacts don't persist across runs
   await rm(t.outDir, { recursive: true, force: true });
+  await rm(t.viewDir, { recursive: true, force: true });
+  await rm(t.legacyDir, { recursive: true, force: true });
   await mkdir(t.outDir, { recursive: true });
   await mkdir(t.invDir, { recursive: true });
   await mkdir(t.jsonDir, { recursive: true });
+  await mkdir(t.viewDir, { recursive: true });
 
   const tools = buildTools(t);
   let failures = 0;
@@ -620,8 +812,28 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   if (t.driver.id === "typescript") {
     anim?.update(`${t.pkgName}: building dashboards...`);
     const { dash, graph } = await buildDashboards(t);
+    await recordArtifact(root, {
+      id: `package:${t.pkgName}:dashboard`,
+      scope: "package",
+      producer: "dashboard",
+      packageName: t.pkgName,
+      path: `${t.viewDir}/dashboard.html`,
+      summary: "package dashboard",
+      fallbackStatusOnMissing: "failed",
+    });
+    await mirrorCanonicalToLegacy(root, resolve(root, `${t.viewDir}/dashboard.html`)).catch(() => {});
+    await recordArtifact(root, {
+      id: `package:${t.pkgName}:graph-view`,
+      scope: "package",
+      producer: "dashboard-graph",
+      packageName: t.pkgName,
+      path: `${t.viewDir}/graph.html`,
+      summary: "package graph view",
+      fallbackStatusOnMissing: "failed",
+    });
+    await mirrorCanonicalToLegacy(root, resolve(root, `${t.viewDir}/graph.html`)).catch(() => {});
     if (!anim) {
-      const outputs = [`${C.dim}→ ${t.outDir}/${C.reset}`];
+      const outputs = [`${C.dim}→ ${t.viewDir}/${C.reset}`];
       if (dash) outputs.push(`${C.cyan}dashboard.html${C.reset}`);
       if (graph) outputs.push(`${C.cyan}graph.html${C.reset}`);
       console.log(`  ${outputs.join("  ")}`);
@@ -632,6 +844,33 @@ async function auditPackage(t: PkgTarget, anim?: AnimationHandle): Promise<numbe
   if (failures > 0 && !anim) console.log(`  ${C.yellow}⚠  ${failures} tool(s) failed${C.reset}`);
 
   anim?.packageReady(t.pkgName);
+
+  for (const result of results) {
+    await mirrorCanonicalToLegacy(root, resolve(root, result.tool.checkFile)).catch(() => {});
+    await recordArtifact(root, {
+      id: `package:${t.pkgName}:${basename(result.tool.checkFile)}`,
+      scope: "package",
+      producer: result.tool.label,
+      packageName: t.pkgName,
+      path: result.tool.checkFile,
+      summary: result.tool.label,
+      fallbackStatusOnMissing: result.ok
+        ? (result.tool.checkFile.endsWith("compound.json") ? "empty" : "failed")
+        : "failed",
+    });
+    for (const extraFile of result.tool.extraFiles ?? []) {
+      await mirrorCanonicalToLegacy(root, resolve(root, extraFile)).catch(() => {});
+      await recordArtifact(root, {
+        id: `package:${t.pkgName}:${basename(extraFile)}`,
+        scope: "package",
+        producer: result.tool.label,
+        packageName: t.pkgName,
+        path: extraFile,
+        summary: result.tool.label,
+        fallbackStatusOnMissing: result.ok ? "failed" : "failed",
+      });
+    }
+  }
 
   return failures;
 }
@@ -722,13 +961,16 @@ Usage:
     if (srcDirs.length > 0) {
       tsTargets = srcDirs.map((srcDir) => {
         const pkgName = derivePkgName(srcDir, tsDriver);
-        const outDir = `.supergraph/packages/${pkgName}`;
+        const outDir = relative(ROOT, contextPackageDir(ROOT, pkgName));
+        const jsonDir = relative(ROOT, rawPackageDir(ROOT, pkgName));
         return {
           srcDir,
           pkgName,
           outDir,
           invDir: `${outDir}/invariants`,
-          jsonDir: `${outDir}/json`,
+          jsonDir,
+          viewDir: relative(ROOT, viewsPackageDir(ROOT, pkgName)),
+          legacyDir: relative(ROOT, legacyPackageDir(ROOT, pkgName)),
           driver: tsDriver,
         };
       });
@@ -752,13 +994,16 @@ Usage:
     if (goDirs.length > 0) {
       goTargets = goDirs.map((goDir) => {
         const pkgName = derivePkgName(goDir, goDriver);
-        const outDir = `.supergraph/packages/${pkgName}`;
+        const outDir = relative(ROOT, contextPackageDir(ROOT, pkgName));
+        const jsonDir = relative(ROOT, rawPackageDir(ROOT, pkgName));
         return {
           srcDir: goDir,
           pkgName,
           outDir,
           invDir: `${outDir}/invariants`,
-          jsonDir: `${outDir}/json`,
+          jsonDir,
+          viewDir: relative(ROOT, viewsPackageDir(ROOT, pkgName)),
+          legacyDir: relative(ROOT, legacyPackageDir(ROOT, pkgName)),
           driver: goDriver,
         };
       });
@@ -821,7 +1066,7 @@ Usage:
     }
 
     for (const t of tsTargets) {
-      totalFailures += await auditPackage(t, anim);
+      totalFailures += await auditPackage(ROOT, t, anim);
       clearProgramCache(); // free TS Program memory between packages
     }
   }
@@ -839,7 +1084,7 @@ Usage:
     }
 
     for (const t of goTargets) {
-      totalFailures += await auditPackage(t, anim);
+      totalFailures += await auditPackage(ROOT, t, anim);
     }
   }
 
@@ -851,29 +1096,59 @@ Usage:
   // Clean stale top-level cross-package artifacts
   const AUDIT_DIR = resolve(ROOT, ".supergraph");
   const STALE_ARTIFACTS = [
-    "supergraph.html", "pkg-graph.html",
-    "supergraph.txt", "supergraph-compact.txt",
-    "symbols-full.txt", "symbols.txt", "issues.txt",
-    "temporal.txt",
+    legacyRepoArtifacts.supergraphHtml(ROOT),
+    legacyRepoArtifacts.pkgGraphHtml(ROOT),
+    legacyRepoArtifacts.architectureFull(ROOT),
+    legacyRepoArtifacts.architectureCompact(ROOT),
+    legacyRepoArtifacts.symbolsSource(ROOT),
+    legacyRepoArtifacts.symbolsBrief(ROOT),
+    legacyRepoArtifacts.findings(ROOT),
+    legacyRepoArtifacts.temporal(ROOT),
+    legacyRepoArtifacts.crossLangText(ROOT),
+    legacyRepoArtifacts.crossLangJson(ROOT),
+    repoArtifacts.supergraphHtml(ROOT),
+    repoArtifacts.pkgGraphHtml(ROOT),
+    repoArtifacts.architectureFull(ROOT),
+    repoArtifacts.architectureCompact(ROOT),
+    repoArtifacts.symbolsSource(ROOT),
+    repoArtifacts.symbolsBrief(ROOT),
+    repoArtifacts.findings(ROOT),
+    repoArtifacts.temporal(ROOT),
+    repoArtifacts.crossLangText(ROOT),
+    repoArtifacts.crossLangJson(ROOT),
+    repoArtifacts.index(ROOT),
+    resolve(ROOT, ".supergraph/context/issues.txt"),
+    resolve(ROOT, ".supergraph/context/supergraph.txt"),
+    resolve(ROOT, ".supergraph/context/supergraph-compact.txt"),
+    resolve(ROOT, ".supergraph/context/symbols.txt"),
+    resolve(ROOT, ".supergraph/context/symbols-full.txt"),
+    resolve(ROOT, ".supergraph/raw/cross-lang-bridge.json"),
   ];
-  await Promise.all(STALE_ARTIFACTS.map(f => rm(join(AUDIT_DIR, f), { force: true })));
+  await Promise.all(STALE_ARTIFACTS.map(f => rm(f, { force: true })));
 
   // Clean stale per-package directories that don't belong to the current run.
   // Without this, leftover directories from auditing a different project pollute
   // the aggregate cross-package output (superhigh, supergraph, normagraph).
-  const PKGS_DIR = join(AUDIT_DIR, "packages");
+  const packageRoots = [
+    resolve(ROOT, ".supergraph/raw/packages"),
+    resolve(ROOT, ".supergraph/views/packages"),
+    resolve(ROOT, ".supergraph/context/packages"),
+    resolve(ROOT, ".supergraph/packages"),
+  ];
   const validPkgNames = new Set([
     ...tsTargets.map(t => t.pkgName),
     ...goTargets.map(t => t.pkgName),
   ]);
-  try {
-    const existingDirs = await readdir(PKGS_DIR, { withFileTypes: true });
-    await Promise.all(
-      existingDirs
-        .filter(e => e.isDirectory() && !validPkgNames.has(e.name))
-        .map(e => rm(join(PKGS_DIR, e.name), { recursive: true, force: true })),
-    );
-  } catch { /* packages dir doesn't exist yet */ }
+  for (const packagesDir of packageRoots) {
+    try {
+      const existingDirs = await readdir(packagesDir, { withFileTypes: true });
+      await Promise.all(
+        existingDirs
+          .filter(e => e.isDirectory() && !validPkgNames.has(e.name))
+          .map(e => rm(join(packagesDir, e.name), { recursive: true, force: true })),
+      );
+    } catch { /* packages dir doesn't exist yet */ }
+  }
 
   const unmuteCross = muteConsole();
   const CROSS_TIMEOUT = 600_000;
@@ -940,8 +1215,138 @@ Usage:
     }
   }
 
+  const crossLangResult =
+    crossResults[2]?.status === "fulfilled" ? crossResults[2].value : null;
+
+  await promoteLegacyArtifact(repoArtifacts.pkgGraphHtml(ROOT), legacyRepoArtifacts.pkgGraphHtml(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.supergraphHtml(ROOT), legacyRepoArtifacts.supergraphHtml(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.findings(ROOT), legacyRepoArtifacts.findings(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.crossLangText(ROOT), legacyRepoArtifacts.crossLangText(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.crossLangJson(ROOT), legacyRepoArtifacts.crossLangJson(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.symbolsSource(ROOT), legacyRepoArtifacts.symbolsSource(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.symbolsBrief(ROOT), legacyRepoArtifacts.symbolsBrief(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.temporal(ROOT), legacyRepoArtifacts.temporal(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.architectureFull(ROOT), legacyRepoArtifacts.architectureFull(ROOT));
+  await promoteLegacyArtifact(repoArtifacts.architectureCompact(ROOT), legacyRepoArtifacts.architectureCompact(ROOT));
+
+  await recordArtifact(ROOT, {
+    id: "repo:pkg-graph",
+    scope: "repo",
+    producer: "pkg-graph",
+    path: repoArtifacts.pkgGraphHtml(ROOT),
+    summary: "package dependency graph",
+    fallbackStatusOnMissing: crossResults[0]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:supergraph-html",
+    scope: "repo",
+    producer: "aggregate",
+    path: repoArtifacts.supergraphHtml(ROOT),
+    summary: "interactive supergraph view",
+    fallbackStatusOnMissing: crossResults[1]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:issues",
+    scope: "repo",
+    producer: "aggregate",
+    path: repoArtifacts.findings(ROOT),
+    summary: "aggregated findings",
+    fallbackStatusOnMissing: crossResults[1]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  if (crossLangResult?.status === "skipped") {
+    for (const path of [repoArtifacts.crossLangText(ROOT), repoArtifacts.crossLangJson(ROOT)]) {
+      pushArtifactRecord({
+        id: `repo:${basename(path)}`,
+        scope: "repo",
+        producer: "cross-lang-bridge",
+        path: relative(ROOT, path),
+        format: artifactFormatFromPath(path),
+        status: "skipped",
+        summary: "cross-language bridge report",
+        reason: crossLangResult.reason,
+      });
+    }
+  } else {
+    await recordArtifact(ROOT, {
+      id: "repo:cross-lang-bridge-text",
+      scope: "repo",
+      producer: "cross-lang-bridge",
+      path: repoArtifacts.crossLangText(ROOT),
+      summary: "cross-language bridge report",
+      fallbackStatusOnMissing: crossResults[2]?.status === "fulfilled" ? "failed" : "failed",
+    });
+    await recordArtifact(ROOT, {
+      id: "repo:cross-lang-bridge-json",
+      scope: "repo",
+      producer: "cross-lang-bridge",
+      path: repoArtifacts.crossLangJson(ROOT),
+      summary: "cross-language bridge data",
+      fallbackStatusOnMissing: crossResults[2]?.status === "fulfilled" ? "failed" : "failed",
+    });
+  }
+  await recordArtifact(ROOT, {
+    id: "repo:symbols-full",
+    scope: "repo",
+    producer: "normagraph",
+    path: repoArtifacts.symbolsSource(ROOT),
+    summary: "full symbol index",
+    fallbackStatusOnMissing: crossResults[3]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:symbols-brief",
+    scope: "repo",
+    producer: "normagraph",
+    path: repoArtifacts.symbolsBrief(ROOT),
+    summary: "brief symbol index",
+    fallbackStatusOnMissing: crossResults[4]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:temporal",
+    scope: "repo",
+    producer: "temporal",
+    path: repoArtifacts.temporal(ROOT),
+    summary: "temporal change analysis",
+    fallbackStatusOnMissing: crossResults[5]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:supergraph-full",
+    scope: "repo",
+    producer: "superhigh",
+    path: repoArtifacts.architectureFull(ROOT),
+    summary: "full architecture context",
+    fallbackStatusOnMissing: superhighResults[0]?.status === "fulfilled" ? "failed" : "failed",
+  });
+  await recordArtifact(ROOT, {
+    id: "repo:supergraph-compact",
+    scope: "repo",
+    producer: "superhigh",
+    path: repoArtifacts.architectureCompact(ROOT),
+    summary: "compact architecture context",
+    fallbackStatusOnMissing: superhighResults[1]?.status === "fulfilled" ? "failed" : "failed",
+  });
+
+  for (const canonicalPath of [
+    repoArtifacts.pkgGraphHtml(ROOT),
+    repoArtifacts.supergraphHtml(ROOT),
+    repoArtifacts.findings(ROOT),
+    repoArtifacts.crossLangText(ROOT),
+    repoArtifacts.crossLangJson(ROOT),
+    repoArtifacts.symbolsSource(ROOT),
+    repoArtifacts.symbolsBrief(ROOT),
+    repoArtifacts.temporal(ROOT),
+    repoArtifacts.architectureFull(ROOT),
+    repoArtifacts.architectureCompact(ROOT),
+  ]) {
+    await mirrorCanonicalToLegacy(ROOT, canonicalPath).catch(() => {});
+  }
+
+  const manifest = buildArtifactManifest(ROOT, allArtifactRecords);
+  const manifestPath = repoArtifacts.index(ROOT);
+  await writeFile(manifestPath, serializeArtifactManifest(manifest));
+  const manifestStat = await stat(manifestPath);
+
   const totalProblems = totalFailures + crossFailures.length + superhighFailures.length;
-  const supergraphHtml = resolve(ROOT, ".supergraph/supergraph.html");
+  const supergraphHtml = repoArtifacts.supergraphHtml(ROOT);
   const htmlExists = await stat(supergraphHtml).then(() => true).catch(() => false);
 
   if (!anim) {
@@ -950,6 +1355,10 @@ Usage:
     for (let i = 0; i < crossResults.length; i++) {
       const r = crossResults[i]!;
       const label = crossLabels[i]!;
+      if (i === 2 && r.status === "fulfilled" && crossLangResult?.status === "skipped") {
+        console.log(`  ${C.dim}·${C.reset}  ${label}  ${C.dim}${crossLangResult.reason ?? "skipped"}${C.reset}`);
+        continue;
+      }
       if (r.status === "fulfilled") {
         console.log(`  ${C.green}✓${C.reset}  ${label}`);
       } else {
@@ -1026,60 +1435,46 @@ Usage:
   }
 
   // ── Cross-package results ──
-  const crossLabelsAll = ["pkg-graph", "supergraph.html", "cross-lang-bridge", "symbols-full.txt", "symbols.txt", "temporal.txt"];
-  const shLabelsAll = ["supergraph.txt", "supergraph-compact.txt"];
-  const allCrossOk = crossResults.every(r => r.status === "fulfilled") && superhighResults.every(r => r.status === "fulfilled");
+  const repoArtifactEntries = [
+    ...manifest.artifacts.filter((artifact) => artifact.scope === "repo"),
+    {
+      id: "repo:index",
+      scope: "repo" as const,
+      producer: "audit",
+      format: "json" as const,
+      path: relative(ROOT, manifestPath),
+      status: "generated" as const,
+      bytes: manifestStat.size,
+      summary: "artifact manifest",
+    },
+  ];
 
   console.log(`\n${C.bold}  Cross-package${C.reset}\n`);
-  for (let i = 0; i < crossResults.length; i++) {
-    const r = crossResults[i]!;
-    const label = crossLabelsAll[i]!;
-    if (r.status === "fulfilled") {
-      console.log(`  ${C.green}✓${C.reset}  ${label}`);
-    } else {
-      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-      console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
-    }
-  }
-  for (let i = 0; i < superhighResults.length; i++) {
-    const r = superhighResults[i]!;
-    const label = shLabelsAll[i]!;
-    if (r.status === "fulfilled") {
-      console.log(`  ${C.green}✓${C.reset}  ${label}`);
-    } else {
-      const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
-      console.log(`  ${C.red}✗${C.reset}  ${label}  ${C.dim}${msg.split("\n")[0]}${C.reset}`);
-    }
+  for (const artifact of repoArtifactEntries) {
+    console.log(`  ${statusIcon(artifact.status)}  ${artifact.path}${statusSuffix(artifact)}`);
   }
 
   // ── Output artifacts ──
   console.log(`\n${C.bold}  Output${C.reset}  ${C.dim}→ .supergraph/${C.reset}\n`);
-  const artifactFiles = [
-    "supergraph.html", "supergraph.txt", "supergraph-compact.txt",
-    "symbols.txt", "symbols-full.txt", "temporal.txt",
-    "issues.txt", "pkg-graph.html",
-  ];
-  for (const f of artifactFiles) {
-    try {
-      const s = await stat(join(AUDIT_DIR, f));
-      const sizeKB = (s.size / 1024).toFixed(0);
-      const sizeMB = s.size > 1024 * 1024 ? ` (${(s.size / 1024 / 1024).toFixed(1)} MB)` : "";
-      console.log(`  ${C.dim}${sizeKB.padStart(6)} KB${C.reset}  ${f}${sizeMB}`);
-    } catch { /* file doesn't exist */ }
+  for (const artifact of repoArtifactEntries) {
+    if (artifact.status !== "generated" || typeof artifact.bytes !== "number") continue;
+    const sizeKB = (artifact.bytes / 1024).toFixed(0);
+    const sizeMB = artifact.bytes > 1024 * 1024 ? ` (${(artifact.bytes / 1024 / 1024).toFixed(1)} MB)` : "";
+    console.log(`  ${C.dim}${sizeKB.padStart(6)} KB${C.reset}  ${artifact.path}${sizeMB}`);
   }
-  // Per-package dashboards
-  for (const t of allTargets) {
-    try {
-      const dashPath = `${t.outDir}/dashboard.html`;
-      const s = await stat(dashPath);
-      console.log(`  ${C.dim}${(s.size / 1024).toFixed(0).padStart(6)} KB${C.reset}  packages/${t.pkgName}/dashboard.html`);
-    } catch {}
+  for (const artifact of manifest.artifacts.filter((entry) =>
+    entry.scope === "package" &&
+    entry.status === "generated" &&
+    entry.format === "html" &&
+    typeof entry.bytes === "number",
+  )) {
+    console.log(`  ${C.dim}${(artifact.bytes / 1024).toFixed(0).padStart(6)} KB${C.reset}  ${artifact.path}`);
   }
 
   console.log(`\n${bar}`);
 
   if (htmlExists) {
-    console.log(`\n  ${C.cyan}open .supergraph/supergraph.html${C.reset}`);
+    console.log(`\n  ${C.cyan}open .supergraph/views/supergraph.html${C.reset}`);
   }
 
   // In animation mode, wait for keypress before exiting so user can read the summary

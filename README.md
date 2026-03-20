@@ -34,13 +34,22 @@ This discovers all packages, runs every analysis tool in parallel, and generates
 
 | File | What | Size |
 |---|---|---|
-| `.supergraph/supergraph.txt` | Unified map: domains, schemas, modules, types, edges | ~10KB |
-| `.supergraph/supergraph-compact.txt` | Compressed version for AI context windows | ~8KB |
-| `.supergraph/symbols.txt` | Every symbol with tiered detail (signatures + selective bodies) | ~2MB |
-| `.supergraph/symbols-full.txt` | Every symbol with full source bodies | ~10MB |
-| `.supergraph/supergraph.html` | Interactive graph visualization | |
-| `.supergraph/packages/<name>/` | Per-package analysis (map, complexity, dead exports, logic audit) | |
-| `.supergraph/packages/<name>/dashboard.html` | Interactive audit dashboard | |
+| `.supergraph/context/architecture-full.txt` | Unified map: domains, schemas, modules, types, edges | ~10KB |
+| `.supergraph/context/architecture-compact.txt` | Compressed architecture overview for AI context windows | ~8KB |
+| `.supergraph/context/symbols-brief.txt` | Tiered symbol reference (signatures + selective bodies) | ~2MB |
+| `.supergraph/context/symbols-source.txt` | Full source bodies for every symbol | ~10MB |
+| `.supergraph/views/supergraph.html` | Interactive graph visualization | |
+| `.supergraph/raw/packages/<name>/` | Per-package machine-readable analysis (`map.json`, `logic-audit.json`, etc.) | |
+| `.supergraph/views/packages/<name>/dashboard.html` | Interactive audit dashboard | |
+| `.supergraph/index.json` | Manifest of all emitted artifacts with status, size, and path | |
+
+Legacy compatibility outputs still exist at the top level for now:
+
+- `.supergraph/supergraph.txt`
+- `.supergraph/supergraph-compact.txt`
+- `.supergraph/symbols.txt`
+- `.supergraph/symbols-full.txt`
+- `.supergraph/supergraph.html`
 
 ### Individual commands
 
@@ -172,7 +181,7 @@ supergraph map <src-dir>   # rebuilds the graph and updates the cache
 
 ## The output
 
-Running `supergraph` produces `.supergraph/supergraph.txt` — a unified, domain-aware map of your entire codebase:
+Running `supergraph` produces `.supergraph/context/architecture-full.txt` — a unified, domain-aware map of your entire codebase:
 
 ```
 SUPERGRAPH | myapp | 2026-03-05
@@ -199,7 +208,7 @@ GuildResponse { id:num name:str urlName:str roles:Role[] +6 }
 
 Domains, schemas, modules, types, and edges in one file. An agent reads it once and knows the entire architecture.
 
-For source-level detail, `.supergraph/symbols-full.txt` contains every function body, every type definition, every signature — the complete codebase in one text file.
+For source-level detail, `.supergraph/context/symbols-source.txt` contains every function body, every type definition, every signature — the complete codebase in one text file. For automation and tool discovery, `.supergraph/index.json` is the manifest entrypoint. The legacy top-level files remain available as compatibility outputs while the new layout settles.
 
 ## Claude Code commands
 
@@ -208,8 +217,8 @@ The install script adds these slash commands for Claude Code:
 | Command | What it does |
 |---|---|
 | `/deep-audit` | 10-phase systematic code audit with parallel fix execution |
-| `/deep-read` | Loads `symbols-full.txt` for source-level codebase understanding |
-| `/high-level` | Loads `supergraph-compact.txt` for architecture overview |
+| `/deep-read` | Loads `context/symbols-source.txt` for source-level codebase understanding |
+| `/high-level` | Loads `context/architecture-compact.txt` for architecture overview |
 | `/init-supergraph` | Bootstrap supergraph on a new repository |
 
 ### /deep-audit

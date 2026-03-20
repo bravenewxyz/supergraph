@@ -17,7 +17,7 @@ If `supergraph` is not installed, install it first:
 curl -fsSL https://raw.githubusercontent.com/bravenewxyz/supergraph/master/install.sh | bash
 ```
 
-This produces `.supergraph/packages/<pkg>/json/map.json` for each discovered package, plus cross-package graphs.
+This produces `.supergraph/raw/packages/<pkg>/map.json` for each discovered package, plus cross-package graphs. Legacy compatibility outputs may still appear under `.supergraph/packages/<pkg>/json/`.
 
 If it fails (single-package repo with no `packages/`), identify the source directory and run:
 ```bash
@@ -33,7 +33,7 @@ If `.supergraph/config.json` already exists, read it and ask the user whether to
 Read these to understand the repo:
 
 1. **Root `package.json`** — `name` (→ project), `workspaces` (→ package locations)
-2. **All `.supergraph/packages/*/json/map.json`** — module paths, imports, exports, external deps
+2. **All `.supergraph/raw/packages/*/map.json`** — module paths, imports, exports, external deps
 3. **Search for patterns**:
    - Route files: `**/*.route.ts`, `**/*.routes.ts`, `**/routes/**/*.ts`, `**/app/api/**/*.ts`
    - Schema files: grep for imports from `zod`, `drizzle-orm`
@@ -116,6 +116,6 @@ Run:
 supergraph --no-anim
 ```
 
-This generates `.supergraph/supergraph.txt` (the unified map), `.supergraph/symbols.txt` (tiered symbol reference), and `.supergraph/symbols-full.txt` (complete source bodies).
+This generates `.supergraph/context/architecture-full.txt` (the unified map), `.supergraph/context/symbols-brief.txt` (tiered symbol reference), and `.supergraph/context/symbols-source.txt` (complete source bodies). The legacy top-level files remain as compatibility outputs while the new layout is rolled out.
 
 When complete, report: "Supergraph initialized — N packages, M modules."

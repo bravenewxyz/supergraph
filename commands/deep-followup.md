@@ -67,7 +67,7 @@ If the supergraph MCP server is running (`supergraph serve`), use these tools fo
 
 ## Phase 0: Generate artifacts (if needed)
 
-Check if `.supergraph/supergraph.txt` and `.supergraph/symbols.txt` exist. If not, run `supergraph --no-anim`.
+Check if `.supergraph/context/architecture-full.txt` and `.supergraph/context/symbols-brief.txt` exist. If not, run `supergraph --no-anim`. If the new files are absent but the legacy compatibility outputs exist, you may use `.supergraph/supergraph.txt` and `.supergraph/symbols.txt` as fallback inputs.
 
 ---
 
@@ -85,8 +85,8 @@ Read these in order:
 ### 1b. Current codebase state
 
 Use the same chunked parallel reading strategy as `/deep-strategic`:
-1. `.supergraph/supergraph.txt` — full module graph
-2. `.supergraph/symbols.txt` — every symbol with tiered detail (use parallel chunked reads)
+1. `.supergraph/context/architecture-full.txt` — full module graph
+2. `.supergraph/context/symbols-brief.txt` — every symbol with tiered detail (use parallel chunked reads)
 3. Root `package.json`, `README.md`, `CLAUDE.md`
 
 ### 1c. Diff layer — what changed since the strategic review
@@ -110,10 +110,10 @@ Read any files that changed significantly since the strategic brief was written.
 ### 1d. Per-package analysis data
 
 Read the JSON analysis outputs that the pipeline now generates:
-- `.supergraph/packages/*/json/logic-audit.json` — decision gaps, guard issues
-- `.supergraph/packages/*/json/discovery.json` — invariant candidates, pure functions, hubs, duplicates
-- `.supergraph/packages/*/json/taint.json` — taint analysis results
-- `.supergraph/packages/*/json/map.json` — module graph (skim for structure)
+- `.supergraph/raw/packages/*/logic-audit.json` — decision gaps, guard issues
+- `.supergraph/raw/packages/*/discovery.json` — invariant candidates, pure functions, hubs, duplicates
+- `.supergraph/raw/packages/*/taint.json` — taint analysis results
+- `.supergraph/raw/packages/*/map.json` — module graph (skim for structure)
 
 These tell you what the tool finds when it analyzes ITSELF. Self-referential insights are gold — they show both the tool's power and its blind spots.
 

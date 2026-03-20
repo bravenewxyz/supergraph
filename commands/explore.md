@@ -96,7 +96,7 @@ If the user provides a follow-up, repeat Steps 1-3 for the new target.
 
 If MCP tools are unavailable:
 
-1. Read `.supergraph/supergraph-compact.txt` and `.supergraph/supergraph.txt` to find the symbol.
+1. Read `.supergraph/context/architecture-compact.txt` and `.supergraph/context/architecture-full.txt` to find the symbol. If the new files are not present, use the legacy compatibility outputs `.supergraph/supergraph-compact.txt` and `.supergraph/supergraph.txt`.
 2. Search for the symbol name in per-package `map.txt` and `imports.txt` files.
 3. Read the source file containing the symbol.
 4. Trace dependents manually from `deps.txt` and `imports.txt`.

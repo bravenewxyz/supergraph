@@ -109,8 +109,9 @@ Commands:
   serve                   Start MCP server (stdio transport) for AI agents
 
 The full pipeline also generates:
-  .supergraph/supergraph.txt            Unified map: domains + schemas + modules + types
-  .supergraph/supergraph-compact.txt    Compressed version for AI context windows
+  .supergraph/context/architecture-full.txt      Unified map: domains + schemas + modules + types
+  .supergraph/context/architecture-compact.txt   Compressed version for AI context windows
+  .supergraph/index.json                         Artifact manifest for tools/automation
 
 Claude Code commands (installed automatically):
   /deep-audit             10-phase systematic package audit

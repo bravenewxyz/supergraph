@@ -24,15 +24,17 @@
  * No legends / headers repeated across sections.
  *
  * Reads:
- *   .supergraph/packages/<pkg>/json/map.json  (per-package raw module graph)
+ *   .supergraph/raw/packages/<pkg>/map.json   (per-package raw module graph)
  *   .supergraph/superflows.json               (endpoints + hooks)
  *   .supergraph/superschema.json              (zod, sql, redis, ts types)
  *
- * Writes: .supergraph/supergraph.txt
+ * Writes: .supergraph/context/architecture-full.txt
+ *         .supergraph/context/architecture-compact.txt
+ * Legacy top-level copies are retained for compatibility.
  * Usage:  bun superhigh.ts [--out <path>] [--fresh]
  */
 
-import { mkdir, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg, readFile } from "./utils.js";
@@ -55,6 +57,7 @@ import {
   buildModuleLookup,
   resolveOutPath,
 } from "./shared.js";
+import { rawPackagesRoot, writeMirroredText } from "./artifact-paths.js";
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -68,7 +71,7 @@ export async function runSuperhigh(opts: SuperhighOptions): Promise<void> {
 
 const ROOT = opts.root;
 const AUDIT = resolve(ROOT, ".supergraph");
-const PKGS = resolve(ROOT, ".supergraph/packages");
+const PKGS = rawPackagesRoot(ROOT);
 
 /** --full: uncompressed paths, all symbols, full dep names */
 const FULL = opts.full ?? false;
@@ -86,9 +89,10 @@ const PATH_SEGS: [string, string][] = cfg.supergraph.pathSegments as [
   string,
 ][];
 
-const outPath = opts.outPath ?? (FULL
-  ? resolve(ROOT, ".supergraph/supergraph.txt")
-  : resolve(ROOT, ".supergraph/supergraph-compact.txt"));
+const defaultOutPath = FULL
+  ? resolve(ROOT, ".supergraph/context/architecture-full.txt")
+  : resolve(ROOT, ".supergraph/context/architecture-compact.txt");
+const outPath = opts.outPath ?? defaultOutPath;
 
 console.log("Building superhigh…");
 const t0 = Date.now();
@@ -139,7 +143,9 @@ async function loadPerPkgJson<T>(fileName: string): Promise<Map<string, T>> {
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       try {
-        const raw = await readFile(join(PKGS, e.name, "json", fileName));
+        const raw =
+          await readFile(join(PKGS, e.name, fileName)) ??
+          await readFile(join(PKGS, e.name, "json", fileName));
         if (raw) result.set(e.name, JSON.parse(raw) as T);
       } catch {}
     }
@@ -1139,10 +1145,6 @@ function renderPackagesSection(
     const npmName = map.package ?? short;
     const total = map.modules.length;
     if (total === 0) continue;
-
-    lines.push(
-      `[${short}=${npmName}  ${total}m  ${unassigned.length} unassigned]`,
-    );
     const pkgModLines: string[] = [];
     for (const mod of unassigned) {
       const key = `${short}/${mod.path}`;
@@ -1151,6 +1153,12 @@ function renderPackagesSection(
       if (!FULL && importedBy === 0) continue; // compressed: skip leaf modules nobody imports
       pkgModLines.push(renderModLine(key, mod));
     }
+
+    if (!FULL && pkgModLines.length === 0) continue;
+
+    lines.push(
+      `[${short}=${npmName}  ${total}m  ${unassigned.length} unassigned]`,
+    );
     for (const l of FULL ? autoGroupLines(pkgModLines) : pkgModLines)
       lines.push(l);
     lines.push("");
@@ -1453,13 +1461,23 @@ async function generateOutput(): Promise<string> {
   return lines.join("\n");
 }
 
-await mkdir(AUDIT, { recursive: true });
 const out = await generateOutput();
-await Bun.write(outPath, out);
+const shouldMirror = resolve(outPath) === defaultOutPath;
+  if (shouldMirror) {
+    await writeMirroredText(
+      ROOT,
+      "context",
+      FULL ? "architecture-full.txt" : "architecture-compact.txt",
+      out,
+      FULL ? "supergraph.txt" : "supergraph-compact.txt",
+    );
+  } else {
+    await Bun.write(outPath, out);
+}
 
 const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
 console.log(
-  `Done in ${elapsed}s  —  ${(out.length / 1024).toFixed(0)} KB / ${out.split("\n").length} lines → ${relative(ROOT, outPath)}`,
+  `Done in ${elapsed}s  —  ${(out.length / 1024).toFixed(0)} KB / ${out.split("\n").length} lines → ${relative(ROOT, shouldMirror ? defaultOutPath : outPath)}`,
 );
 
 } // end runSuperhigh
@@ -1467,7 +1485,7 @@ console.log(
 // ─── CLI entry point ─────────────────────────────────────────────────────────
 
 const isMain = import.meta.main || import.meta.url === `file://${process.argv[1]}` ||
-  process.argv[1]?.endsWith("superhigh.ts") || process.argv[2] === "superhigh";
+  process.argv[1]?.endsWith("superhigh.ts");
 
 if (isMain) {
   const args = process.argv.slice(2);
@@ -1475,18 +1493,19 @@ if (isMain) {
     console.log("Usage: bun superhigh.ts [--out <path>] [--fresh] [--full]");
     console.log("  Full unified audit: domain blocks + packages + TS types.");
     console.log("  --fresh  Re-run source scripts first.");
-    console.log("  --full   Full paths + auto-grouped dirs → supergraph.txt  (default)");
-    console.log("           Omit for compressed shortcut → supergraph-compact.txt");
+    console.log("  --full   Full paths + auto-grouped dirs → .supergraph/context/architecture-full.txt  (default)");
+    console.log("           Omit for compressed shortcut → .supergraph/context/architecture-compact.txt");
+    console.log("           Legacy top-level copies are retained for compatibility.");
     process.exit(0);
   }
 
   const root = parseRootArg(resolve(import.meta.dir, "../.."));
   const full = args.includes("--full");
   const outPath = resolveOutPath(
-    args,
-    full
-      ? resolve(root, ".supergraph/supergraph.txt")
-      : resolve(root, ".supergraph/supergraph-compact.txt"),
+      args,
+      full
+      ? resolve(root, ".supergraph/context/architecture-full.txt")
+      : resolve(root, ".supergraph/context/architecture-compact.txt"),
   );
   await runSuperhigh({ root, full, outPath });
 }

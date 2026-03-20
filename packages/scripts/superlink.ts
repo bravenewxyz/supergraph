@@ -21,7 +21,7 @@
  * Kolmogorov complexity, better LLM context efficiency than supergraph.txt.
  *
  * Reads:
- *   .supergraph/packages/<pkg>/json/map.json  (raw per-package module data from audit-prep)
+ *   .supergraph/raw/packages/<pkg>/map.json   (raw per-package module data from audit-prep)
  *   .supergraph/superflows.json               (endpoints + hooks, from superflow.ts)
  *   .supergraph/superschema.json              (schemas + tables + redis, from superschema.ts)
  *
@@ -35,6 +35,7 @@ import { mkdir } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { parseRootArg } from "./utils.js";
+import { rawPackagesRoot } from "./artifact-paths.js";
 import {
   type FlowEndpoint,
   type FlowsJson,
@@ -56,7 +57,7 @@ import {
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 const AUDIT = resolve(ROOT, ".supergraph");
-const PKGS = resolve(ROOT, ".supergraph/packages");
+const PKGS = rawPackagesRoot(ROOT);
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 

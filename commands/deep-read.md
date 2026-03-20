@@ -6,13 +6,13 @@ Read the symbols-full.txt file to get a comprehensive, source-level understandin
 
 ## Instructions
 
-1. Find `.supergraph/symbols-full.txt` in the current project. If it doesn't exist, run `supergraph --no-anim` to generate it.
+1. Find `.supergraph/context/symbols-source.txt` in the current project. If that file does not exist, use the legacy compatibility output `.supergraph/symbols-full.txt`. If neither exists, run `supergraph --no-anim` to generate it.
 2. Read the entire file — every line, no truncation, no skipping. It can be large (5-15MB). Read it in chunks using offset/limit parameters until you have consumed all of it.
-3. After reading, confirm: "Read symbols-full.txt — [N] lines, [M] modules." and nothing else unless the user asks a follow-up question or provided an argument.
+3. After reading, confirm: "Read symbols-source.txt — [N] lines, [M] modules." and nothing else unless the user asks a follow-up question or provided an argument.
 4. If the user provided an argument, immediately answer about that topic using the full context you just loaded.
 5. You now have complete source-level context for the entire codebase. Use it to answer implementation questions, trace call chains, explain algorithms, find bugs, or suggest refactors with high precision.
 
 ## When to use this vs /high-level
 
-- `/high-level` loads `supergraph-compact.txt` (~8KB) — architecture overview, module names, import counts. Fast. Good for "how is this organized?" questions.
-- `/deep-read` loads `symbols-full.txt` (~10MB) — every function body, every type definition, every signature. Slower but complete. Good for "how does X work?", "what calls Y?", "is there a bug in Z?" questions.
+- `/high-level` loads `context/architecture-compact.txt` (~8KB) — architecture overview, module names, import counts. Fast. Good for "how is this organized?" questions.
+- `/deep-read` loads `context/symbols-source.txt` (~10MB) — every function body, every type definition, every signature. Slower but complete. Good for "how does X work?", "what calls Y?", "is there a bug in Z?" questions.

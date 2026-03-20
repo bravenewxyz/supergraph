@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { mkdir, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 import { loadConfig } from "../flow/src/cli/config.js";
 import { findFiles, parseRootArg, readFile } from "./utils.js";
@@ -8,6 +8,7 @@ import {
   serializeJsonForHtmlScriptTag,
   type BaseGraphOutput,
 } from "./shared.js";
+import { writeMirroredText } from "./artifact-paths.js";
 
 const ROOT = parseRootArg(resolve(import.meta.dir, "../.."));
 
@@ -705,9 +706,14 @@ export async function runPkgGraph(opts: PkgGraphOptions): Promise<void> {
     opts.root,
   );
 
-  const outPath = opts.outPath ?? resolve(opts.root, ".supergraph/pkg-graph.html");
-  await mkdir(dirname(outPath), { recursive: true });
-  await Bun.write(outPath, generateHtml(data));
+  const defaultOutPath = resolve(opts.root, ".supergraph/views/pkg-graph.html");
+  const outPath = opts.outPath ?? defaultOutPath;
+  const html = generateHtml(data);
+  if (resolve(outPath) === defaultOutPath) {
+    await writeMirroredText(opts.root, "views", "pkg-graph.html", html);
+  } else {
+    await Bun.write(outPath, html);
+  }
 
   const groupList = Object.keys(data.stats.byGroup);
   console.log(`${data.stats.total} packages · ${data.stats.edgeCount} edges · ${groupList.length} groups`);
@@ -730,4 +736,6 @@ async function main() {
   await runPkgGraph({ root: ROOT, outPath });
 }
 
-// No auto-run — use `supergraph pkg-graph` or the exported runPkgGraph function
+const isMain = import.meta.main ||
+  process.argv[1]?.endsWith("pkg-graph.ts");
+if (isMain) main();

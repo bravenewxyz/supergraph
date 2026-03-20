@@ -62,7 +62,7 @@ If the supergraph MCP server is running (`supergraph serve`), use these tools th
 
 ## Phase 0: Generate artifacts (if needed)
 
-Check if `.supergraph/supergraph.txt` exists. If not:
+Check if `.supergraph/context/architecture-full.txt` exists. If not, use the legacy compatibility output `.supergraph/supergraph.txt`.
 
 ```bash
 supergraph --no-anim
@@ -82,14 +82,14 @@ The order matters — start with the architectural overview, then drill into str
 
 The Read tool has a **25,000 token limit per call**. For large files like `symbols.txt` (often 30K-55K+ lines), you MUST use a chunked reading strategy. Here's how to do it fast:
 
-1. **First, check the file size** — run `wc -l .supergraph/symbols.txt` via Bash to know how many lines you're dealing with.
+1. **First, check the file size** — run `wc -l .supergraph/context/symbols-brief.txt` via Bash to know how many lines you're dealing with. If the new file does not exist, fall back to `.supergraph/symbols.txt`.
 2. **Read in large parallel batches** — use multiple Read calls in a SINGLE message, each with `offset` and `limit` parameters. This is critical for speed: 6 parallel reads complete in the same wall-clock time as 1 read.
 3. **Use Bash `cat` as a fallback for very large files** — when a file exceeds Read tool limits even with chunking, use `cat -n <file> | head -n X | tail -n Y` via the Bash tool. The Bash tool has higher output limits than Read.
 
 **Concrete strategy for `symbols.txt`:**
 ```
 # Step 1: Get line count
-Bash: wc -l .supergraph/symbols.txt
+Bash: wc -l .supergraph/context/symbols-brief.txt
 
 # Step 2: Read in parallel chunks of ~500 lines each (6 at a time)
 # In a SINGLE message, issue all Read calls simultaneously:
@@ -115,13 +115,13 @@ Read: offset=2501 limit=500
 
 **If MCP is available**: Start with `supergraph_map` to get the compact architecture overview. This gives you the skeleton immediately — domains, modules, cross-package edges — before committing to reading the full static file.
 
-Then read `.supergraph/supergraph.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. This file is usually small enough for a single Read call.
+Then read `.supergraph/context/architecture-full.txt` in its entirety — the unified map of all domains, all modules, all cross-package edges, import counts, and external dependencies. If the new file is missing, use `.supergraph/supergraph.txt` as the legacy compatibility output. This file is usually small enough for a single Read call.
 
 After this layer you understand the skeleton: what talks to what, what's central, what's peripheral.
 
 ### 1b. Source layer (read second — this is what 1M context enables)
 
-Read `.supergraph/symbols.txt` in its entirety using the chunked parallel strategy above. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships.
+Read `.supergraph/context/symbols-brief.txt` in its entirety using the chunked parallel strategy above. If the new file is missing, use `.supergraph/symbols.txt` as the legacy compatibility output. This is the single most important file. It contains **every symbol in the codebase** with tiered detail: full function bodies for high-importance functions, signatures and types for everything else, cross-package edges, and import/export relationships.
 
 This is the layer that transforms the review from "structural observations" to "I've read your code." Without it, you're guessing at intent from module names. With it, you can see:
 - What every function actually does — signatures, bodies, return types
